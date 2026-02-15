@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # Backend (Bot + API in one container)
   backend:
     build:
       context: ./backend
@@ -12,19 +11,18 @@ services:
     volumes:
       - teamflow-data:/app/data
     ports:
-      - "8180:8000"  # External:Internal
+      - "8180:8000"
     restart: unless-stopped
     command: python -m app.main
     healthcheck:
-      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")'"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - teamflow-network
 
-  # Frontend
   frontend:
     build:
       context: ./frontend
@@ -34,7 +32,7 @@ services:
       - ./frontend/src:/app/src:ro
       - /app/node_modules
     ports:
-      - "5180:5173"  # External:Internal
+      - "5180:5173"
     depends_on:
       backend:
         condition: service_healthy

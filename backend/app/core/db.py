@@ -2,6 +2,7 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import NullPool, StaticPool
+from sqlalchemy import text
 from app.config import settings
 
 # Create async engine with optimizations
@@ -61,9 +62,10 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         
-        # SQLite specific optimizations
+        # SQLite specific optimizations (use text() for raw SQL)
         if "sqlite" in settings.DATABASE_URL:
-            await conn.execute("PRAGMA journal_mode=WAL")
-            await conn.execute("PRAGMA synchronous=NORMAL")
-            await conn.execute("PRAGMA cache_size=-64000")  # 64MB cache
-            await conn.execute("PRAGMA temp_store=MEMORY")
+            await conn.execute(text("PRAGMA journal_mode=WAL"))
+            await conn.execute(text("PRAGMA synchronous=NORMAL"))
+            await conn.execute(text("PRAGMA cache_size=-64000"))
+            await conn.execute(text("PRAGMA temp_store=MEMORY"))
+            await conn.commit()
