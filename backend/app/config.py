@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     
     # Application
     APP_NAME: str = "TeamFlow"
-    VERSION: str = "0.2.0"
+    VERSION: str = "0.3.0"
     DEBUG: bool = False
     
     # Telegram Bot
@@ -19,18 +19,18 @@ class Settings(BaseSettings):
     # Database (with async driver)
     DATABASE_URL: str = "sqlite+aiosqlite:///./data/teamflow.db"
     
-    # Web API
+    # Web API (internal port)
     API_HOST: str = "0.0.0.0"
-    API_PORT: int = 8888
+    API_PORT: int = 8000
     
-    # Frontend
-    FRONTEND_PORT: int = 3333
-    
-    # CORS
+    # CORS (external ports)
     BACKEND_CORS_ORIGINS: list[str] = [
-        "http://localhost:3333",
-        "http://127.0.0.1:3333",
+        "http://localhost:5180",
+        "http://127.0.0.1:5180",
     ]
+    
+    # Security
+    SECRET_KEY: str = "change-this-secret-key-in-production"
     
     # Performance
     DB_POOL_SIZE: int = 5

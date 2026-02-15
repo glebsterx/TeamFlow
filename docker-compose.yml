@@ -10,12 +10,19 @@ services:
     env_file:
       - ./backend/.env
     volumes:
-      - ./backend:/app
       - teamflow-data:/app/data
     ports:
-      - "8000:8000"
+      - "8180:8000"  # External:Internal
     restart: unless-stopped
     command: python -m app.main
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - teamflow-network
 
   # Frontend
   frontend:
@@ -24,14 +31,22 @@ services:
       dockerfile: Dockerfile
     container_name: teamflow-frontend
     volumes:
-      - ./frontend:/app
+      - ./frontend/src:/app/src:ro
       - /app/node_modules
     ports:
-      - "5173:5173"
+      - "5180:5173"  # External:Internal
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=http://localhost:8180
+    restart: unless-stopped
+    networks:
+      - teamflow-network
 
 volumes:
   teamflow-data:
+
+networks:
+  teamflow-network:
+    driver: bridge

@@ -11,7 +11,7 @@ sqlalchemy[asyncio]==2.0.27
 aiosqlite==0.20.0
 alembic==1.13.1
 
-# Validation
+# Validation (compatible with aiogram 3.4.1)
 pydantic==2.5.3
 pydantic-settings==2.1.0
 
@@ -25,7 +25,7 @@ structlog==24.1.0
 # Caching for performance
 aiocache==0.12.2
 
-# Testing
+# Testing (compatible versions)
 pytest==7.4.4
 pytest-asyncio==0.23.4
 httpx==0.26.0
@@ -33,4 +33,5 @@ httpx==0.26.0
 # Security
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+
 
