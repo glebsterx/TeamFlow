@@ -112,10 +112,44 @@ FRONTEND_PORT=${FRONTEND_PORT}
 BASE_URL=${BASE_URL}
 EOF
 
-# Frontend .env  
+# Frontend .env
+# Убираем trailing slash из BASE_URL если есть
+BASE_URL_CLEAN=$(echo "$BASE_URL" | sed 's:/*$::')
+
 cat > frontend/.env << EOF
-VITE_API_URL=${BASE_URL}:${BACKEND_PORT}
+VITE_API_URL=${BASE_URL_CLEAN}:${BACKEND_PORT}
 EOF
+
+# Извлекаем домен из BASE_URL для vite.config.ts
+DOMAIN=$(echo "$BASE_URL" | sed 's|https*://||' | cut -d':' -f1)
+
+# Обновляем vite.config.ts с allowedHosts
+cat > frontend/vite.config.ts << EOFVITE
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    strictPort: true,
+    allowedHosts: [
+      '${DOMAIN}',
+      '.${DOMAIN}',
+      'localhost',
+      '127.0.0.1'
+    ]
+  },
+  preview: {
+    host: '0.0.0.0',
+    port: 5173,
+  }
+})
+EOFVITE
+
+echo -e "${GREEN}✓ Vite config обновлен (allowedHosts: ${DOMAIN})${NC}"
 
 # Backend .env
 SECRET_KEY=$(openssl rand -hex 32 2>/dev/null || echo "dev-secret-key-$(date +%s)")

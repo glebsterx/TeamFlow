@@ -22,103 +22,28 @@ interface Stats {
   blocked: number;
 }
 
-interface TelegramUser {
-  id: number;
-  first_name: string;
-  username?: string;
-}
-
-// Declare global Telegram widget callback
-declare global {
-  interface Window {
-    onTelegramAuth: (user: any) => void;
-  }
-}
-
 const Dashboard: React.FC = () => {
   const [filter, setFilter] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-  const [user, setUser] = useState<TelegramUser | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [botUsername, setBotUsername] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Fetch bot info first (no auth required)
-  useEffect(() => {
-    console.log('Fetching bot info from:', `${API_URL}/api/bot-info`);
-    
-    axios.get(`${API_URL}/api/bot-info`)
-      .then(res => {
-        console.log('Bot info received:', res.data);
-        setBotUsername(res.data.username);
-        setError(null);
-      })
-      .catch(err => {
-        console.error('Failed to load bot info:', err);
-        console.error('Error details:', {
-          message: err.message,
-          response: err.response?.data,
-          status: err.response?.status
-        });
-        setError(`Не удалось подключиться к боту: ${err.message}`);
-      });
-  }, []);
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    setIsLoading(true);
 
-  useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-    if (storedToken) {
-      setToken(storedToken);
-      axios.get(`${API_URL}/api/me`, {
-        headers: { Authorization: `Bearer ${storedToken}` }
-      }).then(res => {
-        setUser(res.data);
-        setIsLoading(false);
-      }).catch(() => {
-        localStorage.removeItem('token');
-        setToken(null);
-        setIsLoading(false);
-      });
-    } else {
+    try {
+      const res = await axios.post(`${API_URL}/api/auth/login`, { password });
+      localStorage.setItem('token', res.data.access_token);
+      setToken(res.data.access_token);
+    } catch (err: any) {
+      setLoginError(err.response?.data?.detail || 'Неверный пароль');
+    } finally {
       setIsLoading(false);
     }
-
-    // Setup Telegram auth callback
-    window.onTelegramAuth = (user: any) => {
-      console.log('Telegram auth callback triggered:', user);
-      axios.post(`${API_URL}/api/auth/telegram`, user)
-        .then(res => {
-          console.log('Auth successful:', res.data);
-          localStorage.setItem('token', res.data.access_token);
-          setToken(res.data.access_token);
-          setUser(res.data.user);
-        })
-        .catch(err => {
-          console.error('Auth failed:', err);
-          alert('Ошибка авторизации. Проверьте настройки бота.');
-        });
-    };
-  }, []);
-
-  // Load Telegram Widget when bot username is available
-  useEffect(() => {
-    if (!token && botUsername && !document.getElementById('telegram-widget-script')) {
-      console.log('Loading Telegram widget for bot:', botUsername);
-      
-      const script = document.createElement('script');
-      script.id = 'telegram-widget-script';
-      script.src = 'https://telegram.org/js/telegram-widget.js?22';
-      script.setAttribute('data-telegram-login', botUsername);
-      script.setAttribute('data-size', 'large');
-      script.setAttribute('data-onauth', 'onTelegramAuth(user)');
-      script.setAttribute('data-request-access', 'write');
-      script.async = true;
-      
-      const container = document.getElementById('telegram-login-container');
-      if (container) {
-        container.appendChild(script);
-      }
-    }
-  }, [token, botUsername]);
+  };
 
   const { data: tasks, isLoading: tasksLoading, refetch: refetchTasks } = useQuery<Task[]>({
     queryKey: ['tasks', filter],
@@ -148,60 +73,6 @@ const Dashboard: React.FC = () => {
     refetchInterval: 5000,
   });
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-red-50 to-red-100 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full">
-          <div className="text-center mb-6">
-            <div className="text-6xl mb-4">❌</div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Ошибка подключения</h1>
-          </div>
-          
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <p className="text-sm text-red-800">{error}</p>
-          </div>
-
-          <div className="space-y-2 text-sm text-gray-600">
-            <p><strong>Проверьте:</strong></p>
-            <ul className="list-disc list-inside space-y-1">
-              <li>Backend запущен на {API_URL}</li>
-              <li>CORS настроен правильно</li>
-              <li>TELEGRAM_BOT_USERNAME в .env</li>
-            </ul>
-          </div>
-
-          <button
-            onClick={() => window.location.reload()}
-            className="mt-6 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            🔄 Попробовать снова
-          </button>
-
-          <div className="mt-4 text-xs text-gray-400 text-center">
-            <p>API URL: {API_URL}</p>
-            <p>Откройте консоль браузера (F12) для деталей</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (isLoading || !botUsername) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600 mb-4"></div>
-          <p className="text-gray-600">
-            {!botUsername ? 'Подключение к боту...' : 'Загрузка...'}
-          </p>
-          <p className="text-xs text-gray-400 mt-2">
-            API: {API_URL}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   if (!token) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
@@ -211,34 +82,44 @@ const Dashboard: React.FC = () => {
             <h1 className="text-4xl font-bold text-gray-900 mb-2">TeamFlow</h1>
             <p className="text-gray-600">Управление задачами команды</p>
           </div>
-          
-          <div className="mb-6">
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
-              <p className="text-sm text-green-800 font-medium flex items-center">
-                <span className="mr-2">✅</span>
-                Подключено к боту
-              </p>
-              <p className="text-xs text-green-600 mt-1">
-                @{botUsername}
-              </p>
+
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Пароль
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Введите пароль"
+                required
+                autoFocus
+              />
+              {loginError && (
+                <p className="mt-2 text-sm text-red-600">{loginError}</p>
+              )}
             </div>
-          </div>
 
-          <div id="telegram-login-container" className="flex justify-center mb-6 min-h-[60px]">
-            {!document.getElementById('telegram-widget-script') && (
-              <p className="text-sm text-gray-500">Загрузка кнопки авторизации...</p>
-            )}
-          </div>
-
-          <div className="text-center text-sm text-gray-500 space-y-2">
-            <p>🔒 Безопасный вход через Telegram</p>
-            <p>Только члены команды имеют доступ</p>
-          </div>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? 'Вход...' : 'Войти'}
+            </button>
+          </form>
 
           <div className="mt-6 pt-6 border-t border-gray-200">
-            <p className="text-xs text-gray-400 text-center">
-              TeamFlow v0.3.1
-            </p>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-blue-800 font-medium mb-2">
+                💡 По умолчанию пароль: <code className="bg-blue-100 px-2 py-1 rounded">teamflow</code>
+              </p>
+              <p className="text-xs text-blue-600">
+                Измените его в настройках после первого входа
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -262,34 +143,22 @@ const Dashboard: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Header */}
         <header className="mb-8 flex justify-between items-center">
           <div>
             <h1 className="text-4xl font-bold text-gray-900 mb-2">TeamFlow</h1>
             <p className="text-gray-600">Доска задач команды</p>
           </div>
-          {user && (
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <p className="text-sm text-gray-500">Вы вошли как</p>
-                <p className="font-medium">👤 {user.first_name}</p>
-              </div>
-              <button
-                onClick={() => {
-                  localStorage.removeItem('token');
-                  setToken(null);
-                  setUser(null);
-                  window.location.reload();
-                }}
-                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm transition"
-              >
-                Выйти
-              </button>
-            </div>
-          )}
+          <button
+            onClick={() => {
+              localStorage.removeItem('token');
+              setToken(null);
+            }}
+            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm transition"
+          >
+            Выйти
+          </button>
         </header>
 
-        {/* Stats */}
         {stats && (
           <div className="grid grid-cols-5 gap-4 mb-8">
             {[
@@ -307,14 +176,11 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        {/* Filters */}
         <div className="flex gap-2 mb-6">
           <button
             onClick={() => setFilter(null)}
             className={`px-4 py-2 rounded-lg font-medium transition ${
-              !filter 
-                ? 'bg-blue-600 text-white shadow-md' 
-                : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+              !filter ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-700 hover:bg-gray-50 border'
             }`}
           >
             Все
@@ -324,9 +190,7 @@ const Dashboard: React.FC = () => {
               key={status}
               onClick={() => setFilter(status)}
               className={`px-4 py-2 rounded-lg font-medium transition ${
-                filter === status 
-                  ? 'bg-blue-600 text-white shadow-md' 
-                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                filter === status ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-700 hover:bg-gray-50 border'
               }`}
             >
               {statusEmoji[status]} {status}
@@ -334,7 +198,6 @@ const Dashboard: React.FC = () => {
           ))}
         </div>
 
-        {/* Tasks */}
         {tasksLoading ? (
           <div className="text-center py-12">
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600 mb-4"></div>
@@ -343,10 +206,7 @@ const Dashboard: React.FC = () => {
         ) : tasks && tasks.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {tasks.map((task) => (
-              <div 
-                key={task.id} 
-                className="bg-white p-6 rounded-xl shadow-sm border-2 hover:shadow-md transition-all cursor-pointer"
-              >
+              <div key={task.id} className="bg-white p-6 rounded-xl shadow-sm border-2 hover:shadow-md transition">
                 <div className="flex justify-between items-start mb-3">
                   <h3 className="font-semibold text-lg text-gray-900">
                     #{task.id} {task.title}
@@ -379,10 +239,7 @@ const Dashboard: React.FC = () => {
               Создайте первую задачу через Telegram бот командой <code className="bg-gray-100 px-2 py-1 rounded">/task</code>
             </p>
             <button
-              onClick={() => {
-                refetchTasks();
-                refetchStats();
-              }}
+              onClick={() => { refetchTasks(); refetchStats(); }}
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
             >
               🔄 Обновить
@@ -390,8 +247,7 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        {/* Auto-refresh indicator */}
-        <div className="fixed bottom-4 right-4 bg-white px-4 py-2 rounded-lg shadow-lg border border-gray-200">
+        <div className="fixed bottom-4 right-4 bg-white px-4 py-2 rounded-lg shadow-lg border">
           <p className="text-xs text-gray-500 flex items-center gap-2">
             <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
             Автообновление каждые 5 сек
