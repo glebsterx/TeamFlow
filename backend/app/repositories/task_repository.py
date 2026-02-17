@@ -24,7 +24,7 @@ class TaskRepository:
         """Get task by ID with blockers."""
         result = await self.session.execute(
             select(Task)
-            .options(selectinload(Task.blockers))
+            .options(selectinload(Task.blockers), selectinload(Task.assignee))
             .where(Task.id == task_id)
         )
         return result.scalar_one_or_none()
@@ -35,13 +35,15 @@ class TaskRepository:
         assignee_telegram_id: Optional[int] = None
     ) -> List[Task]:
         """Get all tasks with optional filters."""
-        query = select(Task).options(selectinload(Task.blockers))
-        
+        query = (
+            select(Task)
+            .options(selectinload(Task.blockers), selectinload(Task.assignee))
+        )
         if status:
             query = query.where(Task.status == status.value)
         if assignee_telegram_id:
             query = query.where(Task.assignee_telegram_id == assignee_telegram_id)
-        
+
         result = await self.session.execute(query.order_by(Task.created_at.desc()))
         return list(result.scalars().all())
     
@@ -63,13 +65,13 @@ class TaskRepository:
         """Get tasks for current week."""
         from app.core.clock import Clock
         from datetime import timedelta
-        
+
         now = Clock.now()
         week_start = now - timedelta(days=now.weekday())
-        
+
         result = await self.session.execute(
             select(Task)
-            .options(selectinload(Task.blockers))
+            .options(selectinload(Task.blockers), selectinload(Task.assignee))
             .where(Task.created_at >= week_start)
             .order_by(Task.status, Task.created_at.desc())
         )

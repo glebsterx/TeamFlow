@@ -7,9 +7,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${BLUE}╔═══════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║      TeamFlow Deploy Script          ║${NC}"
-echo -e "${BLUE}╚═══════════════════════════════════════╝${NC}"
+echo -e "${YELLOW}╔═══════════════════════════════════════╗${NC}"
+echo -e "${YELLOW}║         TeamFlow Deploy Script        ║${NC}"
+echo -e "${YELLOW}╚═══════════════════════════════════════╝${NC}"
 echo ""
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -168,7 +168,7 @@ docker-compose -f $COMPOSE_FILE ps
 
 echo ""
 echo -e "${GREEN}╔═══════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║       🎉 TeamFlow запущен! 🎉        ║${NC}"
+echo -e "${GREEN}║        🎉 TeamFlow запущен! 🎉        ║${NC}"
 echo -e "${GREEN}╚═══════════════════════════════════════╝${NC}"
 echo ""
 echo -e "${BLUE}Web UI:  ${BASE_URL}:${FRONTEND_PORT}${NC}"

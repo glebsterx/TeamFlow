@@ -112,6 +112,28 @@ class TaskService:
         """Get task by ID."""
         return await self.repository.get_by_id(task_id)
     
+    async def assign_task(self, task_id: int, user) -> "Task":
+        """Назначить задачу пользователю."""
+        task = await self.repository.get_by_id(task_id)
+        if not task:
+            raise ValueError(f"Task {task_id} not found")
+
+        task.assignee_id = user.id
+        task.assignee_telegram_id = user.telegram_id
+        task.assignee_name = user.display_name
+
+        task = await self.repository.update(task)
+        logger.info("task_assigned", task_id=task_id, assignee=user.display_name)
+        return task
+
+    async def take_task(self, task_id: int, user) -> "Task":
+        """Взять задачу себе и перевести в DOING."""
+        task = await self.assign_task(task_id, user)
+        if task.status == TaskStatus.TODO.value:
+            task.status = TaskStatus.DOING.value
+            task = await self.repository.update(task)
+        return task
+
     async def get_all_tasks(
         self,
         status: Optional[TaskStatus] = None,

@@ -7,6 +7,6 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     strictPort: true,
-    allowedHosts: ['192.168.0.3', 'localhost', '127.0.0.1']
+    allowedHosts: ['tf.glebsterx.ru', 'localhost', '127.0.0.1']
   }
 })

@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_db
 from app.services.task_service import TaskService
 from app.domain.enums import TaskStatus
-from app.web.schemas import TaskResponse, TaskDetailResponse, StatsResponse, BotInfoResponse
+from app.web.schemas import TaskResponse, TaskDetailResponse, StatsResponse, BotInfoResponse, TelegramUserResponse
+from app.repositories.user_repository import UserRepository
 from app.config import settings
 
 router = APIRouter()
@@ -49,3 +50,11 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         "done": len([t for t in tasks if t.status == TaskStatus.DONE.value]),
         "blocked": len([t for t in tasks if t.status == TaskStatus.BLOCKED.value]),
     }
+
+
+@router.get("/users", response_model=List[TelegramUserResponse])
+async def get_users(db: AsyncSession = Depends(get_db)):
+    """Get all known telegram users."""
+    repo = UserRepository(db)
+    users = await repo.get_all()
+    return users

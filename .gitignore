@@ -1,40 +1,5 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-env/
-*.egg-info/
-.pytest_cache/
-
-# Node
-node_modules/
-dist/
-*.local
-
-# Environment
 .env
-.env.local
-
-# Database
-*.db
-*.db-journal
-*.sqlite
-
-# IDE
-.vscode/
-.idea/
-*.swp
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Docker
-*.log
-
-# Application data
-data/
-teamflow.db
+backend/.env
+frontend/.env
+backend/data/
+*.tar.gz
