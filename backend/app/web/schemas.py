@@ -32,6 +32,10 @@ class TaskResponse(BaseModel):
     due_date: Optional[datetime]
     created_at: datetime
     updated_at: datetime
+    
+    # Project
+    project_id: Optional[int] = None
+    
     # Assignee — из связанного объекта
     assignee: Optional[AssigneeResponse] = None
     # Для обратной совместимости

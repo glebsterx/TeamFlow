@@ -137,13 +137,24 @@ export default function Dashboard() {
 
   const assignProjectMutation = useMutation({
     mutationFn: async ({ taskId, projectId }: { taskId: number; projectId: number | null }) => {
-      await axios.post(`${API_URL}/api/tasks/${taskId}/project`, { project_id: projectId });
+      const response = await axios.post(`${API_URL}/api/tasks/${taskId}/project`, { project_id: projectId });
+      console.log('API response:', response.data);
+      return { ...response.data, taskId, projectId };
     },
-    onSuccess: async () => {
-      console.log('Project mutation onSuccess - invalidating queries...');
-      await queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      await queryClient.refetchQueries({ queryKey: ['tasks'] });
-      console.log('Tasks refetched');
+    onSuccess: async (data) => {
+      console.log('Project mutation onSuccess - refetching...');
+      
+      // Принудительно перезагружаем tasks
+      const result: any = await queryClient.fetchQuery({ queryKey: ['tasks', statusFilter] });
+      console.log('Tasks after fetchQuery:', result);
+      
+      // Ищем конкретную задачу
+      const updatedTask = result?.find((t: any) => t.id === data.taskId);
+      console.log(`Task ${data.taskId} after update:`, updatedTask);
+      console.log(`Expected project_id: ${data.projectId}, Got: ${updatedTask?.project_id}`);
+      
+      // Также инвалидируем для автообновления
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
   });
 
@@ -476,7 +487,7 @@ function TaskModal({ task, onClose, users, projects, changeStatusMutation, assig
     console.log('TaskModal received task:', task);
     setTitle(task.title);
     setDescription(task.description || '');
-  }, [task.id, task.project_id, task.title, task.description]);
+  }, [task]);
 
   return (
     <Modal onClose={onClose}>
@@ -538,6 +549,7 @@ function TaskModal({ task, onClose, users, projects, changeStatusMutation, assig
         <div>
           <label className="text-xs text-gray-500 block mb-1">Проект</label>
           <select
+            key={`project-${task.project_id || 'none'}`}
             value={task.project_id || ''}
             onChange={(e) => {
               const projectId = e.target.value ? Number(e.target.value) : null;

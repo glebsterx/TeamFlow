@@ -226,7 +226,9 @@ async def assign_task_to_project(
     
     task.project_id = request.project_id
     await db.commit()
-    return {"ok": True}
+    await db.refresh(task)
+    
+    return {"ok": True, "project_id": task.project_id}
 
 
 # ============= MEETINGS API =============
