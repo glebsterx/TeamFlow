@@ -9,6 +9,7 @@ from app.core.db import get_db
 from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskStatus
+from app.domain.models import Task
 from app.web.schemas import TaskResponse, TaskDetailResponse, StatsResponse, BotInfoResponse, TelegramUserResponse
 from app.config import settings
 
@@ -325,13 +326,28 @@ class TaskCreateRequest(BaseModel):
     title: str
     description: Optional[str] = None
     project_id: Optional[int] = None
+    parent_task_id: Optional[int] = None
     assignee_telegram_id: Optional[int] = None
+    due_date: Optional[datetime] = None
+    priority: Optional[str] = "NORMAL"
 
 
 class TaskUpdateRequest(BaseModel):
     """Обновление задачи."""
     title: Optional[str] = None
     description: Optional[str] = None
+    due_date: Optional[datetime] = None
+    priority: Optional[str] = None
+    parent_task_id: Optional[int] = None
+
+
+class SubtaskCreateRequest(BaseModel):
+    """Создание подзадачи."""
+    title: str
+    description: Optional[str] = None
+    assignee_telegram_id: Optional[int] = None
+    due_date: Optional[datetime] = None
+    priority: Optional[str] = "NORMAL"
 
 
 @router.post("/tasks", response_model=TaskResponse)
@@ -348,7 +364,16 @@ async def create_task_api(request: TaskCreateRequest, db: AsyncSession = Depends
     
     if request.project_id:
         task.project_id = request.project_id
-    
+
+    if request.parent_task_id:
+        task.parent_task_id = request.parent_task_id
+
+    if request.due_date is not None:
+        task.due_date = request.due_date
+
+    if request.priority:
+        task.priority = request.priority
+
     if request.assignee_telegram_id:
         user_repo = UserRepository(db)
         user = await user_repo.get_by_telegram_id(request.assignee_telegram_id)
@@ -378,22 +403,222 @@ async def update_task_api(
         task.title = request.title
     if request.description is not None:
         task.description = request.description
-    
+    if 'due_date' in request.model_fields_set:
+        task.due_date = request.due_date
+    if request.priority is not None:
+        task.priority = request.priority
+    if 'parent_task_id' in request.model_fields_set:
+        if request.parent_task_id is None:
+            task.parent_task_id = None
+        else:
+            if request.parent_task_id == task_id:
+                raise HTTPException(status_code=400, detail="Task cannot be its own parent")
+            from app.repositories.task_repository import TaskRepository
+            parent = await TaskRepository(db).get_by_id(request.parent_task_id)
+            if not parent:
+                raise HTTPException(status_code=404, detail="Parent task not found")
+            task.parent_task_id = request.parent_task_id
+
     await db.commit()
-    await db.refresh(task)
-    return task
+    from app.repositories.task_repository import TaskRepository
+    return await TaskRepository(db).get_by_id(task_id)
 
 
 @router.delete("/tasks/{task_id}")
 async def delete_task_api(task_id: int, db: AsyncSession = Depends(get_db)):
-    """Удалить задачу."""
+    """Мягкое удаление задачи (помечает как deleted)."""
     service = TaskService(db)
     task = await service.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
-    from app.repositories.task_repository import TaskRepository
-    repo = TaskRepository(db)
-    await repo.delete(task_id)
+    task.deleted = True
     await db.commit()
     return {"ok": True}
+
+
+@router.delete("/tasks/{task_id}/permanent")
+async def permanent_delete_task_api(task_id: int):
+    """Безвозвратное удаление отключено — задачи хранятся навсегда."""
+    raise HTTPException(status_code=403, detail="Permanent deletion is disabled. Tasks are kept for audit.")
+
+
+@router.post("/tasks/{task_id}/restore")
+async def restore_deleted_task(task_id: int, db: AsyncSession = Depends(get_db)):
+    """Восстановить удалённую задачу."""
+    from sqlalchemy import select as sa_select
+    result = await db.execute(sa_select(Task).where(Task.id == task_id))
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    task.deleted = False
+    task.archived = False
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/tasks/{task_id}/subtasks", response_model=TaskResponse)
+async def create_subtask(
+    task_id: int,
+    request: SubtaskCreateRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Создать подзадачу."""
+    from app.domain.enums import TaskSource
+    service = TaskService(db)
+
+    parent = await service.get_task(task_id)
+    if not parent:
+        raise HTTPException(status_code=404, detail="Parent task not found")
+
+    subtask = await service.create_task(
+        title=request.title,
+        description=request.description,
+        source=TaskSource.MANUAL_COMMAND,
+    )
+    subtask.parent_task_id = task_id
+    subtask.priority = request.priority or "NORMAL"
+
+    if request.due_date:
+        subtask.due_date = request.due_date
+
+    if request.assignee_telegram_id:
+        user_repo = UserRepository(db)
+        user = await user_repo.get_by_telegram_id(request.assignee_telegram_id)
+        if user:
+            subtask.assignee_id = user.id
+            subtask.assignee_telegram_id = user.telegram_id
+            subtask.assignee_name = user.display_name
+
+    await db.commit()
+    from app.repositories.task_repository import TaskRepository
+    repo = TaskRepository(db)
+    return await repo.get_by_id(subtask.id)
+
+
+# ============= ARCHIVE API =============
+
+@router.get("/archive", response_model=List[TaskResponse])
+async def get_archived_tasks(db: AsyncSession = Depends(get_db)):
+    """Получить архивные задачи."""
+    from app.repositories.task_repository import TaskRepository
+    repo = TaskRepository(db)
+    return await repo.get_archived()
+
+
+@router.get("/deleted", response_model=List[TaskResponse])
+async def get_deleted_tasks(db: AsyncSession = Depends(get_db)):
+    """Получить удалённые задачи."""
+    from app.repositories.task_repository import TaskRepository
+    repo = TaskRepository(db)
+    return await repo.get_deleted()
+
+
+@router.post("/tasks/{task_id}/archive")
+async def archive_task(task_id: int, db: AsyncSession = Depends(get_db)):
+    """Архивировать задачу."""
+    service = TaskService(db)
+    task = await service.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    task.archived = True
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/tasks/{task_id}/unarchive")
+async def unarchive_task(task_id: int, db: AsyncSession = Depends(get_db)):
+    """Разархивировать задачу."""
+    service = TaskService(db)
+    task = await service.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    task.archived = False
+    await db.commit()
+    return {"ok": True}
+
+
+# ============= DIGEST API =============
+
+@router.get("/digest")
+async def get_digest(db: AsyncSession = Depends(get_db)):
+    """Данные для страницы дайджеста."""
+    from app.repositories.project_repository import ProjectRepository
+    from app.domain.enums import TaskStatus as TS
+
+    service = TaskService(db)
+    all_tasks = await service.get_all_tasks()
+
+    proj_repo = ProjectRepository(db)
+    projects = await proj_repo.get_all_active()
+
+    # Общая статистика
+    stats = {
+        "total": len(all_tasks),
+        "todo": sum(1 for t in all_tasks if t.status == TS.TODO.value),
+        "doing": sum(1 for t in all_tasks if t.status == TS.DOING.value),
+        "done": sum(1 for t in all_tasks if t.status == TS.DONE.value),
+        "blocked": sum(1 for t in all_tasks if t.status == TS.BLOCKED.value),
+    }
+
+    # Статистика по проектам
+    project_stats = []
+    for proj in projects:
+        proj_tasks = [t for t in all_tasks if t.project_id == proj.id]
+        if not proj_tasks:
+            continue
+        project_stats.append({
+            "id": proj.id,
+            "name": proj.name,
+            "emoji": proj.emoji or "📁",
+            "total": len(proj_tasks),
+            "done": sum(1 for t in proj_tasks if t.status == TS.DONE.value),
+            "doing": sum(1 for t in proj_tasks if t.status == TS.DOING.value),
+            "todo": sum(1 for t in proj_tasks if t.status == TS.TODO.value),
+            "blocked": sum(1 for t in proj_tasks if t.status == TS.BLOCKED.value),
+        })
+
+    # Задачи без проекта
+    no_proj = [t for t in all_tasks if not t.project_id]
+    if no_proj:
+        project_stats.append({
+            "id": None,
+            "name": "Без проекта",
+            "emoji": "📋",
+            "total": len(no_proj),
+            "done": sum(1 for t in no_proj if t.status == TS.DONE.value),
+            "doing": sum(1 for t in no_proj if t.status == TS.DOING.value),
+            "todo": sum(1 for t in no_proj if t.status == TS.TODO.value),
+            "blocked": sum(1 for t in no_proj if t.status == TS.BLOCKED.value),
+        })
+
+    # Топ исполнителей
+    performers: dict = {}
+    for task in all_tasks:
+        if task.assignee:
+            name = task.assignee.display_name
+        elif task.assignee_name:
+            name = task.assignee_name
+        else:
+            continue
+        if name not in performers:
+            performers[name] = {"completed": 0, "total": 0, "on_time": 0, "with_deadline": 0}
+        performers[name]["total"] += 1
+        if task.status == TS.DONE.value:
+            performers[name]["completed"] += 1
+            if task.due_date:
+                performers[name]["with_deadline"] += 1
+                completed_at = task.completed_at or task.updated_at
+                if completed_at and completed_at <= task.due_date:
+                    performers[name]["on_time"] += 1
+
+    top_performers = sorted(
+        [{"name": n, **v} for n, v in performers.items()],
+        key=lambda x: x["completed"],
+        reverse=True
+    )[:10]
+
+    return {
+        "stats": stats,
+        "projects": project_stats,
+        "top_performers": top_performers,
+    }

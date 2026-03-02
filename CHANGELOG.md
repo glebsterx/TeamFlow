@@ -1,172 +1,90 @@
 # Changelog
 
-## v0.2.0 - 2025-02-15 (Current)
+---
 
-### ✨ Новые возможности
+## v0.8.2 — Navigation Gestures & UX (2026-03-02)
 
-#### Автоматический парсинг сообщений
-- **MessageParsingService** - интеллектуальный парсинг сообщений чата
-- Автоматическое определение @mentions для назначения исполнителей
-- Распознавание дат: "завтра", "в пятницу", "через 3 дня", "в понедельник"
-- Ключевые слова задач: "сделать", "реализовать", "проверить", и другие
-- Система уверенности (confidence score) для точности
-- Подтверждение перед созданием задачи
-
-#### Встречи и фиксация результатов
-- Команда `/meeting` - запись результатов встреч
-- Команда `/meetings` - просмотр истории за 30 дней
-- MeetingRepository для управления данными
-- Автоматическая отметка даты и времени
-
-#### Еженедельные дайджесты
-- **DigestService** - генерация подробных отчетов
-- Команда `/digest` - еженедельный дайджест с:
-  - Статистикой выполнения задач
-  - Списком завершенных задач
-  - Предупреждениями о блокерах
-  - Сводкой встреч
-  - Активностью членов команды
-- Команда `/overdue` - напоминания о просроченных задачах
-
-#### BoardService
-- Выделен отдельный сервис для работы с доской
-- Улучшенная группировка задач по статусам
-- Форматированный вывод с эмодзи
-- Методы для фильтрации по пользователям
-
-### 🚀 Деплой и инфраструктура
-
-#### VPS деплой
-- **VPS_DEPLOY.md** - подробная инструкция по развертыванию
-- **deploy-vps.sh** - автоматический скрипт установки за 5 минут
-- Поддержка Ubuntu 20.04/22.04, Debian, CentOS
-- Автоматическая установка Docker и Docker Compose
-- Настройка firewall (UFW)
-- Systemd service для автозапуска
-- Автоматические бэкапы базы данных
-
-#### Production оптимизации
-- **docker-compose.prod.yml** - production конфигурация
-- **Dockerfile.prod** - многостадийная сборка для backend
-- **Dockerfile.prod** + Nginx для frontend
-- Health checks для всех сервисов
-- Логирование с ротацией
-- Gzip compression
-- Security headers
-- Минимальный размер образов
-
-#### Автоматизация бэкапов
-- Ежедневное резервное копирование (02:00)
-- Автоматическое удаление старых бэкапов (30 дней)
-- Скрипт ручного бэкапа
-
-### 🔧 Улучшения
-
-- Обновлен bot.py с правильным порядком регистрации handlers
-- Улучшена обработка callback queries
-- Добавлены docstrings везде
-- Структурное логирование всех событий
-- Оптимизированы SQL запросы с joinedload
-
-### 📚 Документация
-
-- Добавлен VPS_DEPLOY.md с пошаговой инструкцией
-- Обновлен README с новыми командами
-- Добавлены примеры использования
-- Инструкции по troubleshooting
-- Рекомендации по VPS провайдерам
-
-### 🐛 Исправления
-
-- Исправлена работа FSM для создания задач
-- Улучшена обработка ошибок в handlers
-- Корректная работа с SQLite в async режиме
+- Жесты навигации: кнопки мыши 3/4, Alt+←/→ (back/forward)
+- Мобильный UI: фильтры в grid 2 колонки вместо горизонтального скролла
+- Фикс дублей при быстром двойном клике на "Создать"
+- Выбор родительской задачи при создании
+- Фильтр по проекту теперь работает через parent_task_id (effectiveProjectId)
 
 ---
 
-## v0.1.0 - 2025-02-15 (Initial Release)
+## v0.8.1 — Project Directory Navigation (2026-02-28)
 
-### ✨ Базовый функционал
-
-#### Telegram Bot
-- Команда `/task` с интерактивным диалогом
-- Команда `/week` для недельной доски
-- Inline кнопки: Start, Done, Block
-- FSM для multi-step диалогов
-
-#### Backend
-- FastAPI + SQLAlchemy async
-- SQLite база данных
-- Repository Pattern
-- Service Layer
-- Domain Events
-- JWT аутентификация (для Web API)
-
-#### Frontend
-- React 18 + TypeScript
-- Read-only Dashboard
-- Статистика задач
-- Фильтрация по статусам
-
-#### Модели
-- Task с полями: title, description, assignee, status, priority, due_date
-- Blocker для причин блокировки
-- Meeting для фиксации встреч
-- Domain Events: TaskCreated, TaskStatusChanged, TaskBlocked
-
-#### Docker
-- Docker Compose для локальной разработки
-- Separate containers для backend и frontend
-- Volume для персистентности SQLite
-- Hot reload в dev режиме
-
-#### Документация
-- Вся оригинальная документация (24 файла)
-- README с инструкциями
-- ARCHITECTURE.md
-- Coding standards
+- #13 Directory navigation в проектах: Проекты → Задача → Подзадачи (стек)
+- #12 Контекст проекта: "+ Задача" внутри проекта создаёт задачу с предзаполненным проектом
+- Хлебные крошки с кликабельными сегментами
+- Браузерная история (popstate sentinel)
 
 ---
 
-## Планы на v0.3.0
+## v0.8.0 — Subtasks & Priorities (2026-02-25)
 
-### Приоритетные фичи
-
-- [ ] Роли пользователей (viewer, member, admin)
-- [ ] Web редактирование задач (пока только read-only)
-- [ ] Аутентификация через Telegram OAuth
-- [ ] Подзадачи (subtasks)
-- [ ] Теги и метки
-- [ ] Поиск по задачам
-- [ ] Экспорт в Markdown
-- [ ] Webhooks для интеграций
-
-### Улучшения
-
-- [ ] Scheduled digest (автоматическая отправка по понедельникам)
-- [ ] Уведомления о приближающихся дедлайнах
-- [ ] Графики и charts (burndown, velocity)
-- [ ] Telegram Mini App для web UI
-- [ ] Голосовые сообщения → задачи (через Speech-to-Text)
-- [ ] AI assistant для приоритизации
-
-### Инфраструктура
-
-- [ ] Prometheus метрики
-- [ ] Grafana дашборды
-- [ ] Structured logging в ELK/Loki
-- [ ] CI/CD pipeline (GitHub Actions)
-- [ ] E2E тесты
-- [ ] Load testing
+- #7 Подзадачи произвольной глубины (`parent_task_id`, relationship subtasks)
+- #20 Приоритеты задач: URGENT / HIGH / NORMAL / LOW
+- Сортировка по приоритету в репозитории
+- API: `/tasks/{id}/subtasks`, `priority` в create/update
+- Фильтр по приоритету в UI
+- Бейджи дедлайна (overdue / today / soon / upcoming)
 
 ---
 
-## Roadmap
+## v0.7.x — Deadlines, Archive, Soft Delete (2026-02-20)
 
-### v1.0.0 - Стабильный релиз
-- Все фичи v0.3.0
-- Полное покрытие тестами
-- Production-ready documentation
-- Security audit
-- Performance optimization
-- Migration guide
+- #25 Дедлайны задач (`due_date`) — date picker в UI
+- Мягкое удаление (`deleted: bool`), архив (`archived: bool`)
+- API: `/tasks/{id}/archive`, `/tasks/{id}/restore`, `/archive`, `/deleted`
+- Дайджест с учётом дедлайнов и топ исполнителей
+- #10 Переносы строк в Markdown описаниях
+
+---
+
+## v0.6.x — Markdown, Digest UI, Timestamps (2026-02)
+
+- v0.6.7 — #33 Markdown в описаниях (react-markdown + remark-gfm)
+- v0.6.8 — #9 Дайджест в Web UI (отдельная страница /digest)
+- v0.6.9 — #11 Архив задач в Web UI
+- v0.6.6 — #32 Временны́е метки: created_at, started_at, completed_at в карточке
+
+---
+
+## v0.5.x — Projects & Mobile UI (2026-01)
+
+- #5 Разделение задач по проектам (project_id, фильтрация)
+- #4 Мобильный вид веб-интерфейса (адаптивный layout)
+- CRUD для проектов и встреч в UI
+
+---
+
+## v0.3.0 — Production-Ready (2025)
+
+- Исправлена ошибка aiosqlite (`sqlite+aiosqlite://`)
+- SQLite WAL mode + PRAGMA оптимизации
+- Telegram Auth для Web UI (JWT, `/login`)
+- Команда `/help` с inline кнопками, `/menu`
+- NullPool для SQLite (решён deadlock)
+- Обновлены зависимости: aiogram 3.4.1, FastAPI 0.110, SQLAlchemy 2.0.27
+
+---
+
+## v0.2.0 — Bot Commands & VPS Deploy (2025)
+
+- `/meeting` — фиксация встреч, `/meetings` — история
+- `/digest` — еженедельный дайджест (статистика, блокеры, исполнители)
+- `/overdue` — просроченные задачи
+- MessageParsingService — автопарсинг @mentions и дат из сообщений
+- `deploy-vps.sh` — автоматический деплой на VPS за 5 минут
+- docker-compose.prod.yml + Nginx + health checks
+
+---
+
+## v0.1.0 — Initial Release (2025)
+
+- Telegram Bot: `/task` (FSM диалог), `/week` (доска)
+- Inline кнопки: Start, Done, Block + причина блокировки
+- FastAPI + SQLAlchemy async + SQLite
+- React 18 + TypeScript read-only Dashboard
+- Docker Compose dev окружение

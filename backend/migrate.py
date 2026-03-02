@@ -13,6 +13,8 @@ MIGRATIONS = [
     ("tasks",          "source_chat_id", "ALTER TABLE tasks ADD COLUMN source_chat_id BIGINT"),
     ("tasks",          "started_at",     "ALTER TABLE tasks ADD COLUMN started_at DATETIME"),
     ("tasks",          "completed_at",   "ALTER TABLE tasks ADD COLUMN completed_at DATETIME"),
+    ("tasks",          "archived",       "ALTER TABLE tasks ADD COLUMN archived BOOLEAN DEFAULT 0"),
+    ("tasks",          "deleted",        "ALTER TABLE tasks ADD COLUMN deleted BOOLEAN DEFAULT 0"),
     ("telegram_users", None,             """CREATE TABLE IF NOT EXISTS telegram_users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         telegram_id BIGINT NOT NULL UNIQUE,

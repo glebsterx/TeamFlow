@@ -1,9 +1,9 @@
 """Domain models."""
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, BigInteger, Boolean
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from app.core.db import Base
-from app.domain.enums import TaskStatus, TaskSource
+from app.domain.enums import TaskStatus, TaskSource, TaskPriority
 
 
 class Project(Base):
@@ -66,8 +66,12 @@ class Task(Base):
     assignee_name = Column(String(100), nullable=True)
     assignee_telegram_id = Column(BigInteger, nullable=True)
 
+    # Subtasks
+    parent_task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True)
+
     # Status and dates
     status = Column(String(20), nullable=False, default=TaskStatus.TODO.value)
+    priority = Column(String(10), nullable=False, default=TaskPriority.NORMAL.value)
     due_date = Column(DateTime, nullable=True)
     definition_of_done = Column(Text, nullable=True)
 
@@ -75,6 +79,10 @@ class Task(Base):
     source = Column(String(20), nullable=False)
     source_message_id = Column(Integer, nullable=True)
     source_chat_id = Column(BigInteger, nullable=True)
+
+    # Archive / Soft delete
+    archived = Column(Boolean, default=False, nullable=False)
+    deleted = Column(Boolean, default=False, nullable=False)
 
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -86,6 +94,11 @@ class Task(Base):
     project = relationship("Project", back_populates="tasks")
     assignee = relationship("TelegramUser", back_populates="assigned_tasks", foreign_keys=[assignee_id])
     blockers = relationship("Blocker", back_populates="task", cascade="all, delete-orphan")
+    subtasks = relationship(
+        "Task",
+        backref=backref("parent_task", remote_side="Task.id"),
+        foreign_keys="Task.parent_task_id",
+    )
 
     def __repr__(self):
         return f"<Task(id={self.id}, title='{self.title}', status='{self.status}')>"

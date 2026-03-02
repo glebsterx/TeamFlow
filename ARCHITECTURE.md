@@ -1,200 +1,194 @@
-# TeamFlow - Архитектура проекта
-
-## Обзор
-
-TeamFlow - Telegram-first инструмент управления задачами для малых команд (3-5 человек).
+# TeamFlow — Архитектура
 
 ## Технический стек
 
 ### Backend
-- **Python 3.11**
-- **FastAPI** - Web API
-- **aiogram 3.4.1** - Telegram Bot
-- **SQLAlchemy 2.0.27** - ORM (async)
-- **aiosqlite 0.20.0** - SQLite драйвер
-- **Pydantic 2.5.3** - Валидация
-- **Structlog** - Структурированное логирование
+- **Python 3.11**, **FastAPI** — Web API
+- **aiogram 3.4.1** — Telegram Bot
+- **SQLAlchemy 2.0 (async)** + **aiosqlite** — ORM + SQLite драйвер
+- **Pydantic 2** — валидация схем
+- **Structlog** — структурированное логирование
 
 ### Frontend
-- **React 18.2** - UI библиотека
-- **TypeScript 5.3** - Типизация
-- **Vite 5.0** - Сборщик
-- **TanStack Query** - Управление состоянием
-- **Tailwind CSS 3.4** - Стилизация
-- **Axios** - HTTP клиент
+- **React 18** + **TypeScript** — UI
+- **Vite 5** — dev сервер + сборщик
+- **TanStack Query** — управление состоянием / кеш
+- **Tailwind CSS** — стилизация
+- **Axios** — HTTP клиент
 
 ### Infrastructure
-- **Docker & Docker Compose** - Контейнеризация
-- **SQLite (WAL mode)** - База данных
-- **Nginx** - Reverse proxy (опционально)
+- **Docker Compose** — контейнеризация
+- **SQLite (WAL mode)** — база данных
+- **Redis** — FSM storage для aiogram
 
-## Архитектурные паттерны
+---
 
-### Backend Architecture
+## Высокоуровневая схема
 
 ```
-app/
-├── core/           # Общая инфраструктура
-│   ├── db.py      # Database setup
-│   ├── auth.py    # Telegram Auth
-│   ├── logging.py # Structured logging
-│   └── clock.py   # Time utilities
+Telegram Chat → aiogram Bot → Services → Repository → SQLite
+                                   ↕
+                              FastAPI Web API → React UI
+```
+
+Принципы:
+- единый источник истины — база данных
+- бизнес-логика не зависит от Telegram
+- Web и Bot используют один сервисный слой
+- минимальная инфраструктура
+
+---
+
+## Структура пакетов
+
+```
+backend/app/
+├── main.py
+├── config.py
+├── bot.py
 │
-├── domain/        # Доменные модели
-│   ├── models.py  # SQLAlchemy models
-│   ├── enums.py   # Enums (Status, Source)
-│   └── events.py  # Domain events
+├── core/
+│   ├── db.py           # NullPool + async engine
+│   ├── logging.py      # Structured logging
+│   └── clock.py        # Time utilities
 │
-├── repositories/  # Доступ к данным
-│   ├── task_repository.py
+├── domain/
+│   ├── models.py       # SQLAlchemy models (Task, Project, Meeting, Blocker, TelegramUser)
+│   ├── enums.py        # TaskStatus, TaskPriority, TaskSource
+│   └── events.py       # Domain events
+│
+├── repositories/
+│   ├── task_repository.py      # get_all, get_by_id, get_archived, get_deleted
+│   ├── user_repository.py
+│   ├── project_repository.py
 │   └── meeting_repository.py
 │
-├── services/      # Бизнес-логика
+├── services/
 │   ├── task_service.py
 │   ├── board_service.py
 │   └── digest_service.py
 │
-├── telegram/      # Telegram интеграция
-│   ├── bot.py
+├── telegram/
 │   └── handlers/
-│       ├── help_handlers.py
 │       ├── task_handlers.py
 │       ├── week_handlers.py
-│       └── ...
+│       ├── meeting_handlers.py
+│       ├── digest_handlers.py
+│       └── help_handlers.py
 │
-└── web/          # Web API
-    ├── app.py    # FastAPI app
-    ├── routes.py # API endpoints
-    └── schemas.py # Pydantic schemas
+└── web/
+    ├── app.py
+    ├── routes.py       # REST endpoints
+    └── schemas.py      # Pydantic response schemas
 ```
 
-### Слои приложения
+---
 
-1. **Transport Layer** (telegram/, web/)
-   - Обработка входящих запросов
-   - Валидация ввода
-   - Форматирование ответов
+## Слои приложения
 
-2. **Service Layer** (services/)
-   - Бизнес-логика
-   - Оркестрация репозиториев
-   - Генерация событий
+| Слой | Директория | Ответственность |
+|------|-----------|----------------|
+| Transport | `telegram/`, `web/` | Обработка запросов, форматирование ответов |
+| Service | `services/` | Бизнес-логика, оркестрация |
+| Repository | `repositories/` | Абстракция доступа к данным |
+| Domain | `domain/` | Модели, перечисления, события |
 
-3. **Repository Layer** (repositories/)
-   - Абстракция доступа к данным
-   - CRUD операции
+**Правила:** handlers не содержат логики; бизнес-логика только в services; repository только SQL.
 
-4. **Domain Layer** (domain/)
-   - Модели данных
-   - Бизнес-правила
-   - События
+---
 
 ## Модель данных
 
 ### Task
-- id, title, description
-- assignee_name, assignee_telegram_id
-- status (TODO, DOING, DONE, BLOCKED)
-- due_date, definition_of_done
-- source (MANUAL_COMMAND, CHAT_MESSAGE)
-- created_at, updated_at
+```
+id, title, description
+status: TODO | DOING | DONE | BLOCKED
+priority: URGENT | HIGH | NORMAL | LOW
+due_date, definition_of_done
+parent_task_id FK tasks.id    -- произвольная глубина подзадач
+project_id FK projects.id
+assignee_id, assignee_name, assignee_telegram_id
+archived: bool, deleted: bool  -- soft delete
+source: MANUAL_COMMAND | CHAT_MESSAGE
+created_at, updated_at, started_at, completed_at
+```
 
-### Blocker
-- id, task_id, text
-- created_by, created_at
+### Project
+```
+id, name, description, emoji, is_active, created_at
+```
 
 ### Meeting
-- id, meeting_date, summary
-- created_at
+```
+id, summary, meeting_date, created_at
+```
+
+### Blocker
+```
+id, task_id, text, created_by, created_at
+```
+
+### TelegramUser
+```
+id, telegram_id, username, first_name, last_name, display_name, is_active
+```
+
+---
+
+## Repository Contracts
+
+### TaskRepository
+```python
+create(task) -> Task
+get_by_id(task_id) -> Task | None        # с selectinload subtasks, blockers, assignee
+get_all(status?, assignee_telegram_id?) -> list[Task]  # фильтр archived=False, deleted=False
+get_archived() -> list[Task]
+get_deleted() -> list[Task]
+update(task) -> Task
+delete(task_id)                          # физическое, не используется — только soft delete
+```
+
+### Сортировка
+`get_all()` сортирует по приоритету (URGENT→LOW), затем по `created_at DESC`.
+
+---
+
+## Domain Events
+
+События используются для логирования; в текущей версии не публикуются во внешние системы.
+
+- `TaskCreated` — task_id, source, created_at
+- `TaskStatusChanged` — task_id, old_status, new_status
+- `BlockerAdded` — task_id, blocker_id
+- `MeetingLogged` — meeting_id
+
+---
+
+## Обработка ошибок
+
+| Уровень | Тип | Поведение |
+|---------|-----|-----------|
+| Domain | DomainError | Логируется, пользователю — безопасное сообщение |
+| Repository | RepositoryError | Не выбрасывается наружу из сервисного слоя |
+| Transport | TransportError | Обрабатывается в handler |
+
+---
+
+## SQLite оптимизации
+
+```sql
+PRAGMA journal_mode=WAL;       -- concurrent reads
+PRAGMA synchronous=NORMAL;
+PRAGMA cache_size=-64000;      -- 64MB кеш
+PRAGMA temp_store=MEMORY;
+```
+
+NullPool используется вместо StaticPool — решает deadlock при async SQLite.
+
+---
 
 ## Авторизация
 
-### Telegram Auth (JWT)
-1. Frontend загружает Telegram Login Widget
-2. Пользователь авторизуется через Telegram
-3. Backend проверяет подпись Telegram
-4. Возвращается JWT токен (24 часа)
-5. Токен используется для API запросов
-
-### Безопасность
-- Проверка подписи Telegram (HMAC-SHA256)
-- JWT токены с expiration
-- CORS для frontend
-- Protected API endpoints
-
-## Конфигурация
-
-### Двухуровневая система .env
-
-**`.env` (корень)** - для Docker Compose:
-```env
-BACKEND_PORT=8180
-FRONTEND_PORT=5180
-BASE_URL=http://localhost
-```
-
-**`backend/.env`** - для приложения:
-```env
-TELEGRAM_BOT_TOKEN=...
-TELEGRAM_CHAT_ID=...
-TELEGRAM_BOT_USERNAME=...
-BASE_URL=http://localhost
-BACKEND_PORT=8180
-FRONTEND_PORT=5180
-DATABASE_URL=sqlite+aiosqlite:///./data/teamflow.db
-SECRET_KEY=...
-```
-
-## Deployment
-
-### Development
-```bash
-docker-compose up --build -d
-```
-
-### Production
-```bash
-docker-compose -f docker-compose.prod.yml up -d
-```
-
-## Оптимизации
-
-### SQLite
-- WAL mode для concurrent reads
-- Cache size: 64MB
-- Synchronous: NORMAL
-- Temp store: MEMORY
-
-### Async везде
-- Async SQLAlchemy
-- Async aiogram
-- Async FastAPI
-
-### Connection Pooling
-- StaticPool для SQLite
-- Reuse connections
-
-## Мониторинг
-
-### Structured Logging
-- JSON формат
-- Timestamp, event, context
-- Уровни: INFO, WARNING, ERROR
-
-### Health Checks
-- `/health` endpoint
-- Docker healthcheck
-- Retry logic
-
-## Roadmap
-
-### v0.4.0
-- Настройки через Web UI
-- Роли пользователей
-- Scheduled digests
-
-### v1.0.0
-- PostgreSQL support
-- Telegram Mini App
-- Webhooks
-- Mobile app
+Telegram Login Widget + JWT не реализованы — требуют HTTPS.
+Текущий статус: Web UI открыт без авторизации (только для локальных/VPS команд).
+Планируется в v1.0.0.

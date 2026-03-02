@@ -1,17 +1,27 @@
-.claude
+# Секреты и конфигурация с доменами/токенами
 .env
 backend/.env
 frontend/.env
-backend/data/
-*.tar.gz
-transcripts
 
-# Local context/docs with server-specific data (domain, IPs)
-CONTEXT.md
-FULL-CONTEXT.md
-HOW-TO-MIGRATE.md
-MIGRATION.md
-ROADMAP.md
-SPRINT.md
-DEPLOY_GUIDE.md
-RELEASE_NOTES_*.md
+# База данных
+backend/data/
+
+# Claude Code
+.claude/
+
+# Локальные данные
+transcripts/
+
+# Сборки и кеш
+*.tar.gz
+dist/
+build/
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,193 +1,98 @@
 # TeamFlow
 
-**Telegram-first управление задачами для малых команд**
+**Telegram-first управление задачами для малых команд (2–5 человек)**
 
-![Version](https://img.shields.io/badge/version-0.3.1-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+Создавайте задачи прямо в Telegram-чате, отслеживайте статусы через Web UI, получайте еженедельные дайджесты.
 
-## Что это?
-
-TeamFlow - это простой и быстрый способ управления задачами команды через Telegram.
-Никаких сложных настроек, никаких лишних полей - только то, что действительно нужно.
-
-### Особенности
-
-- 🤖 **Telegram-first** - основной интерфейс через бота
-- 📱 **Web UI** - красивый дашборд для просмотра задач
-- ⚡ **Быстрый деплой** - один скрипт, 5 минут
-- 🔐 **Безопасно** - авторизация через Telegram
-- 🚀 **Легкий** - SQLite, работает везде
-- 🎯 **Простой** - без лишних функций
+---
 
 ## Быстрый старт
 
-### Установка (одна команда!)
-
 ```bash
+git clone https://github.com/glebsterx/TeamFlow.git
+cd TeamFlow
 ./deploy.sh
 ```
 
-Скрипт спросит все необходимое и развернет проект автоматически.
+Скрипт запросит URL сервера и Telegram Bot Token — и запустит всё сам.
+Подробнее: [DEPLOYMENT.md](DEPLOYMENT.md)
 
-### Требования
-
-- Docker & Docker Compose
-- Telegram Bot Token (получить у @BotFather)
+---
 
 ## Возможности
 
 ### Telegram Bot
-
-- `/start` - Главное меню с кнопками
-- `/task` - Создать задачу
-- `/week` - Недельная доска
-- `/meeting` - Зафиксировать встречу
-- `/digest` - Еженедельный дайджест
-- `/help` - Справка
-
-**Автоматика:**
-Напишите в чат "нужно проверить API @john до пятницы" - бот предложит создать задачу.
+- `/task` — создать задачу через диалог
+- `/week` — недельная доска задач
+- `/meeting` — зафиксировать встречу
+- `/digest` — еженедельный дайджест
+- Автопарсинг: напишите `"@john проверить API до пятницы"` — бот предложит создать задачу
 
 ### Web UI
-
-- 📊 Статистика в реальном времени
-- 🔍 Фильтры по статусам
-- 👤 Вход через Telegram
-- 📱 Адаптивный дизайн
-
-## Технологии
-
-**Backend:**
-- Python 3.11
-- FastAPI - Web API
-- aiogram 3.4 - Telegram Bot
-- SQLAlchemy 2.0 - ORM (async)
-- SQLite - База данных
-
-**Frontend:**
-- React 18.2
-- TypeScript 5.3
-- Vite 5.0
-- Tailwind CSS 3.4
-
-**Infrastructure:**
-- Docker & Docker Compose
-- Nginx (опционально)
-
-## Команды
-
-```bash
-# Деплой
-./deploy.sh
-
-# Логи
-docker-compose logs -f
-
-# Рестарт
-docker-compose restart
-
-# Остановка
-docker-compose down
-
-# Обновление
-git pull
-./deploy.sh
-```
-
-## Настройка Telegram
-
-1. **Создайте бота:**
-   ```
-   @BotFather → /newbot
-   ```
-
-2. **Добавьте в чат/группу**
-
-3. **Отключите Privacy Mode:**
-   ```
-   @BotFather → Bot Settings → Group Privacy → Turn off
-   ```
-
-4. **Готово!** Бот работает во всех чатах где добавлен.
-
-## Архитектура
-
-```
-TeamFlow/
-├── backend/          # Python FastAPI + aiogram
-│   ├── app/
-│   │   ├── core/    # DB, Auth, Config
-│   │   ├── domain/  # Models, Enums
-│   │   ├── services/# Business Logic
-│   │   ├── telegram/# Bot Handlers
-│   │   └── web/     # API Routes
-│   └── .env         # Configuration
-│
-├── frontend/         # React + TypeScript
-│   ├── src/
-│   │   └── pages/
-│   └── .env         # API URL
-│
-├── docker-compose.yml
-└── deploy.sh         # 🚀 Один скрипт для всего
-```
-
-## Production
-
-### Nginx (опционально)
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    
-    location / {
-        proxy_pass http://localhost:5180;
-    }
-    
-    location /api {
-        proxy_pass http://localhost:8180;
-    }
-}
-```
-
-### SSL
-
-```bash
-certbot --nginx -d your-domain.com
-```
-
-## FAQ
-
-**Q: Нужно ли указывать TELEGRAM_CHAT_ID?**
-A: Нет! Бот работает во всех чатах где добавлен.
-
-**Q: Где хранятся данные?**
-A: В SQLite файле `backend/data/teamflow.db` (автоматически создаётся).
-
-**Q: Как сделать бэкап?**
-A: `docker cp teamflow-backend:/app/data/teamflow.db ./backup.db`
-
-**Q: Можно ли использовать PostgreSQL?**
-A: Да, измените `DATABASE_URL` в `backend/.env`.
-
-## Roadmap
-
-- [ ] Настройки через Web UI
-- [ ] Подзадачи
-- [ ] Теги
-- [ ] Scheduled digests
-- [ ] Mobile app
-- [ ] Telegram Mini App
-
-## Вклад в проект
-
-Pull requests приветствуются!
-
-## Лицензия
-
-MIT License
+- Kanban-карточки с приоритетами и дедлайнами
+- Подзадачи произвольной глубины
+- Directory navigation по проектам
+- Фильтры: проект, исполнитель, приоритет, статус
+- Архив и корзина (soft delete)
+- Адаптивный дизайн
 
 ---
 
-Made with ❤️ for small teams
+## Технологии
+
+| Backend | Frontend | Infrastructure |
+|---------|----------|----------------|
+| Python 3.11, FastAPI | React 18, TypeScript | Docker Compose |
+| aiogram 3.4 (Telegram) | Vite 5, Tailwind CSS | SQLite (WAL mode) |
+| SQLAlchemy 2.0 async | TanStack Query | Redis (FSM) |
+
+---
+
+## Документация
+
+| Файл | Содержание |
+|------|-----------|
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Установка, конфигурация, Nginx, SSL, бэкапы, troubleshooting |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Стек, структура пакетов, модель данных, репозитории |
+| [TELEGRAM.md](TELEGRAM.md) | Команды бота, FSM, callback протокол, автопарсинг |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Стандарты кода, работа с контейнерами, типичные ловушки |
+| [ROADMAP.md](ROADMAP.md) | Текущий спринт, планы, беклог |
+| [CHANGELOG.md](CHANGELOG.md) | История версий |
+
+---
+
+## Управление
+
+```bash
+docker-compose logs -f          # Логи
+docker restart teamflow-backend # Перезапуск бэкенда
+docker-compose down             # Остановка
+git pull && ./deploy.sh         # Обновление
+docker cp teamflow-backend:/app/data/teamflow.db ./backup.db  # Бэкап
+```
+
+---
+
+## FAQ
+
+**Где хранятся данные?**
+`backend/data/teamflow.db` — SQLite файл, монтируется как Docker volume.
+
+**Как сделать бэкап?**
+`docker cp teamflow-backend:/app/data/teamflow.db ./backup.db`
+
+**Нужна авторизация?**
+Пока нет — Web UI открыт для всех на вашем сервере. Telegram Login Widget планируется в v1.0.0 (требует HTTPS).
+
+**Порты по умолчанию?**
+Backend: 8180, Frontend: 5180. Меняются через `.env`.
+
+---
+
+## Текущая версия: v0.8.2
+
+[История изменений →](CHANGELOG.md) · [Планы →](ROADMAP.md)
+
+---
+
+*MIT License · Made for small teams*

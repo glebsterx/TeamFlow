@@ -14,3 +14,11 @@ class TaskSource(str, Enum):
     """Task creation source."""
     MANUAL_COMMAND = "MANUAL_COMMAND"
     CHAT_MESSAGE = "CHAT_MESSAGE"
+
+
+class TaskPriority(str, Enum):
+    """Task priority levels."""
+    URGENT = "URGENT"
+    HIGH = "HIGH"
+    NORMAL = "NORMAL"
+    LOW = "LOW"
