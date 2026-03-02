@@ -156,6 +156,25 @@ const PRIORITY_COLOR: Record<string, string> = {
   LOW:    'bg-blue-50 text-blue-500 border-blue-200',
 };
 
+const PRIORITY_ORDER: Record<string, number> = { URGENT: 0, HIGH: 1, NORMAL: 2, LOW: 3 };
+
+const PRIORITY_EMOJI: Record<string, string> = { URGENT: '🔥', HIGH: '⚠️', NORMAL: '📌', LOW: '🧊' };
+
+const STATUS_BG: Record<string, string> = {
+  TODO:    'bg-white',
+  DOING:   'bg-blue-50',
+  DONE:    'bg-green-50',
+  BLOCKED: 'bg-red-50',
+};
+
+function cardBg(priority: string, status: string): string {
+  if (status === 'DONE') return STATUS_BG['DONE'];
+  if (priority === 'URGENT') return 'bg-red-50';
+  if (priority === 'HIGH')   return 'bg-orange-50';
+  if (priority === 'LOW')    return 'bg-sky-50';
+  return STATUS_BG[status] ?? 'bg-white';
+}
+
 function MarkdownContent({ content, className = '' }: { content: string; className?: string }) {
   // Конвертируем одиночные переносы строк в markdown line breaks (  \n)
   // чтобы Shift+Enter и обычный Enter сохраняли переносы при рендеринге
@@ -192,12 +211,14 @@ function MarkdownContent({ content, className = '' }: { content: string; classNa
 }
 
 export default function Dashboard() {
-  const [currentPage, setCurrentPage] = useState<'tasks' | 'projects' | 'meetings' | 'digest' | 'archive'>('tasks');
+  const [currentPage, setCurrentPage] = useState<'tasks' | 'projects' | 'meetings' | 'digest' | 'archive'>(
+    () => (sessionStorage.getItem('tf_page') as any) || 'tasks'
+  );
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState<number | null>(null);
   const [assigneeFilter, setAssigneeFilter] = useState<number | null>(null);
   const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
-  
+
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
@@ -205,6 +226,22 @@ export default function Dashboard() {
   // Project directory navigation (stack-based, supports unlimited depth)
   const [projNavProject, setProjNavProject] = useState<Project | null>(null);
   const [projNavTaskPath, setProjNavTaskPath] = useState<Task[]>([]);
+
+  // Читаем sessionStorage один раз при монтировании — до того как save-эффекты затрут значения
+  const savedNav = React.useRef({
+    proj: sessionStorage.getItem('tf_proj') || '',
+    path: (() => { try { return JSON.parse(sessionStorage.getItem('tf_path') || '[]') as number[]; } catch { return [] as number[]; } })(),
+    taskId: (() => { const v = sessionStorage.getItem('tf_modal_task'); return v ? Number(v) : null; })(),
+    projModal: (() => { const v = sessionStorage.getItem('tf_modal_proj'); return v ? Number(v) : null; })(),
+  });
+
+  // Сохраняем только после завершения восстановления (navRestoredRef = true)
+  const navRestoredRef = React.useRef(false);
+  React.useEffect(() => { sessionStorage.setItem('tf_page', currentPage); }, [currentPage]);
+  React.useEffect(() => { if (navRestoredRef.current) sessionStorage.setItem('tf_proj', projNavProject?.id?.toString() ?? ''); }, [projNavProject]);
+  React.useEffect(() => { if (navRestoredRef.current) sessionStorage.setItem('tf_path', JSON.stringify(projNavTaskPath.map(t => t.id))); }, [projNavTaskPath]);
+  React.useEffect(() => { if (navRestoredRef.current) sessionStorage.setItem('tf_modal_task', selectedTask?.id?.toString() ?? ''); }, [selectedTask]);
+  React.useEffect(() => { if (navRestoredRef.current) sessionStorage.setItem('tf_modal_proj', selectedProject?.id?.toString() ?? ''); }, [selectedProject]);
 
   // Navigation history for back/forward (mouse buttons 3/4, Alt+←/→)
   type NavSnap = { page: typeof currentPage; proj: Project | null; path: Task[]; statusF: string | null; projectF: number | null; assigneeF: number | null; priorityF: string | null; };
@@ -312,11 +349,35 @@ export default function Dashboard() {
     queryFn: async () => (await axios.get(`${API_URL}/api/meetings`)).data,
   });
 
+  // Восстановление навигации и модалок после загрузки данных
+  React.useEffect(() => {
+    if (navRestoredRef.current || !projects.length || !tasks.length) return;
+    navRestoredRef.current = true;
+    if (savedNav.current.proj) {
+      const proj = projects.find(p => p.id === Number(savedNav.current.proj));
+      if (proj) setProjNavProject(proj);
+    }
+    if (savedNav.current.path.length) {
+      const path = savedNav.current.path.map(id => tasks.find(t => t.id === id)).filter(Boolean) as Task[];
+      if (path.length) setProjNavTaskPath(path);
+    }
+    if (savedNav.current.taskId) {
+      const task = tasks.find(t => t.id === savedNav.current.taskId);
+      if (task) setSelectedTask(task);
+    }
+    if (savedNav.current.projModal) {
+      const proj = projects.find(p => p.id === savedNav.current.projModal);
+      if (proj) setSelectedProject(proj);
+    }
+  }, [projects, tasks]);
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
     queryClient.invalidateQueries({ queryKey: ['stats'] });
     queryClient.invalidateQueries({ queryKey: ['projects'] });
     queryClient.invalidateQueries({ queryKey: ['meetings'] });
+    queryClient.invalidateQueries({ queryKey: ['archive'] });
+    queryClient.invalidateQueries({ queryKey: ['deleted'] });
   };
 
   const changeStatusMutation = useMutation({
@@ -495,18 +556,44 @@ export default function Dashboard() {
     filteredTasks = filteredTasks.filter(t => t.priority === priorityFilter);
   }
 
+  const sortedTasks = [...filteredTasks].sort((a, b) => {
+    const aDone = a.status === 'DONE' ? 1 : 0;
+    const bDone = b.status === 'DONE' ? 1 : 0;
+    if (aDone !== bDone) return aDone - bDone;
+    return (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2);
+  });
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-2 sm:px-4 py-3 sm:py-6">
 
-        {/* Header */}
-        <header className="mb-3 sm:mb-4 flex items-start justify-between">
-          <div>
-            <h1 className="text-xl sm:text-3xl font-bold text-gray-900">TeamFlow</h1>
-            <p className="text-gray-500 text-xs sm:text-sm mt-0.5">Управление задачами</p>
+        {/* Header + Navigation — одна строка */}
+        <header className="border-b mb-0 flex items-center justify-between overflow-x-auto">
+          <div className="flex items-center gap-1 sm:gap-2 min-w-max">
+            <span className="text-base sm:text-lg font-bold text-gray-900 px-1 sm:px-2 shrink-0">TeamFlow</span>
+            <span className="text-gray-200 shrink-0">|</span>
+            {[
+              { id: 'tasks', label: 'Задачи', icon: '📋' },
+              { id: 'projects', label: 'Проекты', icon: '📁' },
+              { id: 'meetings', label: 'Встречи', icon: '🤝' },
+              { id: 'digest', label: 'Дайджест', icon: '📊' },
+              { id: 'archive', label: 'Архив', icon: '🗄️' },
+            ].map(page => (
+              <button
+                key={page.id}
+                onClick={() => { pushHist(); setCurrentPage(page.id as any); setProjNavProject(null); setProjNavTaskPath([]); }}
+                className={`px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition ${
+                  currentPage === page.id
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {page.icon} <span className="hidden sm:inline">{page.label}</span>
+              </button>
+            ))}
           </div>
-          <div className="flex items-center gap-1.5 mt-1">
-            <span className="text-xs text-gray-400">Вы:</span>
+          <div className="flex items-center gap-1.5 shrink-0 px-2">
+            <span className="text-xs text-gray-400 hidden sm:inline">Вы:</span>
             <select
               value={myUserId ?? ''}
               onChange={(e) => {
@@ -524,31 +611,6 @@ export default function Dashboard() {
             </select>
           </div>
         </header>
-
-        {/* Navigation */}
-        <nav className="border-b overflow-x-auto mb-0">
-          <div className="flex space-x-1 min-w-max">
-            {[
-              { id: 'tasks', label: 'Задачи', icon: '📋' },
-              { id: 'projects', label: 'Проекты', icon: '📁' },
-              { id: 'meetings', label: 'Встречи', icon: '🤝' },
-              { id: 'digest', label: 'Дайджест', icon: '📊' },
-              { id: 'archive', label: 'Архив', icon: '🗄️' },
-            ].map(page => (
-              <button
-                key={page.id}
-                onClick={() => { pushHist(); setCurrentPage(page.id as any); setProjNavProject(null); setProjNavTaskPath([]); }}
-                className={`px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition ${
-                  currentPage === page.id
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500'
-                }`}
-              >
-                {page.icon} <span className="hidden sm:inline">{page.label}</span>
-              </button>
-            ))}
-          </div>
-        </nav>
 
         {/* Breadcrumbs */}
         <nav className="sticky top-0 z-40 bg-gray-50 border-b py-1.5 mb-3 flex items-center gap-1 text-xs sm:text-sm text-gray-500 flex-wrap">
@@ -683,7 +745,7 @@ export default function Dashboard() {
 
             {/* Tasks grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
-              {filteredTasks.map(task => {
+              {sortedTasks.map(task => {
                 const proj = projects.find(p => p.id === task.project_id);
                 const parentTask = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : null;
                 const parentProj = parentTask ? projects.find(p => p.id === parentTask.project_id) : null;
@@ -692,31 +754,35 @@ export default function Dashboard() {
                   <div
                     key={task.id}
                     onClick={() => setSelectedTask(task)}
-                    className={`group relative bg-white rounded-lg border border-l-4 ${STATUS_BORDER[task.status]} p-3 sm:p-4 hover:shadow-md transition cursor-pointer`}
+                    className={`group relative rounded-lg border border-l-4 ${STATUS_BORDER[task.status]} ${cardBg(task.priority, task.status)} p-3 sm:p-4 [@media(hover:hover)]:hover:shadow-md transition cursor-pointer`}
                   >
                     <div className="flex justify-between items-start mb-1.5">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-xs text-gray-400">#{task.id}</span>
-                        {parentTask ? (
-                          <span className="text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100 flex items-center gap-1">
-                            {parentProj && <span>{parentProj.emoji} {parentProj.name}</span>}
-                            {parentProj && <span className="text-indigo-300">/</span>}
-                            <span className="text-indigo-300">↳</span>
-                            <span>#{parentTask.id} {parentTask.title}</span>
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-wrap">
+                        <span className="text-xs text-gray-400 shrink-0">#{task.id}</span>
+                        {parentTask ? (<>
+                          {parentProj && (
+                            <span className="text-xs bg-gray-100 text-gray-600 border border-gray-200 px-1.5 py-0.5 rounded truncate shrink-0 max-w-[40%]">
+                              {parentProj.emoji} {parentProj.name}
+                            </span>
+                          )}
+                          <span className="text-xs bg-indigo-50 text-indigo-600 border border-indigo-100 px-1.5 py-0.5 rounded inline-flex items-center gap-1 min-w-0 overflow-hidden">
+                            <span className="text-indigo-300 shrink-0">↳</span>
+                            <span className="truncate">#{parentTask.id} {parentTask.title}</span>
                           </span>
-                        ) : proj && (
-                          <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                        </>) : proj && (
+                          <span className="text-xs bg-gray-100 text-gray-600 border border-gray-200 px-1.5 py-0.5 rounded truncate max-w-[60%]">
                             {proj.emoji} {proj.name}
                           </span>
                         )}
+                      </div>
+                      {/* Приоритет + бейдж статуса / кнопка действия */}
+                      <div className="flex items-center gap-1.5 ml-2 shrink-0">
                         {task.priority && task.priority !== 'NORMAL' && (
-                          <span className={`text-xs px-1.5 py-0.5 rounded border ${PRIORITY_COLOR[task.priority]}`}>
-                            {PRIORITY_LABELS[task.priority]}
+                          <span className={`text-xs px-1.5 py-0.5 rounded border ${PRIORITY_COLOR[task.priority]}`} title={PRIORITY_LABELS[task.priority]}>
+                            {PRIORITY_EMOJI[task.priority]}
                           </span>
                         )}
-                      </div>
-                      {/* Бейдж статуса / кнопка действия */}
-                      <div className="relative ml-2 shrink-0">
+                      <div className="relative shrink-0">
                         <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-opacity duration-150 ${
                           (task.status === 'TODO' || task.status === 'DOING' || task.status === 'DONE') ? 'md:group-hover:opacity-0' : ''
                         } ${STATUS_COLOR[task.status]}`}>
@@ -733,14 +799,20 @@ export default function Dashboard() {
                                 changeStatusMutation.mutate({ taskId: task.id, status: 'DOING' });
                               }
                             }}
-                            className="absolute inset-0 hidden md:flex items-center justify-center px-2 py-0.5 rounded-full text-xs border border-blue-300 bg-blue-50 text-blue-700 opacity-0 group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap hover:bg-blue-100"
-                          >{myUserId && !task.assignee ? '🙋 Взять' : '▶ В работу'}</button>
+                            className="absolute inset-0 flex items-center justify-center px-2 py-0.5 rounded-full text-xs border border-blue-300 bg-blue-50 text-blue-700 opacity-0 group-hover:opacity-100 [@media(not(hover:hover))]:opacity-100 transition-opacity duration-150 whitespace-nowrap"
+                          >
+                            {myUserId && !task.assignee
+                              ? <><span className="sm:hidden">🙋</span><span className="hidden sm:inline">🙋 Взять</span></>
+                              : <><span className="sm:hidden">▶</span><span className="hidden sm:inline">▶ Начать</span></>}
+                          </button>
                         )}
                         {task.status === 'DOING' && (
                           <button
                             onClick={(e) => { e.stopPropagation(); changeStatusMutation.mutate({ taskId: task.id, status: 'DONE' }); }}
-                            className="absolute inset-0 hidden md:flex items-center justify-center px-2 py-0.5 rounded-full text-xs border border-green-300 bg-green-50 text-green-700 opacity-0 group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap hover:bg-green-100"
-                          >✓ Готово</button>
+                            className="absolute inset-0 flex items-center justify-center px-2 py-0.5 rounded-full text-xs border border-green-300 bg-green-50 text-green-700 opacity-0 group-hover:opacity-100 [@media(not(hover:hover))]:opacity-100 transition-opacity duration-150 whitespace-nowrap"
+                          >
+                            <span className="sm:hidden">✓</span><span className="hidden sm:inline">✓ Готово</span>
+                          </button>
                         )}
                         {task.status === 'DONE' && (
                           <button
@@ -748,9 +820,12 @@ export default function Dashboard() {
                               e.stopPropagation();
                               axios.post(`${API_URL}/api/tasks/${task.id}/archive`).then(() => invalidate());
                             }}
-                            className="absolute inset-0 hidden md:flex items-center justify-center px-2 py-0.5 rounded-full text-xs border border-gray-300 bg-gray-50 text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap hover:bg-gray-100"
-                          >🗄️ В архив</button>
+                            className="absolute inset-0 flex items-center justify-center px-2 py-0.5 rounded-full text-xs border border-gray-300 bg-gray-50 text-gray-600 opacity-0 group-hover:opacity-100 [@media(not(hover:hover))]:opacity-100 transition-opacity duration-150 whitespace-nowrap"
+                          >
+                            <span className="sm:hidden">🗄️</span><span className="hidden sm:inline">🗄️ Архив</span>
+                          </button>
                         )}
+                      </div>
                       </div>
                     </div>
                     <h3 className="font-semibold text-sm leading-tight mb-1">{task.title}</h3>
@@ -809,6 +884,9 @@ export default function Dashboard() {
             onNewProject={() => setShowNewProject(true)}
             onNewTask={(ctx: { projectId?: number; parentTaskId?: number }) => { setNewTaskDefaults(ctx); setShowNewTask(true); }}
             changeStatusMutation={changeStatusMutation}
+            takeTaskMutation={takeTaskMutation}
+            myUserId={myUserId}
+            invalidate={invalidate}
           />
         )}
 
@@ -881,7 +959,7 @@ export default function Dashboard() {
 }
 
 // Projects Directory Navigation Page
-function ProjectNavPage({ projects, tasks, navProject, navTaskPath, onSelectProject, onPushTask, onEditProject, onOpenTask, onNewProject, onNewTask, changeStatusMutation }: any) {
+function ProjectNavPage({ projects, tasks, navProject, navTaskPath, onSelectProject, onPushTask, onEditProject, onOpenTask, onNewProject, onNewTask, changeStatusMutation, takeTaskMutation, myUserId, invalidate }: any) {
   const [statusFilter, setStatusFilter] = React.useState<string | null>(null);
 
   // Current node: last task in path, or project root
@@ -913,7 +991,7 @@ function ProjectNavPage({ projects, tasks, navProject, navTaskPath, onSelectProj
               <div
                 key={proj.id}
                 onClick={() => onSelectProject(proj)}
-                className="bg-white rounded-lg border p-4 hover:shadow-md transition cursor-pointer group"
+                className="bg-white rounded-lg border p-4 [@media(hover:hover)]:hover:shadow-md transition cursor-pointer group"
               >
                 <div className="flex items-start justify-between mb-2">
                   <span className="text-3xl">{proj.emoji || '📁'}</span>
@@ -1001,16 +1079,48 @@ function ProjectNavPage({ projects, tasks, navProject, navTaskPath, onSelectProj
             <div
               key={task.id}
               onClick={() => taskChildren.length > 0 ? onPushTask(task) : onOpenTask(task)}
-              className={`bg-white rounded-lg border border-l-4 ${STATUS_BORDER[task.status]} p-3 hover:shadow-md transition cursor-pointer group`}
+              className={`bg-white rounded-lg border border-l-4 ${STATUS_BORDER[task.status]} p-3 [@media(hover:hover)]:hover:shadow-md transition cursor-pointer group`}
             >
               <div className="flex items-center gap-2">
-                <span className={`text-xs px-1.5 py-0.5 rounded border shrink-0 ${STATUS_COLOR[task.status]}`}>{STATUS_EMOJI[task.status]}</span>
+                <div className="relative shrink-0">
+                  <span className={`text-xs px-1.5 py-0.5 rounded border flex items-center transition-opacity duration-150 ${
+                    (task.status === 'TODO' || task.status === 'DOING' || task.status === 'DONE') ? 'md:group-hover:opacity-0' : ''
+                  } ${STATUS_COLOR[task.status]}`}>{STATUS_EMOJI[task.status]}</span>
+                  {task.status === 'TODO' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (myUserId && !task.assignee) {
+                          takeTaskMutation.mutate({ taskId: task.id, userId: myUserId });
+                        } else {
+                          changeStatusMutation.mutate({ taskId: task.id, status: 'DOING' });
+                        }
+                      }}
+                      className="absolute inset-0 hidden md:flex items-center justify-center px-1.5 py-0.5 rounded text-xs border border-blue-300 bg-blue-50 text-blue-700 opacity-0 group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap hover:bg-blue-100"
+                    >{myUserId && !task.assignee ? '🙋' : '▶'}</button>
+                  )}
+                  {task.status === 'DOING' && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); changeStatusMutation.mutate({ taskId: task.id, status: 'DONE' }); }}
+                      className="absolute inset-0 hidden md:flex items-center justify-center px-1.5 py-0.5 rounded text-xs border border-green-300 bg-green-50 text-green-700 opacity-0 group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap hover:bg-green-100"
+                    >✓</button>
+                  )}
+                  {task.status === 'DONE' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        axios.post(`${API_URL}/api/tasks/${task.id}/archive`).then(() => invalidate());
+                      }}
+                      className="absolute inset-0 hidden md:flex items-center justify-center px-1.5 py-0.5 rounded text-xs border border-gray-300 bg-gray-50 text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap hover:bg-gray-100"
+                    >🗄️</button>
+                  )}
+                </div>
                 <span className="text-gray-400 text-xs shrink-0">#{task.id}</span>
                 <span className="font-medium text-sm flex-1 truncate" title={task.title}>{task.title}</span>
-                {task.assignee && <span className="text-xs text-gray-400 shrink-0 hidden sm:inline">{task.assignee.display_name}</span>}
                 {task.priority && task.priority !== 'NORMAL' && (
                   <span className={`text-xs px-1 py-0.5 rounded border shrink-0 ${PRIORITY_COLOR[task.priority]}`}>{PRIORITY_LABELS[task.priority]}</span>
                 )}
+                {task.assignee && <span className="text-xs text-gray-400 shrink-0 hidden sm:inline">{task.assignee.display_name}</span>}
                 {taskChildren.length > 0
                   ? <span className="text-xs text-gray-400 shrink-0">{doneCount}/{taskChildren.length} ›</span>
                   : <button onClick={(e) => { e.stopPropagation(); onOpenTask(task); }} className="text-xs text-gray-400 opacity-0 group-hover:opacity-100 hover:text-blue-600 shrink-0 transition">↗</button>
@@ -1039,11 +1149,13 @@ function ArchivePage({ projects }: { projects: Project[] }) {
   const { data: archivedTasks = [], isLoading } = useQuery<Task[]>({
     queryKey: ['archive'],
     queryFn: async () => (await axios.get(`${API_URL}/api/archive`)).data,
+    staleTime: 30000,
   });
 
   const { data: deletedTasks = [] } = useQuery<Task[]>({
     queryKey: ['deleted'],
     queryFn: async () => (await axios.get(`${API_URL}/api/deleted`)).data,
+    staleTime: 30000,
   });
 
   const invalidateAll = () => {
@@ -1146,13 +1258,12 @@ function ArchivePage({ projects }: { projects: Project[] }) {
 
 // Digest Page
 function DigestPage() {
-  const queryClient = useQueryClient();
   const { data, isLoading, dataUpdatedAt } = useQuery<any>({
     queryKey: ['digest'],
     queryFn: async () => (await axios.get(`${API_URL}/api/digest`)).data,
+    refetchInterval: 30000,
+    staleTime: 20000,
   });
-
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['digest'] });
 
   if (isLoading) return <div className="text-center py-12 text-gray-400">Загрузка...</div>;
   if (!data) return null;
@@ -1170,6 +1281,12 @@ function DigestPage() {
     { label: 'Блок', value: stats.blocked, color: 'bg-red-500', text: 'text-red-700' },
   ];
 
+  function fmtDays(days: number | null | undefined): string {
+    if (days == null) return '—';
+    if (days < 1) return '< 1 дн.';
+    return `${days} дн.`;
+  }
+
   const updatedStr = dataUpdatedAt
     ? new Date(dataUpdatedAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
     : '';
@@ -1179,13 +1296,7 @@ function DigestPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg sm:text-xl font-bold">📊 Дайджест</h2>
-        <div className="flex items-center gap-2">
-          {updatedStr && <span className="text-xs text-gray-400">Обновлено {updatedStr}</span>}
-          <button
-            onClick={refresh}
-            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium"
-          >↻ Обновить</button>
-        </div>
+        {updatedStr && <span className="text-xs text-gray-400">Обновлено {updatedStr}</span>}
       </div>
 
       {/* Stats cards */}
@@ -1197,6 +1308,27 @@ function DigestPage() {
           </div>
         ))}
       </div>
+
+      {/* Дедлайны */}
+      {(stats.overdue > 0 || stats.due_soon > 0) && (
+        <div className="grid grid-cols-2 gap-2">
+          {stats.overdue > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+              <div className="text-2xl font-bold text-red-600">{stats.overdue}</div>
+              <div className="text-xs font-medium text-red-500">🔥 Просрочено</div>
+            </div>
+          )}
+          {stats.due_soon > 0 && (
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+              <div className="text-2xl font-bold text-orange-600">{stats.due_soon}</div>
+              <div className="text-xs font-medium text-orange-500">⏰ Скоро дедлайн</div>
+            </div>
+          )}
+        </div>
+      )}
+      {stats.avg_completion_days != null && (
+        <div className="text-sm text-gray-500">⏱ Среднее время выполнения: <span className="font-medium text-gray-700">{fmtDays(stats.avg_completion_days)}</span></div>
+      )}
 
       {/* Status bar chart */}
       <div className="bg-white rounded-lg border p-4">
@@ -1239,10 +1371,13 @@ function DigestPage() {
                       style={{ width: `${pct}%` }}
                     />
                   </div>
-                  <div className="flex gap-2 mt-1 text-xs text-gray-400">
+                  <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-400">
                     {proj.doing > 0 && <span className="text-blue-500">🔄 {proj.doing}</span>}
                     {proj.todo > 0 && <span>📝 {proj.todo}</span>}
                     {proj.blocked > 0 && <span className="text-red-500">⚠️ {proj.blocked}</span>}
+                    {proj.overdue > 0 && <span className="text-red-600 font-medium">🔥 {proj.overdue} просроч.</span>}
+                    {proj.due_soon > 0 && <span className="text-orange-500">⏰ {proj.due_soon} скоро</span>}
+                    {proj.avg_completion_days != null && <span className="text-gray-400">⏱ {fmtDays(proj.avg_completion_days)}</span>}
                   </div>
                 </div>
               );
@@ -1281,16 +1416,23 @@ function DigestPage() {
                       {donePct}%
                     </div>
                   </div>
-                  {onTimePct !== null && (
-                    <div className="flex items-center gap-2 pl-7">
-                      <span className="text-xs text-gray-400">📅 вовремя:</span>
-                      <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${onTimePct >= 80 ? 'bg-green-400' : onTimePct >= 50 ? 'bg-yellow-400' : 'bg-red-400'}`}
-                          style={{ width: `${onTimePct}%` }}
-                        />
-                      </div>
-                      <span className="text-xs text-gray-500 shrink-0">{p.on_time}/{p.with_deadline} ({onTimePct}%)</span>
+                  {(onTimePct !== null || p.avg_days != null) && (
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 pl-7">
+                      {onTimePct !== null && (
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <span className="text-xs text-gray-400 shrink-0">📅 вовремя:</span>
+                          <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${onTimePct >= 80 ? 'bg-green-400' : onTimePct >= 50 ? 'bg-yellow-400' : 'bg-red-400'}`}
+                              style={{ width: `${onTimePct}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-gray-500 shrink-0">{p.on_time}/{p.with_deadline} ({onTimePct}%)</span>
+                        </div>
+                      )}
+                      {p.avg_days != null && (
+                        <span className="text-xs text-gray-400 shrink-0">⏱ среднее: {fmtDays(p.avg_days)}</span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1313,6 +1455,8 @@ function TaskModal({ task, onClose, tasks, users, projects, changeStatusMutation
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [newSubtaskDesc, setNewSubtaskDesc] = useState('');
   const [showSubtaskInput, setShowSubtaskInput] = useState(false);
+  const [subtaskMode, setSubtaskMode] = useState<'create' | 'attach'>('create');
+  const [attachTaskId, setAttachTaskId] = useState('');
   const dueStatusView = getDueStatus(task.due_date, task.status);
 
   // Build children from flat tasks list (supports any depth)
@@ -1457,33 +1601,37 @@ function TaskModal({ task, onClose, tasks, users, projects, changeStatusMutation
         )}
       </div>
 
-      <div className="space-y-3 mb-4">
-        <div>
-          <label className="text-xs text-gray-500 block mb-1">Проект</label>
-          <select
-            key={`project-${task.project_id || 'none'}`}
-            value={task.project_id || ''}
-            onChange={(e) => {
-              const projectId = e.target.value ? Number(e.target.value) : null;
-              console.log('Project change:', { taskId: task.id, projectId, value: e.target.value });
-              
-              assignProjectMutation.mutate(
-                { taskId: task.id, projectId },
-                {
-                  onSuccess: () => {
-                    console.log('Project assigned successfully');
-                  },
-                  onError: (error) => {
-                    console.error('Project assignment failed:', error);
-                  }
-                }
-              );
-            }}
-            className="w-full px-3 py-2 border rounded-lg text-sm"
-          >
-            <option value="">Без проекта</option>
-            {projects.map((p: any) => <option key={p.id} value={p.id}>{p.emoji} {p.name}</option>)}
-          </select>
+      <div className="space-y-2 mb-4">
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Проект</label>
+            <select
+              key={`project-${task.project_id || 'none'}`}
+              value={task.project_id || ''}
+              onChange={(e) => {
+                const projectId = e.target.value ? Number(e.target.value) : null;
+                assignProjectMutation.mutate({ taskId: task.id, projectId });
+              }}
+              className="w-full px-2 py-1.5 border rounded-lg text-xs"
+            >
+              <option value="">Без проекта</option>
+              {projects.map((p: any) => <option key={p.id} value={p.id}>{p.emoji} {p.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Исполнитель</label>
+            <select
+              value={task.assignee?.telegram_id || ''}
+              onChange={(e) => {
+                const userId = e.target.value ? Number(e.target.value) : null;
+                assignMutation.mutate({ taskId: task.id, userId });
+              }}
+              className="w-full px-2 py-1.5 border rounded-lg text-xs"
+            >
+              <option value="">Не назначено</option>
+              {users.map((u: any) => <option key={u.telegram_id} value={u.telegram_id}>{u.display_name}</option>)}
+            </select>
+          </div>
         </div>
 
         <div>
@@ -1495,7 +1643,7 @@ function TaskModal({ task, onClose, tasks, users, projects, changeStatusMutation
               const parentId = e.target.value ? Number(e.target.value) : null;
               updateTaskMutation.mutate({ id: task.id, data: { parent_task_id: parentId } });
             }}
-            className="w-full px-3 py-2 border rounded-lg text-sm"
+            className="w-full px-2 py-1.5 border rounded-lg text-xs"
           >
             <option value="">Без родителя</option>
             {(tasks || []).filter((t: any) => !excludedIds.has(t.id)).map((t: any) => (
@@ -1505,60 +1653,44 @@ function TaskModal({ task, onClose, tasks, users, projects, changeStatusMutation
         </div>
 
         <div>
-          <label className="text-xs text-gray-500 block mb-1">Исполнитель</label>
-          <select
-            value={task.assignee?.telegram_id || ''}
-            onChange={(e) => {
-              const userId = e.target.value ? Number(e.target.value) : null;
-              assignMutation.mutate({ taskId: task.id, userId });
-            }}
-            className="w-full px-3 py-2 border rounded-lg text-sm"
-          >
-            <option value="">Не назначено</option>
-            {users.map((u: any) => <option key={u.telegram_id} value={u.telegram_id}>{u.display_name}</option>)}
-          </select>
-        </div>
-
-        <div>
-          <label className="text-xs text-gray-500 block mb-2">Приоритет</label>
-          <div className="grid grid-cols-2 gap-2">
+          <label className="text-xs text-gray-500 block mb-1">Приоритет</label>
+          <div className="flex gap-1.5">
             {Object.entries(PRIORITY_LABELS).map(([p, label]) => (
               <button
                 key={p}
                 onClick={() => updateTaskMutation.mutate({ id: task.id, data: { priority: p } })}
-                className={`px-2 py-2 rounded-lg text-xs font-medium border transition ${
+                className={`flex-1 py-1.5 rounded text-xs font-medium border transition ${
                   (task.priority || 'NORMAL') === p ? `${PRIORITY_COLOR[p]} font-bold` : 'bg-white hover:bg-gray-50'
                 }`}
+                title={label}
               >
-                {label}
+                {PRIORITY_EMOJI[p]}
               </button>
             ))}
           </div>
         </div>
 
         <div>
-          <label className="text-xs text-gray-500 block mb-2">Статус</label>
-          <div className="grid grid-cols-2 gap-2">
+          <label className="text-xs text-gray-500 block mb-1">Статус</label>
+          <div className="flex gap-1.5">
             {Object.entries(STATUS_LABELS).map(([status, label]) => (
               <button
                 key={status}
-                onClick={() => {
-                  changeStatusMutation.mutate({ taskId: task.id, status });
-                }}
-                className={`px-2 py-2 rounded-lg text-xs sm:text-sm font-medium border transition ${
+                onClick={() => changeStatusMutation.mutate({ taskId: task.id, status })}
+                className={`flex-1 py-1.5 rounded text-xs font-medium border transition ${
                   task.status === status ? 'bg-blue-600 text-white border-blue-600' : 'bg-white hover:bg-gray-50'
                 }`}
+                title={label}
               >
-                {STATUS_EMOJI[status]} {label}
+                {STATUS_EMOJI[status]} <span className="hidden sm:inline">{label}</span>
               </button>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Subtasks section — only for top-level tasks */}
-      {!task.parent_task_id && (
-        <div className="mb-4">
+      {/* Subtasks section */}
+      <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs text-gray-500 font-medium">Подзадачи {directChildren.length ? `(${directChildren.length})` : ''}</span>
             <button
@@ -1568,39 +1700,85 @@ function TaskModal({ task, onClose, tasks, users, projects, changeStatusMutation
           </div>
 
           {showSubtaskInput && (
-            <div className="space-y-1.5 mb-2 p-2 bg-gray-50 rounded-lg border">
-              <input
-                value={newSubtaskTitle}
-                onChange={(e) => setNewSubtaskTitle(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Escape') { setShowSubtaskInput(false); setNewSubtaskTitle(''); setNewSubtaskDesc(''); } }}
-                placeholder="Название подзадачи"
-                className="w-full px-2 py-1.5 border rounded text-sm bg-white"
-                autoFocus
-              />
-              <textarea
-                value={newSubtaskDesc}
-                onChange={(e) => setNewSubtaskDesc(e.target.value)}
-                placeholder="Описание (необязательно)"
-                className="w-full px-2 py-1.5 border rounded text-sm bg-white resize-none"
-                rows={2}
-              />
-              <div className="flex gap-2">
+            <div className="mb-2 p-2 bg-gray-50 rounded-lg border">
+              <div className="flex gap-1 mb-2">
                 <button
-                  onClick={() => {
-                    if (newSubtaskTitle.trim()) {
-                      createSubtaskMutation.mutate(
-                        { parentId: task.id, title: newSubtaskTitle.trim(), description: newSubtaskDesc || undefined },
-                        { onSuccess: () => { setNewSubtaskTitle(''); setNewSubtaskDesc(''); setShowSubtaskInput(false); } }
-                      );
-                    }
-                  }}
-                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm"
-                >Создать</button>
+                  onClick={() => setSubtaskMode('create')}
+                  className={`flex-1 py-1 rounded text-xs font-medium border transition ${subtaskMode === 'create' ? 'bg-white border-blue-300 text-blue-700' : 'bg-transparent border-transparent text-gray-500 hover:text-gray-700'}`}
+                >+ Новая</button>
                 <button
-                  onClick={() => { setShowSubtaskInput(false); setNewSubtaskTitle(''); setNewSubtaskDesc(''); }}
-                  className="px-3 py-1 bg-gray-200 rounded text-sm"
-                >Отмена</button>
+                  onClick={() => setSubtaskMode('attach')}
+                  className={`flex-1 py-1 rounded text-xs font-medium border transition ${subtaskMode === 'attach' ? 'bg-white border-blue-300 text-blue-700' : 'bg-transparent border-transparent text-gray-500 hover:text-gray-700'}`}
+                >↗ Привязать</button>
               </div>
+
+              {subtaskMode === 'create' ? (
+                <div className="space-y-1.5">
+                  <input
+                    value={newSubtaskTitle}
+                    onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Escape') { setShowSubtaskInput(false); setNewSubtaskTitle(''); setNewSubtaskDesc(''); } }}
+                    placeholder="Название подзадачи"
+                    className="w-full px-2 py-1.5 border rounded text-sm bg-white"
+                    autoFocus
+                  />
+                  <textarea
+                    value={newSubtaskDesc}
+                    onChange={(e) => setNewSubtaskDesc(e.target.value)}
+                    placeholder="Описание (необязательно)"
+                    className="w-full px-2 py-1.5 border rounded text-sm bg-white resize-none"
+                    rows={2}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        if (newSubtaskTitle.trim()) {
+                          createSubtaskMutation.mutate(
+                            { parentId: task.id, title: newSubtaskTitle.trim(), description: newSubtaskDesc || undefined },
+                            { onSuccess: () => { setNewSubtaskTitle(''); setNewSubtaskDesc(''); setShowSubtaskInput(false); } }
+                          );
+                        }
+                      }}
+                      className="px-3 py-1 bg-blue-600 text-white rounded text-sm"
+                    >Создать</button>
+                    <button
+                      onClick={() => { setShowSubtaskInput(false); setNewSubtaskTitle(''); setNewSubtaskDesc(''); }}
+                      className="px-3 py-1 bg-gray-200 rounded text-sm"
+                    >Отмена</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <select
+                    value={attachTaskId}
+                    onChange={(e) => setAttachTaskId(e.target.value)}
+                    className="w-full px-2 py-1.5 border rounded text-sm bg-white"
+                    autoFocus
+                  >
+                    <option value="">Выбрать задачу...</option>
+                    {(tasks || []).filter((t: any) => !excludedIds.has(t.id) && t.parent_task_id !== task.id).map((t: any) => (
+                      <option key={t.id} value={t.id}>#{t.id} {t.title}</option>
+                    ))}
+                  </select>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        if (attachTaskId) {
+                          updateTaskMutation.mutate(
+                            { id: Number(attachTaskId), data: { parent_task_id: task.id } },
+                            { onSuccess: () => { setAttachTaskId(''); setShowSubtaskInput(false); } }
+                          );
+                        }
+                      }}
+                      className="px-3 py-1 bg-blue-600 text-white rounded text-sm"
+                    >Привязать</button>
+                    <button
+                      onClick={() => { setShowSubtaskInput(false); setAttachTaskId(''); }}
+                      className="px-3 py-1 bg-gray-200 rounded text-sm"
+                    >Отмена</button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1636,7 +1814,6 @@ function TaskModal({ task, onClose, tasks, users, projects, changeStatusMutation
             !showSubtaskInput && <p className="text-xs text-gray-400">Нет подзадач</p>
           )}
         </div>
-      )}
 
       <div className="flex gap-2">
         <button onClick={onClose} className="flex-1 py-2 bg-gray-100 rounded-lg text-sm">Закрыть</button>
@@ -1647,13 +1824,14 @@ function TaskModal({ task, onClose, tasks, users, projects, changeStatusMutation
               onClose();
             });
           }}
-          className="px-3 py-2 bg-gray-500 text-white rounded-lg text-sm"
+          className="px-3 py-2 bg-gray-100 text-gray-600 border border-gray-200 rounded-lg text-sm hover:bg-gray-200 transition"
           title="Архивировать"
         >🗄️</button>
         <button
           onClick={() => setConfirmDelete({ type: 'task', id: task.id })}
-          className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm"
-        >Удалить</button>
+          className="px-3 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600 transition"
+          title="Удалить"
+        >🗑️</button>
       </div>
     </Modal>
   );
@@ -1776,6 +1954,7 @@ function NewTaskModal({ onClose, projects, tasks, createTaskMutation, initialPro
   const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState('NORMAL');
   const descRef = React.useRef<HTMLTextAreaElement>(null);
+  const submittingRef = React.useRef(false);
 
   return (
     <Modal onClose={onClose}>
@@ -1849,7 +2028,8 @@ function NewTaskModal({ onClose, projects, tasks, createTaskMutation, initialPro
         <button onClick={onClose} className="flex-1 py-2 bg-gray-100 rounded-lg text-sm">Отмена</button>
         <button
           onClick={() => {
-            if (title.trim() && !createTaskMutation.isPending) {
+            if (title.trim() && !submittingRef.current) {
+              submittingRef.current = true;
               createTaskMutation.mutate({
                 title,
                 description,

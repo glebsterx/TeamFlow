@@ -544,12 +544,31 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
     """Данные для страницы дайджеста."""
     from app.repositories.project_repository import ProjectRepository
     from app.domain.enums import TaskStatus as TS
+    from datetime import datetime, timedelta
 
     service = TaskService(db)
     all_tasks = await service.get_all_tasks()
 
     proj_repo = ProjectRepository(db)
     projects = await proj_repo.get_all_active()
+
+    today = datetime.utcnow().date()
+    soon = today + timedelta(days=7)
+
+    def is_overdue(t) -> bool:
+        return bool(t.due_date and t.due_date.date() < today and t.status != TS.DONE.value)
+
+    def is_due_soon(t) -> bool:
+        return bool(t.due_date and today <= t.due_date.date() <= soon and t.status != TS.DONE.value)
+
+    def avg_completion_days(tasks_list) -> float | None:
+        done = [t for t in tasks_list if t.status == TS.DONE.value and t.completed_at and t.created_at]
+        if not done:
+            return None
+        return round(sum((t.completed_at - t.created_at).total_seconds() for t in done) / len(done) / 86400, 1)
+
+    # Только верхнеуровневые задачи для статистики по проектам
+    top_tasks = [t for t in all_tasks if not t.parent_task_id]
 
     # Общая статистика
     stats = {
@@ -558,12 +577,15 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
         "doing": sum(1 for t in all_tasks if t.status == TS.DOING.value),
         "done": sum(1 for t in all_tasks if t.status == TS.DONE.value),
         "blocked": sum(1 for t in all_tasks if t.status == TS.BLOCKED.value),
+        "overdue": sum(1 for t in all_tasks if is_overdue(t)),
+        "due_soon": sum(1 for t in all_tasks if is_due_soon(t)),
+        "avg_completion_days": avg_completion_days(all_tasks),
     }
 
-    # Статистика по проектам
+    # Статистика по проектам (только top-level задачи)
     project_stats = []
     for proj in projects:
-        proj_tasks = [t for t in all_tasks if t.project_id == proj.id]
+        proj_tasks = [t for t in top_tasks if t.project_id == proj.id]
         if not proj_tasks:
             continue
         project_stats.append({
@@ -575,10 +597,13 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
             "doing": sum(1 for t in proj_tasks if t.status == TS.DOING.value),
             "todo": sum(1 for t in proj_tasks if t.status == TS.TODO.value),
             "blocked": sum(1 for t in proj_tasks if t.status == TS.BLOCKED.value),
+            "overdue": sum(1 for t in proj_tasks if is_overdue(t)),
+            "due_soon": sum(1 for t in proj_tasks if is_due_soon(t)),
+            "avg_completion_days": avg_completion_days(proj_tasks),
         })
 
-    # Задачи без проекта
-    no_proj = [t for t in all_tasks if not t.project_id]
+    # Задачи без проекта (только top-level)
+    no_proj = [t for t in top_tasks if not t.project_id]
     if no_proj:
         project_stats.append({
             "id": None,
@@ -589,6 +614,9 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
             "doing": sum(1 for t in no_proj if t.status == TS.DOING.value),
             "todo": sum(1 for t in no_proj if t.status == TS.TODO.value),
             "blocked": sum(1 for t in no_proj if t.status == TS.BLOCKED.value),
+            "overdue": sum(1 for t in no_proj if is_overdue(t)),
+            "due_soon": sum(1 for t in no_proj if is_due_soon(t)),
+            "avg_completion_days": avg_completion_days(no_proj),
         })
 
     # Топ исполнителей
@@ -601,7 +629,7 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
         else:
             continue
         if name not in performers:
-            performers[name] = {"completed": 0, "total": 0, "on_time": 0, "with_deadline": 0}
+            performers[name] = {"completed": 0, "total": 0, "on_time": 0, "with_deadline": 0, "_done_secs": []}
         performers[name]["total"] += 1
         if task.status == TS.DONE.value:
             performers[name]["completed"] += 1
@@ -610,12 +638,17 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
                 completed_at = task.completed_at or task.updated_at
                 if completed_at and completed_at <= task.due_date:
                     performers[name]["on_time"] += 1
+            if task.completed_at and task.created_at:
+                performers[name]["_done_secs"].append((task.completed_at - task.created_at).total_seconds())
 
     top_performers = sorted(
         [{"name": n, **v} for n, v in performers.items()],
         key=lambda x: x["completed"],
         reverse=True
     )[:10]
+    for p in top_performers:
+        secs = p.pop("_done_secs", [])
+        p["avg_days"] = round(sum(secs) / len(secs) / 86400, 1) if secs else None
 
     return {
         "stats": stats,

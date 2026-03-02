@@ -70,7 +70,11 @@ class TaskRepository:
         """Get archived tasks (not deleted)."""
         result = await self.session.execute(
             select(Task)
-            .options(selectinload(Task.blockers), selectinload(Task.assignee))
+            .options(
+                selectinload(Task.blockers),
+                selectinload(Task.assignee),
+                selectinload(Task.subtasks).selectinload(Task.assignee),
+            )
             .where(Task.archived == True)  # noqa: E712
             .where(Task.deleted == False)  # noqa: E712
             .order_by(Task.updated_at.desc())
@@ -81,7 +85,11 @@ class TaskRepository:
         """Get soft-deleted tasks."""
         result = await self.session.execute(
             select(Task)
-            .options(selectinload(Task.blockers), selectinload(Task.assignee))
+            .options(
+                selectinload(Task.blockers),
+                selectinload(Task.assignee),
+                selectinload(Task.subtasks).selectinload(Task.assignee),
+            )
             .where(Task.deleted == True)  # noqa: E712
             .order_by(Task.updated_at.desc())
         )
