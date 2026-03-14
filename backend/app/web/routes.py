@@ -6,9 +6,11 @@ from typing import Optional, List
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text, delete
+from sqlalchemy import select, text, delete, func
+from sqlalchemy.orm import selectinload
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
+import secrets
 from app.core.db import get_db
 from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
@@ -1073,6 +1075,7 @@ async def export_data(
         "tasks": [],
         "meetings": [],
         "comments": [],
+        "sprints": [],
     }
 
     if "projects" in parts:
@@ -1082,7 +1085,8 @@ async def export_data(
         rows = (await db.execute(q)).scalars().all()
         payload["projects"] = [
             {"id": r.id, "name": r.name, "description": r.description,
-             "emoji": r.emoji, "is_active": r.is_active, "created_at": _dt(r.created_at)}
+             "emoji": r.emoji, "is_active": r.is_active, "parent_project_id": r.parent_project_id,
+             "created_at": _dt(r.created_at)}
             for r in rows
         ]
 
@@ -1133,6 +1137,20 @@ async def export_data(
             for r in rows
         ]
 
+    if "sprints" in parts:
+        from app.domain.models import Sprint, SprintTask
+        q = select(Sprint)
+        if project_id:
+            q = q.where(Sprint.project_id == project_id)
+        rows = (await db.execute(q)).scalars().all()
+        payload["sprints"] = [
+            {"id": r.id, "name": r.name, "description": r.description,
+             "project_id": r.project_id, "start_date": _dt(r.start_date),
+             "end_date": _dt(r.end_date), "is_active": r.is_active,
+             "created_at": _dt(r.created_at)}
+            for r in rows
+        ]
+
     return JSONResponse(
         content=payload,
         headers={"Content-Disposition": f"attachment; filename=teamflow-export-{today}.json"},
@@ -1151,7 +1169,7 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail="mode must be 'full' or 'merge'")
 
     data = req.data
-    counts = {"projects": 0, "tasks": 0, "meetings": 0, "comments": 0}
+    counts = {"projects": 0, "tasks": 0, "meetings": 0, "comments": 0, "sprints": 0}
 
     if req.mode == "full":
         # Soft-delete tasks and projects; hard-delete meetings and comments
@@ -1159,6 +1177,8 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
         await db.execute(text("UPDATE projects SET is_active = 0"))
         await db.execute(text("DELETE FROM comments"))
         await db.execute(text("DELETE FROM meetings"))
+        await db.execute(text("DELETE FROM sprint_tasks"))
+        await db.execute(text("UPDATE sprints SET is_active = 0"))
         await db.commit()
 
     def _parse_dt(v):
@@ -1178,6 +1198,7 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
         proj = Project(
             id=p["id"], name=p["name"], description=p.get("description"),
             emoji=p.get("emoji", "📁"), is_active=p.get("is_active", True),
+            parent_project_id=p.get("parent_project_id"),
             created_at=_parse_dt(p.get("created_at")) or datetime.utcnow(),
         )
         db.add(proj)
@@ -1247,5 +1268,450 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
         db.add(comment)
         counts["comments"] += 1
 
+    # Sprints
+    from app.domain.models import Sprint, SprintTask
+    for s in data.get("sprints", []):
+        if req.mode == "merge":
+            exists = (await db.execute(select(Sprint).where(Sprint.id == s["id"]))).scalar_one_or_none()
+            if exists:
+                continue
+        sprint = Sprint(
+            id=s["id"], name=s["name"], description=s.get("description"),
+            project_id=s.get("project_id"), start_date=_parse_dt(s.get("start_date")),
+            end_date=_parse_dt(s.get("end_date")), is_active=s.get("is_active", True),
+            created_at=_parse_dt(s.get("created_at")) or datetime.utcnow(),
+        )
+        db.add(sprint)
+        counts["sprints"] += 1
+
     await db.commit()
     return {"imported": counts}
+
+
+# ============= API KEYS =============
+
+class ApiKeyResponse(BaseModel):
+    id: int
+    key: str
+    name: str
+    description: Optional[str]
+    is_active: bool
+    created_at: datetime
+    last_used_at: Optional[datetime]
+    model_config = ConfigDict(from_attributes=True)
+
+class ApiKeyCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class ApiKeyUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@router.get("/api-keys", response_model=List[ApiKeyResponse])
+async def get_api_keys(db: AsyncSession = Depends(get_db)):
+    """Get all API keys."""
+    from app.domain.models import ApiKey
+    result = await db.execute(select(ApiKey).order_by(ApiKey.created_at.desc()))
+    keys = list(result.scalars().all())
+    return keys
+
+
+@router.post("/api-keys", response_model=ApiKeyResponse)
+async def create_api_key(req: ApiKeyCreateRequest, db: AsyncSession = Depends(get_db)):
+    """Create new API key."""
+    from app.domain.models import ApiKey
+    key = secrets.token_hex(32)  # 64 chars
+    api_key = ApiKey(
+        key=key,
+        name=req.name,
+        description=req.description,
+    )
+    db.add(api_key)
+    await db.commit()
+    await db.refresh(api_key)
+    return api_key
+
+
+@router.patch("/api-keys/{key_id}", response_model=ApiKeyResponse)
+async def update_api_key(key_id: int, req: ApiKeyUpdateRequest, db: AsyncSession = Depends(get_db)):
+    """Update API key."""
+    from app.domain.models import ApiKey
+    result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
+    api_key = result.scalar_one_or_none()
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    
+    if req.name is not None:
+        api_key.name = req.name
+    if req.description is not None:
+        api_key.description = req.description
+    if req.is_active is not None:
+        api_key.is_active = req.is_active
+    
+    await db.commit()
+    await db.refresh(api_key)
+    return api_key
+
+
+@router.delete("/api-keys/{key_id}")
+async def delete_api_key(key_id: int, db: AsyncSession = Depends(get_db)):
+    """Delete API key."""
+    from app.domain.models import ApiKey
+    result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
+    api_key = result.scalar_one_or_none()
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    
+    await db.delete(api_key)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/api-keys/{key_id}/regenerate", response_model=ApiKeyResponse)
+async def regenerate_api_key(key_id: int, db: AsyncSession = Depends(get_db)):
+    """Regenerate API key."""
+    from app.domain.models import ApiKey
+    result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
+    api_key = result.scalar_one_or_none()
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    
+    api_key.key = secrets.token_hex(32)
+    await db.commit()
+    await db.refresh(api_key)
+    return api_key
+
+
+# ============= SPRINTS API =============
+
+class SprintCreateRequest(BaseModel):
+    """Создание спринта."""
+    name: str
+    description: Optional[str] = None
+    project_id: Optional[int] = None
+    start_date: datetime
+    end_date: datetime
+
+class SprintUpdateRequest(BaseModel):
+    """Обновление спринта."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    project_id: Optional[int] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    is_active: Optional[bool] = None
+
+class SprintTaskAddRequest(BaseModel):
+    """Добавление задачи в спринт."""
+    task_id: int
+    position: Optional[int] = None
+
+class SprintTaskResponse(BaseModel):
+    """Задача в спринте с деталями."""
+    id: int
+    sprint_id: int
+    task_id: int
+    position: int
+    created_at: datetime
+    # Task details
+    task_title: str
+    task_status: str
+    task_priority: str
+    model_config = ConfigDict(from_attributes=True)
+
+class SprintResponse(BaseModel):
+    """Спринт с задачами."""
+    id: int
+    name: str
+    description: Optional[str]
+    project_id: Optional[int]
+    project_name: Optional[str] = None
+    start_date: datetime
+    end_date: datetime
+    is_active: bool
+    created_at: datetime
+    tasks: List[SprintTaskResponse] = []
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.get("/sprints", response_model=List[SprintResponse])
+async def get_sprints(db: AsyncSession = Depends(get_db)):
+    """Получить все спринты."""
+    from app.domain.models import Sprint, SprintTask, Task, Project
+    result = await db.execute(
+        select(Sprint)
+        .options(
+            selectinload(Sprint.tasks)
+            .selectinload(SprintTask.task)
+            .selectinload(Task.project)
+        )
+        .order_by(Sprint.start_date.desc())
+    )
+    sprints = list(result.scalars().all())
+    
+    response = []
+    for sprint in sprints:
+        # Get project name if exists
+        project_name = None
+        if sprint.project_id:
+            proj_result = await db.execute(select(Project).where(Project.id == sprint.project_id))
+            proj = proj_result.scalar_one_or_none()
+            if proj:
+                project_name = proj.name
+        
+        task_list = []
+        for st in sprint.tasks:
+            task_list.append({
+                "id": st.id,
+                "sprint_id": st.sprint_id,
+                "task_id": st.task_id,
+                "position": st.position,
+                "created_at": st.created_at,
+                "task_title": st.task.title,
+                "task_status": st.task.status,
+                "task_priority": st.task.priority
+            })
+        
+        response.append({
+            "id": sprint.id,
+            "name": sprint.name,
+            "description": sprint.description,
+            "project_id": sprint.project_id,
+            "project_name": project_name,
+            "start_date": sprint.start_date,
+            "end_date": sprint.end_date,
+            "is_active": sprint.is_active,
+            "created_at": sprint.created_at,
+            "tasks": task_list
+        })
+    return response
+
+
+@router.post("/sprints", response_model=SprintResponse)
+async def create_sprint(request: SprintCreateRequest, db: AsyncSession = Depends(get_db)):
+    """Создать спринт."""
+    from app.domain.models import Sprint
+    sprint = Sprint(
+        name=request.name,
+        description=request.description,
+        project_id=request.project_id,
+        start_date=request.start_date,
+        end_date=request.end_date
+    )
+    db.add(sprint)
+    await db.commit()
+    await db.refresh(sprint)
+    return {
+        "id": sprint.id,
+        "name": sprint.name,
+        "description": sprint.description,
+        "project_id": sprint.project_id,
+        "project_name": None,
+        "start_date": sprint.start_date,
+        "end_date": sprint.end_date,
+        "is_active": sprint.is_active,
+        "created_at": sprint.created_at,
+        "tasks": []
+    }
+
+
+@router.get("/sprints/{sprint_id}", response_model=SprintResponse)
+async def get_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
+    """Получить спринт по ID."""
+    from app.domain.models import Sprint, SprintTask, Task, Project
+    result = await db.execute(
+        select(Sprint)
+        .options(
+            selectinload(Sprint.tasks)
+            .selectinload(SprintTask.task)
+        )
+        .where(Sprint.id == sprint_id)
+    )
+    sprint = result.scalar_one_or_none()
+    if not sprint:
+        raise HTTPException(status_code=404, detail="Sprint not found")
+    
+    # Get project name
+    project_name = None
+    if sprint.project_id:
+        proj_result = await db.execute(select(Project).where(Project.id == sprint.project_id))
+        proj = proj_result.scalar_one_or_none()
+        if proj:
+            project_name = proj.name
+    
+    task_list = []
+    for st in sprint.tasks:
+        task_list.append({
+            "id": st.id,
+            "sprint_id": st.sprint_id,
+            "task_id": st.task_id,
+            "position": st.position,
+            "created_at": st.created_at,
+            "task_title": st.task.title,
+            "task_status": st.task.status,
+            "task_priority": st.task.priority
+        })
+    
+    return {
+        "id": sprint.id,
+        "name": sprint.name,
+        "description": sprint.description,
+        "project_id": sprint.project_id,
+        "project_name": project_name,
+        "start_date": sprint.start_date,
+        "end_date": sprint.end_date,
+        "is_active": sprint.is_active,
+        "created_at": sprint.created_at,
+        "tasks": task_list
+    }
+
+
+@router.patch("/sprints/{sprint_id}", response_model=SprintResponse)
+async def update_sprint(sprint_id: int, request: SprintUpdateRequest, db: AsyncSession = Depends(get_db)):
+    """Обновить спринт."""
+    from app.domain.models import Sprint, SprintTask, Task, Project
+    result = await db.execute(select(Sprint).where(Sprint.id == sprint_id))
+    sprint = result.scalar_one_or_none()
+    if not sprint:
+        raise HTTPException(status_code=404, detail="Sprint not found")
+    
+    if request.name is not None:
+        sprint.name = request.name
+    if request.description is not None:
+        sprint.description = request.description
+    if request.project_id is not None:
+        sprint.project_id = request.project_id
+    if request.start_date is not None:
+        sprint.start_date = request.start_date
+    if request.end_date is not None:
+        sprint.end_date = request.end_date
+    if request.is_active is not None:
+        sprint.is_active = request.is_active
+    
+    await db.commit()
+    await db.refresh(sprint)
+    
+    # Reload tasks
+    tasks_result = await db.execute(
+        select(SprintTask)
+        .options(selectinload(SprintTask.task))
+        .where(SprintTask.sprint_id == sprint_id)
+        .order_by(SprintTask.position)
+    )
+    sprint_tasks = tasks_result.scalars().all()
+    
+    # Get project name
+    project_name = None
+    if sprint.project_id:
+        proj_result = await db.execute(select(Project).where(Project.id == sprint.project_id))
+        proj = proj_result.scalar_one_or_none()
+        if proj:
+            project_name = proj.name
+    
+    task_list = []
+    for st in sprint_tasks:
+        task_list.append({
+            "id": st.id,
+            "sprint_id": st.sprint_id,
+            "task_id": st.task_id,
+            "position": st.position,
+            "created_at": st.created_at,
+            "task_title": st.task.title,
+            "task_status": st.task.status,
+            "task_priority": st.task.priority
+        })
+    
+    return {
+        "id": sprint.id,
+        "name": sprint.name,
+        "description": sprint.description,
+        "project_id": sprint.project_id,
+        "project_name": project_name,
+        "start_date": sprint.start_date,
+        "end_date": sprint.end_date,
+        "is_active": sprint.is_active,
+        "created_at": sprint.created_at,
+        "tasks": task_list
+    }
+
+
+@router.delete("/sprints/{sprint_id}")
+async def delete_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
+    """Удалить спринт."""
+    from app.domain.models import Sprint
+    result = await db.execute(select(Sprint).where(Sprint.id == sprint_id))
+    sprint = result.scalar_one_or_none()
+    if not sprint:
+        raise HTTPException(status_code=404, detail="Sprint not found")
+    
+    await db.delete(sprint)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/sprints/{sprint_id}/tasks", response_model=SprintTaskResponse)
+async def add_task_to_sprint(sprint_id: int, request: SprintTaskAddRequest, db: AsyncSession = Depends(get_db)):
+    """Добавить задачу в спринт."""
+    from app.domain.models import Sprint, SprintTask, Task
+    # Check sprint exists
+    sprint_result = await db.execute(select(Sprint).where(Sprint.id == sprint_id))
+    sprint = sprint_result.scalar_one_or_none()
+    if not sprint:
+        raise HTTPException(status_code=404, detail="Sprint not found")
+    
+    # Check task exists
+    task_result = await db.execute(select(Task).where(Task.id == request.task_id))
+    task = task_result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Get max position
+    max_pos_result = await db.execute(select(func.max(SprintTask.position)).where(SprintTask.sprint_id == sprint_id))
+    max_pos = max_pos_result.scalar_one_or_none() or 0
+    
+    sprint_task = SprintTask(
+        sprint_id=sprint_id,
+        task_id=request.task_id,
+        position=request.position or (max_pos + 1)
+    )
+    db.add(sprint_task)
+    await db.commit()
+    await db.refresh(sprint_task)
+    await db.refresh(sprint_task.task)
+    return sprint_task
+
+
+@router.delete("/sprints/{sprint_id}/tasks/{task_id}")
+async def remove_task_from_sprint(sprint_id: int, task_id: int, db: AsyncSession = Depends(get_db)):
+    """Удалить задачу из спринта."""
+    from app.domain.models import SprintTask
+    result = await db.execute(
+        select(SprintTask)
+        .where(SprintTask.sprint_id == sprint_id)
+        .where(SprintTask.task_id == task_id)
+    )
+    sprint_task = result.scalar_one_or_none()
+    if not sprint_task:
+        raise HTTPException(status_code=404, detail="Task not in sprint")
+    
+    await db.delete(sprint_task)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/sprints/{sprint_id}/tasks", response_model=List[SprintTaskResponse])
+async def get_sprint_tasks(sprint_id: int, db: AsyncSession = Depends(get_db)):
+    """Получить задачи спринта."""
+    from app.domain.models import SprintTask
+    result = await db.execute(
+        select(SprintTask)
+        .options(selectinload(SprintTask.task))
+        .where(SprintTask.sprint_id == sprint_id)
+        .order_by(SprintTask.position)
+    )
+    sprint_tasks = list(result.scalars().all())
+    return sprint_tasks
+

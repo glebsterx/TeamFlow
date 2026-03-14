@@ -1,7 +1,7 @@
 """Domain models."""
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, BigInteger, Boolean
-from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm import relationship, backref, Mapped, mapped_column
 from app.core.db import Base
 from app.domain.enums import TaskStatus, TaskSource, TaskPriority
 
@@ -162,3 +162,56 @@ class PushSubscription(Base):
     auth = Column(Text, nullable=False)
     user_telegram_id = Column(BigInteger, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class Sprint(Base):
+    """Sprint/Iteration for task planning."""
+    __tablename__ = "sprints"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)  # Optional project association
+    start_date = Column(DateTime, nullable=False)
+    end_date = Column(DateTime, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    tasks = relationship("SprintTask", back_populates="sprint", cascade="all, delete-orphan")
+    project = relationship("Project")
+
+    def __repr__(self):
+        return f"<Sprint(id={self.id}, name='{self.name}', start={self.start_date})>"
+
+
+class SprintTask(Base):
+    """Task in a sprint queue."""
+    __tablename__ = "sprint_tasks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sprint_id = Column(Integer, ForeignKey("sprints.id"), nullable=False)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+    position = Column(Integer, default=0)  # Order in sprint queue
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    sprint = relationship("Sprint", back_populates="tasks")
+    task = relationship("Task")
+
+    def __repr__(self):
+        return f"<SprintTask(sprint={self.sprint_id}, task={self.task_id}, position={self.position})>"
+
+
+class ApiKey(Base):
+    """API key for external access."""
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(64), unique=True, nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_used_at = Column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<ApiKey(id={self.id}, name='{self.name}')>"

@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from app.core.db import AsyncSessionLocal
 from app.services.task_service import TaskService
+from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskStatus, TaskSource
 from app.telegram.keyboards.task_keyboards import get_task_action_keyboard
 from app.config import settings
@@ -39,7 +40,53 @@ def get_skip_keyboard() -> InlineKeyboardMarkup:
 async def cmd_task(message: Message, state: FSMContext):
     """Handle /task command - start task creation dialog."""
     await state.clear()
-    
+
+    # Check if replying to another message
+    if message.reply_to_message:
+        # Create task directly from reply
+        reply_text = message.reply_to_message.text or message.reply_to_message.caption or ""
+        reply_from = message.reply_to_message.from_user
+        
+        if len(reply_text.strip()) < 5:
+            await message.answer("❌ Сообщение слишком короткое для задачи")
+            return
+        
+        async with AsyncSessionLocal() as db:
+            service = TaskService(db)
+            user_repo = UserRepository(db)
+            
+            # Get or create user
+            user = await user_repo.get_by_telegram_id(message.from_user.id)
+            if not user:
+                user = await user_repo.create(
+                    telegram_id=message.from_user.id,
+                    username=message.from_user.username or "",
+                    first_name=message.from_user.first_name or "",
+                    last_name=message.from_user.last_name or ""
+                )
+            
+            # Create task with reply context
+            title = reply_text[:255]  # Truncate if too long
+            description = f"Из сообщения от @{reply_from.username or reply_from.first_name}:\n\n{reply_text}" if reply_text else None
+            
+            task = await service.create_task(
+                title=title,
+                description=description[:2000] if description else None,
+                source=TaskSource.CHAT_MESSAGE,
+                source_message_id=message.reply_to_message.message_id,
+                source_chat_id=message.chat.id
+            )
+            
+            await message.answer(
+                f"✅ Задача #{task.id} создана из сообщения:\n\n*{title}*\n\n"
+                f"👤 Автор: @{reply_from.username or reply_from.first_name}\n"
+                f"📅 Создана: {task.created_at.strftime('%d.%m.%Y %H:%M')}",
+                parse_mode="Markdown"
+            )
+            logger.info("task_created_from_reply", task_id=task.id, user_id=message.from_user.id)
+        return
+
+    # Normal task creation flow
     await message.answer(
         "📝 *Создание новой задачи*\n\n"
         "Введите название задачи:",

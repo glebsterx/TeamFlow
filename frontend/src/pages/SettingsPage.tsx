@@ -1,22 +1,174 @@
 import React from 'react';
 import axios from 'axios';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import type { Project } from '../types/dashboard';
 import { API_URL } from '../constants/taskDisplay';
+import { showToast } from '../utils/toast';
+
+interface ApiKey {
+  id: number;
+  key: string;
+  name: string;
+  description?: string;
+  is_active: boolean;
+  created_at: string;
+  last_used_at?: string;
+}
 
 interface SettingsPageProps {
   projects: Project[];
 }
 
 export default function SettingsPage({ projects }: SettingsPageProps) {
+  const queryClient = useQueryClient();
   const [exportProjectId, setExportProjectId] = React.useState('');
   const [exportInclude, setExportInclude] = React.useState({
-    tasks: true, projects: true, meetings: true, comments: true,
+    tasks: true, projects: true, meetings: true, comments: true, sprints: true,
   });
   const [importing, setImporting] = React.useState(false);
   const [importMode, setImportMode] = React.useState<'merge' | 'full'>('merge');
   const [importResult, setImportResult] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  
+  // Project management state
+  const [editingProjectId, setEditingProjectId] = React.useState<number | null>(null);
+  const [editName, setEditName] = React.useState('');
+  const [editEmoji, setEditEmoji] = React.useState('');
+  
+  // API Keys state
+  const [apiKeys, setApiKeys] = React.useState<ApiKey[]>([]);
+  const [showNewKey, setShowNewKey] = React.useState(false);
+  const [newKeyName, setNewKeyName] = React.useState('');
+  const [newKeyDesc, setNewKeyDesc] = React.useState('');
+  const [generatedKey, setGeneratedKey] = React.useState<string | null>(null);
+
+  // Load API keys
+  React.useEffect(() => {
+    axios.get(`${API_URL}/api/api-keys`).then(res => setApiKeys(res.data)).catch(() => {});
+  }, []);
+
+  const updateProjectMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      await axios.patch(`${API_URL}/api/projects/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      showToast('Проект обновлён', 'success');
+      setEditingProjectId(null);
+    },
+    onError: () => {
+      showToast('Ошибка при обновлении', 'error');
+    },
+  });
+
+  const deleteProjectMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await axios.delete(`${API_URL}/api/projects/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      showToast('Проект удалён', 'success');
+      setEditingProjectId(null);
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail;
+      if (detail?.code === 'PROJECT_HAS_DEPENDENCIES') {
+        showToast(`Нельзя удалить: ${detail.subprojects_count} подпроектов, ${detail.tasks_count} задач`, 'error');
+      } else {
+        showToast('Ошибка при удалении', 'error');
+      }
+    },
+  });
+
+  const handleStartEdit = (project: Project) => {
+    setEditingProjectId(project.id);
+    setEditName(project.name);
+    setEditEmoji(project.emoji || '📁');
+  };
+
+  const handleSaveEdit = (projectId: number) => {
+    if (!editName.trim()) {
+      showToast('Введите название проекта', 'warning');
+      return;
+    }
+    updateProjectMutation.mutate({
+      id: projectId,
+      data: { name: editName.trim(), emoji: editEmoji },
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingProjectId(null);
+    setEditName('');
+    setEditEmoji('');
+  };
+
+  const handleCreateKey = async () => {
+    if (!newKeyName.trim()) {
+      showToast('Введите название ключа', 'warning');
+      return;
+    }
+    try {
+      const res = await axios.post(`${API_URL}/api/api-keys`, {
+        name: newKeyName.trim(),
+        description: newKeyDesc.trim() || undefined,
+      });
+      setGeneratedKey(res.data.key);
+      setApiKeys(prev => [...prev, res.data]);
+      setNewKeyName('');
+      setNewKeyDesc('');
+      setShowNewKey(false);
+      showToast('API-ключ создан', 'success');
+    } catch {
+      showToast('Ошибка при создании', 'error');
+    }
+  };
+
+  const handleDeleteKey = async (keyId: number) => {
+    if (!confirm('Удалить API-ключ?')) return;
+    try {
+      await axios.delete(`${API_URL}/api/api-keys/${keyId}`);
+      setApiKeys(prev => prev.filter(k => k.id !== keyId));
+      showToast('Ключ удалён', 'success');
+    } catch {
+      showToast('Ошибка при удалении', 'error');
+    }
+  };
+
+  const handleToggleKey = async (key: ApiKey) => {
+    try {
+      const res = await axios.patch(`${API_URL}/api/api-keys/${key.id}`, {
+        is_active: !key.is_active,
+      });
+      setApiKeys(prev => prev.map(k => k.id === key.id ? res.data : k));
+      showToast(key.is_active ? 'Ключ деактивирован' : 'Ключ активирован', 'success');
+    } catch {
+      showToast('Ошибка', 'error');
+    }
+  };
+
+  const handleRegenerateKey = async (keyId: number) => {
+    if (!confirm('Перегенерировать ключ? Старый перестанет работать.')) return;
+    try {
+      const res = await axios.get(`${API_URL}/api/api-keys/${keyId}/regenerate`);
+      setGeneratedKey(res.data.key);
+      setApiKeys(prev => prev.map(k => k.id === keyId ? res.data : k));
+      setShowNewKey(true);
+      showToast('Ключ перегенерирован', 'success');
+    } catch {
+      showToast('Ошибка', 'error');
+    }
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Скопировано', 'success');
+    } catch {
+      showToast('Не удалось скопировать', 'error');
+    }
+  };
 
   const handleExport = () => {
     const parts = (Object.keys(exportInclude) as (keyof typeof exportInclude)[])
@@ -52,6 +204,175 @@ export default function SettingsPage({ projects }: SettingsPageProps) {
       <h2 className="text-lg sm:text-xl font-bold mb-5">⚙️ Настройки</h2>
 
       <div className="max-w-lg space-y-6">
+        {/* Projects Management */}
+        <section className="bg-white border rounded-xl p-4">
+          <h3 className="font-semibold text-base mb-3">📁 Управление проектами</h3>
+          <div className="space-y-2">
+            {projects.map(project => (
+              <div
+                key={project.id}
+                className="flex items-center gap-2 p-2 border rounded-lg hover:bg-gray-50"
+              >
+                {editingProjectId === project.id ? (
+                  <>
+                    <input
+                      type="text"
+                      value={editEmoji}
+                      onChange={(e) => setEditEmoji(e.target.value)}
+                      className="w-10 px-2 py-1 border rounded text-center text-lg"
+                      maxLength={2}
+                    />
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="flex-1 px-2 py-1 border rounded text-sm"
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => handleSaveEdit(project.id)}
+                      className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600"
+                    >✓</button>
+                    <button
+                      onClick={handleCancelEdit}
+                      className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                    >✕</button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xl">{project.emoji || '📁'}</span>
+                    <span className="flex-1 text-sm font-medium">{project.name}</span>
+                    <button
+                      onClick={() => handleStartEdit(project)}
+                      className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700"
+                      title="Редактировать"
+                    >✏️</button>
+                    <button
+                      onClick={() => deleteProjectMutation.mutate(project.id)}
+                      className="px-2 py-1 text-xs text-red-500 hover:text-red-700"
+                      title="Удалить"
+                    >🗑️</button>
+                  </>
+                )}
+              </div>
+            ))}
+            {projects.length === 0 && (
+              <p className="text-sm text-gray-500 text-center py-4">Проектов нет</p>
+            )}
+          </div>
+        </section>
+
+        {/* API Keys */}
+        <section className="bg-white border rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-base">🔑 API-ключи</h3>
+            <button
+              onClick={() => { setShowNewKey(true); setGeneratedKey(null); }}
+              className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >+ Ключ</button>
+          </div>
+          
+          {showNewKey && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={newKeyName}
+                  onChange={(e) => setNewKeyName(e.target.value)}
+                  placeholder="Название (например: AI Assistant)"
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                  autoFocus
+                />
+                <input
+                  type="text"
+                  value={newKeyDesc}
+                  onChange={(e) => setNewKeyDesc(e.target.value)}
+                  placeholder="Описание (необязательно)"
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCreateKey}
+                    className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+                  >Создать</button>
+                  <button
+                    onClick={() => { setShowNewKey(false); setNewKeyName(''); setNewKeyDesc(''); }}
+                    className="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300"
+                  >Отмена</button>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {generatedKey && (
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <div className="text-sm text-green-800 font-medium mb-2">
+                🔑 Сохраните ключ! Он показывается только один раз.
+              </div>
+              <div className="flex gap-2">
+                <code className="flex-1 px-3 py-2 bg-white border rounded text-xs font-mono break-all">
+                  {generatedKey}
+                </code>
+                <button
+                  onClick={() => copyToClipboard(generatedKey)}
+                  className="px-3 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 whitespace-nowrap"
+                >📋 Копия</button>
+              </div>
+              <button
+                onClick={() => setGeneratedKey(null)}
+                className="mt-2 text-xs text-green-600 hover:underline"
+              >Я сохранил(а)</button>
+            </div>
+          )}
+          
+          <div className="space-y-2">
+            {apiKeys.map(key => (
+              <div
+                key={key.id}
+                className={`flex items-center gap-3 p-3 border rounded-lg ${key.is_active ? 'bg-white' : 'bg-gray-50 opacity-75'}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm truncate">{key.name}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${key.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
+                      {key.is_active ? 'Активен' : 'Деактивирован'}
+                    </span>
+                  </div>
+                  {key.description && (
+                    <div className="text-xs text-gray-500 truncate mt-1">{key.description}</div>
+                  )}
+                  <div className="text-xs text-gray-400 mt-1">
+                    Создан: {new Date(key.created_at).toLocaleDateString('ru')}
+                    {key.last_used_at && (
+                      <span className="ml-2">· Использован: {new Date(key.last_used_at).toLocaleDateString('ru')}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => handleToggleKey(key)}
+                    className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700"
+                    title={key.is_active ? 'Деактивировать' : 'Активировать'}
+                  >{key.is_active ? '🚫' : '✅'}</button>
+                  <button
+                    onClick={() => handleRegenerateKey(key.id)}
+                    className="px-2 py-1 text-xs text-blue-500 hover:text-blue-700"
+                    title="Перегенерировать"
+                  >🔄</button>
+                  <button
+                    onClick={() => handleDeleteKey(key.id)}
+                    className="px-2 py-1 text-xs text-red-500 hover:text-red-700"
+                    title="Удалить"
+                  >🗑️</button>
+                </div>
+              </div>
+            ))}
+            {apiKeys.length === 0 && (
+              <p className="text-sm text-gray-500 text-center py-4">API-ключей нет</p>
+            )}
+          </div>
+        </section>
+
         {/* Export */}
         <section className="bg-white border rounded-xl p-4">
           <h3 className="font-semibold text-base mb-3">📤 Экспорт</h3>

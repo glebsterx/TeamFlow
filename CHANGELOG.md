@@ -2,6 +2,37 @@
 
 ---
 
+## v0.8.10 — Settings: API Keys, Projects; Sprints UI; Export/Import (2026-03-14)
+
+### #17 — Команда /task в ответ на сообщение
+- **Backend:** Обработка reply_to_message в cmd_task()
+- **Backend:** Создание задачи из текста сообщения
+- **Backend:** Описание включает автора (@username)
+- **Backend:** source=CHAT_MESSAGE, source_message_id, source_chat_id
+- **Backend:** Минимальная длина сообщения: 5 символов
+
+### #56/#82 — Sprint Planning — Full Stack
+**Backend:**
+- Модели Sprint и SprintTask
+- project_id в Sprint для привязки к проекту
+- Миграция — таблицы sprints и sprint_tasks
+- SprintTaskResponse с task_title, task_status, task_priority
+- API GET/POST /api/sprints — список и создание спринтов
+- API GET/PATCH/DELETE /api/sprints/{id} — управление спринтом
+- API POST /api/sprints/{id}/tasks — добавить задачу в спринт
+- API DELETE /api/sprints/{id}/tasks/{task_id} — удалить задачу из спринта
+- API GET /api/sprints/{id}/tasks — список задач спринта (сортировка по position)
+
+**Frontend:**
+- SprintsPage — список спринтов с задачами и проектами
+- SprintModal — создание/редактирование спринта с выбором проекта
+- SprintModal — добавление/удаление задач из спринта
+- Отображение задач в карточках спринтов (статусы цветными бейджами)
+- Навигация — вкладка 🏃 Спринты в Dashboard
+- API client (sprintsApi) для работы со спринтами
+
+---
+
 ## v0.8.9 — Защита от потери данных при удалении проекта (2026-03-14)
 
 ### #63 — Project Deletion Protection

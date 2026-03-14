@@ -15,6 +15,7 @@ import NewTaskModal from '../modals/NewTaskModal';
 import ConfirmDeleteModal from '../modals/ConfirmDeleteModal';
 import BacklogPage from './BacklogPage';
 import SettingsPage from './SettingsPage';
+import SprintsPage from './SprintsPage';
 import ArchivePage from './ArchivePage';
 import DigestPage from './DigestPage';
 import ProjectNavPage from './ProjectNavPage';
@@ -25,7 +26,7 @@ import NewProjectModal from '../modals/NewProjectModal';
 import ProjectModal from '../modals/ProjectModal';
 
 export default function Dashboard() {
-  const [currentPage, setCurrentPage] = useState<'tasks' | 'projects' | 'meetings' | 'digest' | 'archive' | 'backlog' | 'settings'>(
+  const [currentPage, setCurrentPage] = useState<'tasks' | 'projects' | 'meetings' | 'sprints' | 'digest' | 'archive' | 'backlog' | 'settings'>(
     () => (sessionStorage.getItem('tf_page') as any) || 'tasks'
   );
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
@@ -461,6 +462,7 @@ export default function Dashboard() {
               { id: 'tasks', label: 'Задачи', icon: '📋' },
               { id: 'projects', label: 'Проекты', icon: '📁' },
               { id: 'meetings', label: 'Встречи', icon: '🤝' },
+              { id: 'sprints', label: 'Спринты', icon: '🏃' },
               { id: 'backlog', label: 'Бэклог', icon: '📦' },
               { id: 'digest', label: 'Дайджест', icon: '📊' },
               { id: 'archive', label: 'Архив', icon: '🗄️' },
@@ -917,6 +919,11 @@ export default function Dashboard() {
             </div>
           </>
         )}
+        {/* SPRINTS PAGE */}
+        {currentPage === 'sprints' && (
+          <SprintsPage />
+        )}
+
         {/* BACKLOG PAGE */}
         {currentPage === 'backlog' && (
           <BacklogPage
