@@ -11,7 +11,7 @@ interface BacklogTaskRowProps {
   onOpenTask: (t: Task) => void;
 }
 
-function BacklogTaskRow({ task, invalidate, onOpenTask }: BacklogTaskRowProps) {
+export function BacklogTaskRow({ task, invalidate, onOpenTask }: BacklogTaskRowProps) {
   const handlePromote = async () => {
     await axios.patch(`${API_URL}/api/tasks/${task.id}`, { backlog: false });
     invalidate();

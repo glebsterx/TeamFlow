@@ -1,7 +1,9 @@
 import React from 'react';
+import axios from 'axios';
 import type { Task, Project } from '../types/dashboard';
-import { STATUS_COLOR, STATUS_EMOJI, STATUS_LABELS, PRIORITY_EMOJI, cardBg } from '../constants/taskDisplay';
+import { API_URL, STATUS_COLOR, STATUS_BORDER, STATUS_EMOJI, STATUS_LABELS, PRIORITY_COLOR, PRIORITY_LABELS, PRIORITY_EMOJI, cardBg } from '../constants/taskDisplay';
 import { getDueStatus, formatDueDate } from '../utils/dateUtils';
+import { BacklogTaskRow } from './BacklogPage';
 
 export default function ProjectNavPage({ projects, tasks, navProject, navTaskPath, onSelectProject, onPushTask, onEditProject, onOpenTask, onNewProject, onNewTask, changeStatusMutation, takeTaskMutation, myUserId, invalidate, ancestorBlockedIds }: any) {
   const [statusFilter, setStatusFilter] = React.useState<string | null>(null);
