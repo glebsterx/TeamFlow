@@ -2,11 +2,86 @@
 
 ---
 
-## v0.8.6 — UX исправления после рефакторинга (2026-03-14)
+## v0.8.9 — Защита от потери данных при удалении проекта (2026-03-14)
+
+### #63 — Project Deletion Protection
+- **Backend:** Soft delete для проектов (поле `deleted`)
+- **Backend:** Валидация при удалении — проверка подпроектов и задач
+- **Backend:** API `/projects/{id}/can-delete` — проверка возможности удаления
+- **Backend:** API `/projects/{id}/archive` — архивация проекта
+- **Backend:** API `/projects/{id}/restore` — восстановление из архива
+- **Backend:** API `/projects/archived` — список архивных проектов
+- **Frontend:** ConfirmDeleteModal с проверкой зависимостей
+- **Frontend:** Показ подпроектов и задач при невозможности удаления
+- **Frontend:** Кнопка "Архивировать" вместо удаления для проектов с зависимостями
+- **Frontend:** Кнопка "↩️ Восстановить" для архивных проектов
+- **Frontend:** Кнопка "🗄️ Архив" в ProjectModal
+
+### #64 — Авто-архивация DONE задач
+- **Docs:** Документация в DEPLOYMENT.md по авто-архивации
+- **Migration:** completed_at = updated_at для старых DONE задач
+- **Cron:** Настройка `0 3 * * *` для ежедневной авто-архивации
+- **Endpoint:** `/tasks/auto-archive` — архивирует DONE задачи старше 7 дней
+
+---
+
+## v0.8.8 — Markdown 2 и защита от concurrent editing (2026-03-14)
+
+### #39 — Markdown 2 Editor
+- **Frontend (TaskModal):** Toolbar с кнопками (жирный, курсив, код, списки, ссылки)
+- **Frontend (NewTaskModal):** Markdown editor при создании задачи
+- **Frontend (ProjectModal):** Markdown editor для описания проекта
+- **Frontend (MeetingModal):** Markdown editor для встреч
+- **Frontend (NewMeetingModal):** Markdown editor при создании встречи
+- **Keyboard shortcuts:** Ctrl+B/I/E/K работают с любой раскладкой (через e.code)
+- **Toggle:** Повторное нажатие удаляет форматирование
+- **Preview:** Вкладка просмотра отрендеренного Markdown
+- **Font-mono:** Моноширинный шрифт в textarea для удобства
+
+### #60 — Concurrent Edit Protection
+- **Backend:** Optimistic locking через `expected_updated_at` в PATCH /tasks/{id}
+- **Backend:** Возврат 409 Conflict с деталями при несовпадении updated_at
+- **Frontend:** Отправка `task.updated_at` при сохранении задачи
+- **Frontend:** Conflict modal при обнаружении конфликта
+- **Frontend:** Выбор: "Отменить и обновить" или "Перезаписать"
+
+---
+
+## v0.8.7 — Структура проектов и Markdown 2 (2026-03-14)
+
+### #53 — Структура проектов
+- **Backend:** Добавлено поле `parent_project_id` в модель Project
+- **Backend:** API `/projects` поддерживает создание подпроектов
+- **Frontend:** ProjectNavPage — древовидное отображение проектов (родительские + подпроекты)
+- **Frontend:** NewProjectModal — выбор родительского проекта при создании
+- Подпроекты отображаются вложенными в карточку родительского проекта
+
+### #39 — Markdown 2
+- **Frontend (TaskModal):** Toolbar для форматирования Markdown (жирный, курсив, код, списки, ссылки)
+- **Frontend (TaskModal):** Keyboard shortcuts: Ctrl+B (жирный), Ctrl+I (курсив), Ctrl+E (код), Ctrl+K (ссылка)
+- **Frontend (TaskModal):** Font-mono шрифт в редакторе для удобства работы с Markdown
+
+---
+
+## v0.8.6 — Управление статусами и история блокеров (2026-03-14)
+
+### #57 — Управление статусами
+- **Backend:** Валидация — нельзя завершить задачу (DONE), если есть незавершённые подзадачи
+- **Frontend (TaskModal):** Кнопка DONE заблокирована, показывается предупреждение при клике
+- **Frontend (Dashboard, ProjectNavPage):** Toast warning при попытке завершить задачу с незавершёнными подзадачами
+- **Frontend (TaskModal):** Авто-предложение DONE, когда все подзадачи завершены (зелёная плашка)
+- Правильное склонение: "1 подзадача не завершена", "2-4 подзадачи не завершены", "5+ подзадач не завершено"
+
+### #59 — История блокеров
+- **Database:** Добавлено поле `resolved_at` в таблицу `blockers`
+- **Backend:** При смене статуса с BLOCKED на другой — все блокеры помечаются как разрешённые (`resolved_at`)
+- **Frontend (TaskModal):** Блокер показывается только если статус BLOCKED
+- **Frontend (TaskModal):** Секция "📜 История блокеров" — показывает все блокеры с датами блокировки/разблокировки
+- Разрешённые блокеры показываются зачёркнутыми с датой разблокировки
 
 ### Исправления
-- Исправлены проблемы на фронтенде после рефакторинга Dashboard.tsx
-- Обновлён ROADMAP.md
+- **Backlog:** Задачи из бэклога больше не показываются в общем списке задач (`/api/tasks` фильтрует `backlog == False`)
+- **Frontend (TaskModal):** Кнопка 📦 для переключения бэклога с toast уведомлением
 
 ---
 

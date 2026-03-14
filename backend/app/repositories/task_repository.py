@@ -38,7 +38,7 @@ class TaskRepository:
         status: Optional[TaskStatus] = None,
         assignee_telegram_id: Optional[int] = None
     ) -> List[Task]:
-        """Get all non-archived, non-deleted tasks (top-level and subtasks)."""
+        """Get all non-archived, non-deleted, non-backlog tasks (top-level and subtasks)."""
         priority_order = case(
             (Task.priority == 'URGENT', 1),
             (Task.priority == 'HIGH', 2),
@@ -55,6 +55,7 @@ class TaskRepository:
             )
             .where(Task.archived == False)  # noqa: E712
             .where(Task.deleted == False)   # noqa: E712
+            .where(Task.backlog == False)   # noqa: E712 - exclude backlog tasks
         )
         if status:
             query = query.where(Task.status == status.value)

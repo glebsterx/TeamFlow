@@ -12,6 +12,22 @@ export function timeAgo(dateStr: string): string {
   return date.toLocaleDateString('ru', { day: 'numeric', month: 'short' });
 }
 
+/**
+ * Russian pluralization helper.
+ * @param n - Number
+ * @param forms - Array of 3 forms: [singular, few, many]
+ * @example plural(5, ['подзадача', 'подзадачи', 'подзадач']) => 'подзадач'
+ */
+export function plural(n: number, forms: [string, string, string]): string {
+  if (n % 10 === 1 && n % 100 !== 11) {
+    return forms[0]; // 1 подзадача
+  } else if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) {
+    return forms[1]; // 2-4 подзадачи
+  } else {
+    return forms[2]; // 5+ подзадач
+  }
+}
+
 export function formatDatetime(dateStr: string): string {
   const date = new Date(dateStr.includes('Z') ? dateStr : dateStr + 'Z');
   return date.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });

@@ -1,4 +1,4 @@
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8180';
+export const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8180';
 
 export const STATUS_COLOR: Record<string, string> = {
   TODO: 'bg-gray-100 text-gray-700 border-gray-300',

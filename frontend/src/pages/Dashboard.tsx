@@ -3,8 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 
 import type { Task, Project, Meeting, Stats, TelegramUser } from '../types/dashboard';
-import { API_URL, STATUS_COLOR, STATUS_BORDER, STATUS_EMOJI, STATUS_LABELS, DUE_BADGE, PRIORITY_LABELS, PRIORITY_COLOR, PRIORITY_ORDER, PRIORITY_EMOJI, STATUS_BG, cardBg } from '../constants/taskDisplay';
-import { timeAgo, formatDatetime, getDueStatus, formatDueDate, toDateInputValue } from '../utils/dateUtils';
+import { API_URL, STATUS_COLOR, STATUS_BORDER, STATUS_EMOJI, STATUS_LABELS, DUE_BADGE, PRIORITY_LABELS, PRIORITY_COLOR, PRIORITY_ORDER, PRIORITY_EMOJI, cardBg } from '../constants/taskDisplay';
+import { timeAgo, getDueStatus, formatDueDate } from '../utils/dateUtils';
 import { getAncestorBlockedIds } from '../utils/taskUtils';
 import { showToast } from '../utils/toast';
 import { useTaskChangeDetector } from '../hooks/useTaskChangeDetector';
@@ -73,7 +73,7 @@ export default function Dashboard() {
     browserNavIndex.current++;
     history.pushState({ tfIdx: browserNavIndex.current }, '');
   };
-  const goBack    = React.useCallback(() => { if (modalCloseRef.current) { modalCloseRef.current(); return; } if (!navBack.current.length) return; const s = navBack.current.at(-1)!; navFwd.current = [snapRef.current(), ...navFwd.current]; navBack.current = navBack.current.slice(0, -1); applyRef.current(s); }, []);
+  const goBack    = React.useCallback(() => { if (modalCloseRef.current) { modalCloseRef.current(); return; } if (!navBack.current.length) return; const s = navBack.current[navBack.current.length - 1]; navFwd.current = [snapRef.current(), ...navFwd.current]; navBack.current = navBack.current.slice(0, -1); applyRef.current(s); }, []);
   const goForward = React.useCallback(() => { if (!navFwd.current.length) return; const s = navFwd.current[0]; navBack.current = [...navBack.current, snapRef.current()]; navFwd.current = navFwd.current.slice(1); applyRef.current(s); }, []);
 
   React.useEffect(() => {
@@ -171,6 +171,12 @@ export default function Dashboard() {
     refetchInterval: 5000,
   });
 
+  const { data: backlogTasks = [] } = useQuery<Task[]>({
+    queryKey: ['backlog'],
+    queryFn: async () => (await axios.get(`${API_URL}/api/backlog`)).data,
+    refetchInterval: 5000,
+  });
+
   const { data: stats } = useQuery<Stats>({
     queryKey: ['stats'],
     queryFn: async () => (await axios.get(`${API_URL}/api/stats`)).data,
@@ -261,6 +267,12 @@ export default function Dashboard() {
       setSelectedTask(prev => prev?.id === vars.taskId ? { ...prev, status: vars.status } : prev);
       invalidate();
     },
+    onError: (error: any) => {
+      const detail = error?.response?.data?.detail;
+      if (detail) {
+        showToast(detail, 'error');
+      }
+    },
   });
 
   const assignMutation = useMutation({
@@ -269,7 +281,7 @@ export default function Dashboard() {
     },
     onSuccess: (_, vars) => {
       const assignedUser = vars.userId ? (users || []).find((u: any) => u.telegram_id === vars.userId) ?? null : null;
-      setSelectedTask(prev => prev?.id === vars.taskId ? { ...prev, assignee: assignedUser } : prev);
+      setSelectedTask(prev => prev?.id === vars.taskId ? { ...prev, assignee: assignedUser || undefined } : prev);
       invalidate();
     },
   });
@@ -768,7 +780,22 @@ export default function Dashboard() {
                         )}
                         {task.status === 'DOING' && (
                           <button
-                            onClick={(e) => { e.stopPropagation(); changeStatusMutation.mutate({ taskId: task.id, status: 'DONE' }); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const taskChildren = tasks.filter((t: any) => t.parent_task_id === task.id);
+                              const incomplete = taskChildren.filter((t: any) => t.status !== 'DONE');
+                              if (incomplete.length > 0) {
+                                const forms = ['подзадача не завершена', 'подзадачи не завершены', 'подзадач не завершено'];
+                                const n = incomplete.length;
+                                let formIdx: number;
+                                if (n % 10 === 1 && n % 100 !== 11) formIdx = 0;
+                                else if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) formIdx = 1;
+                                else formIdx = 2;
+                                showToast(`Нельзя завершить задачу: ${n} ${forms[formIdx]}. Завершите: ${incomplete.map((s: any) => `#${s.id}`).join(', ')}`, 'warning');
+                              } else {
+                                changeStatusMutation.mutate({ taskId: task.id, status: 'DONE' });
+                              }
+                            }}
                             className="absolute inset-0 flex items-center justify-center px-2 py-0.5 rounded-full text-xs border border-green-300 bg-green-50 text-green-700 opacity-0 group-hover:opacity-100 [@media(not(hover:hover))]:opacity-100 transition-opacity duration-150 whitespace-nowrap"
                           >
                             <span className="sm:hidden">✓</span><span className="hidden sm:inline">✓ Готово</span>
@@ -893,7 +920,7 @@ export default function Dashboard() {
         {/* BACKLOG PAGE */}
         {currentPage === 'backlog' && (
           <BacklogPage
-            tasks={tasks}
+            tasks={backlogTasks}
             projects={projects}
             onOpenTask={setSelectedTask}
             onNewTask={(ctx) => { setNewTaskDefaults(ctx); setShowNewTask(true); }}
@@ -929,10 +956,10 @@ export default function Dashboard() {
           {...{ tasks, users, projects, changeStatusMutation, assignMutation, assignProjectMutation, updateTaskMutation, setConfirmDelete, invalidate, createSubtaskMutation }}
         />
       )}
-      {selectedProject && <ProjectModal project={selectedProject} onClose={() => setSelectedProject(null)} {...{ updateProjectMutation, setConfirmDelete }} />}
+      {selectedProject && <ProjectModal project={selectedProject} projects={projects} invalidate={invalidate} onClose={() => setSelectedProject(null)} {...{ updateProjectMutation, setConfirmDelete }} />}
       {selectedMeeting && <MeetingModal meeting={selectedMeeting} onClose={() => setSelectedMeeting(null)} {...{ updateMeetingMutation, setConfirmDelete }} />}
       {showNewTask && <NewTaskModal onClose={() => { setShowNewTask(false); setNewTaskDefaults({}); }} onOpenTask={(t: Task) => { setShowNewTask(false); setNewTaskDefaults({}); setSelectedTask(t); }} initialProjectId={newTaskDefaults.projectId} initialParentTaskId={newTaskDefaults.parentTaskId} initialBacklog={newTaskDefaults.backlog} {...{ projects, tasks, createTaskMutation }} />}
-      {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} {...{ createProjectMutation }} />}
+      {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} projects={projects} {...{ createProjectMutation }} />}
       {showNewMeeting && <NewMeetingModal onClose={() => setShowNewMeeting(false)} {...{ createMeetingMutation }} />}
       {confirmDelete && <ConfirmDeleteModal confirm={confirmDelete} onClose={() => setConfirmDelete(null)} {...{ deleteTaskMutation, deleteProjectMutation, deleteMeetingMutation }} />}
       <ToastContainer />

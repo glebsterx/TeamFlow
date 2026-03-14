@@ -48,6 +48,8 @@ MIGRATIONS = [
         user_telegram_id BIGINT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )"""),
+    ("blockers", "resolved_at", "ALTER TABLE blockers ADD COLUMN resolved_at DATETIME"),
+    ("projects", "parent_project_id", "ALTER TABLE projects ADD COLUMN parent_project_id INTEGER REFERENCES projects(id)"),
 ]
 
 async def run():

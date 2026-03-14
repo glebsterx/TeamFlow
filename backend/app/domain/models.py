@@ -15,7 +15,12 @@ class Project(Base):
     description = Column(Text, nullable=True)
     emoji = Column(String(10), nullable=True, default="📁")
     is_active = Column(Boolean, default=True)
+    deleted = Column(Boolean, default=False, nullable=False)  # Soft delete
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Nested projects (subprojects)
+    parent_project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
+    subprojects = relationship("Project", backref=backref("parent", remote_side="Project.id"))
 
     tasks = relationship("Task", back_populates="project")
 
@@ -118,6 +123,7 @@ class Blocker(Base):
     text = Column(Text, nullable=False)
     created_by = Column(BigInteger, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)  # When the blocker was resolved (status changed from BLOCKED)
 
     task = relationship("Task", back_populates="blockers")
 

@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import Modal from '../components/Modal';
+import MarkdownContent from '../components/MarkdownContent';
 import { Task, Project } from '../types/dashboard';
 import {
   STATUS_COLOR, STATUS_EMOJI, STATUS_LABELS,
@@ -58,6 +59,79 @@ export default function NewTaskModal({
   const [dupCandidates, setDupCandidates] = useState<Task[]>([]);
   const descRef = useRef<HTMLTextAreaElement>(null);
   const submittingRef = useRef(false);
+  const [descTab, setDescTab] = useState<'write' | 'preview'>('write');
+
+  // Markdown insertion helper with toggle support
+  const insertMarkdown = (prefix: string, suffix: string) => {
+    const textarea = descRef.current;
+    if (!textarea) return;
+    
+    const start = textarea.selectionStart || 0;
+    const end = textarea.selectionEnd || 0;
+    const selectedText = description.substring(start, end);
+    
+    // Check if already formatted (toggle off)
+    const textBefore = description.substring(0, start);
+    const textAfter = description.substring(end);
+    const hasPrefix = textBefore.endsWith(prefix);
+    const hasSuffix = textAfter.startsWith(suffix);
+    
+    let newDescription: string;
+    let newCursorStart: number;
+    let newCursorEnd: number;
+    
+    if (hasPrefix && hasSuffix) {
+      // Remove formatting
+      const prefixStart = start - prefix.length;
+      const suffixEnd = end + suffix.length;
+      newDescription = description.substring(0, prefixStart) +
+                       selectedText +
+                       description.substring(suffixEnd);
+      newCursorStart = prefixStart;
+      newCursorEnd = prefixStart + selectedText.length;
+    } else {
+      // Add formatting
+      newDescription = textBefore + prefix + selectedText + suffix + textAfter;
+      newCursorStart = start + prefix.length;
+      newCursorEnd = end + prefix.length;
+    }
+    
+    setDescription(newDescription);
+    
+    // Restore focus and cursor position
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(newCursorStart, newCursorEnd);
+    }, 0);
+  };
+
+  // Keyboard shortcuts for markdown - uses e.code for layout-independent shortcuts
+  const handleMarkdownShortcuts = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Check for Ctrl/Cmd key
+    if (!e.ctrlKey && !e.metaKey) return;
+    
+    // Use e.code which is layout-independent (KeyB, KeyI, etc.)
+    const code = e.code;
+    
+    // Handle markdown shortcuts (works with any keyboard layout)
+    if (code === 'KeyB') {
+      e.preventDefault();
+      e.stopPropagation();
+      insertMarkdown('**', '**');
+    } else if (code === 'KeyI') {
+      e.preventDefault();
+      e.stopPropagation();
+      insertMarkdown('*', '*');
+    } else if (code === 'KeyE') {
+      e.preventDefault();
+      e.stopPropagation();
+      insertMarkdown('`', '`');
+    } else if (code === 'KeyK') {
+      e.preventDefault();
+      e.stopPropagation();
+      insertMarkdown('[', '](url)');
+    }
+  };
 
   const doCreate = () => {
     if (title.trim() && !submittingRef.current) {
@@ -133,15 +207,48 @@ export default function NewTaskModal({
           autoFocus
         />
         <div>
-          <textarea
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            placeholder="Описание (поддерживается Markdown)"
-            className="w-full px-3 py-2 border rounded-lg text-sm"
-            rows={3}
-            ref={descRef}
-          />
-          <p className="text-xs text-gray-400 mt-0.5">**жирный**, *курсив*, `код`, - список</p>
+          <div className="border rounded-lg overflow-hidden">
+            <div className="flex border-b bg-gray-50 flex-wrap gap-1 p-1">
+              <button type="button" onClick={() => setDescTab('write')}
+                className={`px-2 py-1 text-xs font-medium transition rounded ${descTab === 'write' ? 'bg-white text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+              >✏️</button>
+              <button type="button" onClick={() => setDescTab('preview')}
+                className={`px-2 py-1 text-xs font-medium transition rounded ${descTab === 'preview' ? 'bg-white text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+              >👁</button>
+              <span className="border-l mx-1"></span>
+              <button type="button" onClick={() => insertMarkdown('**', '**')}
+                className="px-2 py-1 text-xs hover:bg-gray-200 rounded" title="Жирный (Ctrl+B)"
+              >**B**</button>
+              <button type="button" onClick={() => insertMarkdown('*', '*')}
+                className="px-2 py-1 text-xs hover:bg-gray-200 rounded" title="Курсив (Ctrl+I)"
+              >*I*</button>
+              <button type="button" onClick={() => insertMarkdown('`', '`')}
+                className="px-2 py-1 text-xs hover:bg-gray-200 rounded" title="Код (Ctrl+E)"
+              >`code`</button>
+              <button type="button" onClick={() => insertMarkdown('- ', '')}
+                className="px-2 py-1 text-xs hover:bg-gray-200 rounded" title="Список"
+              >• Список</button>
+              <button type="button" onClick={() => insertMarkdown('[', '](url)')}
+                className="px-2 py-1 text-xs hover:bg-gray-200 rounded" title="Ссылка (Ctrl+K)"
+              >🔗</button>
+            </div>
+            {descTab === 'write' ? (
+              <textarea
+                ref={descRef}
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                onKeyDown={handleMarkdownShortcuts}
+                placeholder="Описание (поддерживается Markdown)"
+                className="w-full px-3 py-2 border-0 text-sm focus:outline-none font-mono text-xs"
+                rows={3}
+              />
+            ) : (
+              <div className="px-3 py-2 min-h-[80px]">
+                {description ? <MarkdownContent content={description} /> : <span className="text-gray-400 text-xs">Нет описания</span>}
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 mt-0.5">Шорткаты: Ctrl+B жирный, Ctrl+I курсив, Ctrl+E код, Ctrl+K ссылка</p>
         </div>
         <select
           value={projectId}

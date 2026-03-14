@@ -60,17 +60,34 @@ class TaskService:
         changed_by: Optional[int] = None
     ) -> Task:
         """Change task status."""
-        
+
         task = await self.repository.get_by_id(task_id)
         if not task:
             raise ValueError(f"Task {task_id} not found")
-        
+
+        # Validation: cannot mark as DONE if there are incomplete subtasks
+        if new_status == TaskStatus.DONE and task.subtasks:
+            incomplete_subtasks = [st for st in task.subtasks if st.status != TaskStatus.DONE.value]
+            if incomplete_subtasks:
+                raise ValueError(
+                    f"Cannot mark task as DONE: {len(incomplete_subtasks)} subtask(s) still incomplete. "
+                    f"Complete subtasks first: {[st.id for st in incomplete_subtasks]}"
+                )
+
         old_status = TaskStatus(task.status)
         task.status = new_status.value
 
-        # Clear backlog flag on any status change
-        task.backlog = False
-        task.backlog_added_at = None
+        # If transitioning from BLOCKED to any other status, mark blockers as resolved
+        if old_status == TaskStatus.BLOCKED and new_status != TaskStatus.BLOCKED:
+            now = datetime.utcnow()
+            for blocker in task.blockers:
+                if blocker.resolved_at is None:
+                    blocker.resolved_at = now
+
+        # Clear backlog flag only when task moves to active status (DOING or DONE)
+        if new_status in (TaskStatus.DOING, TaskStatus.DONE):
+            task.backlog = False
+            task.backlog_added_at = None
 
         now = datetime.utcnow()
         if new_status == TaskStatus.DOING and not task.started_at:
@@ -82,14 +99,14 @@ class TaskService:
             task.completed_at = None
 
         task = await self.repository.update(task)
-        
+
         logger.info(
             "task_status_changed",
             task_id=task_id,
             old_status=old_status.value,
             new_status=new_status.value
         )
-        
+
         return task
     
     async def block_task(

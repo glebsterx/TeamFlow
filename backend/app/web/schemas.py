@@ -35,6 +35,7 @@ class BlockerResponse(BaseModel):
     text: str
     created_by: Optional[int]
     created_at: datetime
+    resolved_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

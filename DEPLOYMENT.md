@@ -154,6 +154,36 @@ chmod +x /root/backup-teamflow.sh
 echo "0 2 * * * /root/backup-teamflow.sh" | crontab -
 ```
 
+### Авто-архивация DONE задач (cron)
+По умолчанию задачи со статусом DONE архивируются автоматически через 7 дней после завершения.
+
+**Вручную:**
+```bash
+curl -X POST http://localhost:8180/api/tasks/auto-archive
+```
+
+**Автоматически (cron):**
+```bash
+echo "0 3 * * * curl -s -X POST http://localhost:8180/api/tasks/auto-archive" | crontab -
+```
+
+**Принцип работы:**
+- Архивируются задачи со статусом `DONE`
+- У которых `completed_at` старше 7 дней
+- Которые ещё не заархивированы (`archived=false`)
+
+**Важно:** Для старых задач (завершённых до v0.8.6) может отсутствовать `completed_at`. Выполните миграцию:
+```bash
+docker exec teamflow-backend python -c "
+import asyncio, aiosqlite
+async def fix():
+    async with aiosqlite.connect('/app/data/teamflow.db') as db:
+        await db.execute('UPDATE tasks SET completed_at = updated_at WHERE status = \"DONE\" AND completed_at IS NULL')
+        await db.commit()
+asyncio.run(fix())
+"
+```
+
 ---
 
 ## Nginx + SSL (production)

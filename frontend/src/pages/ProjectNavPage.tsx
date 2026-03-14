@@ -1,8 +1,8 @@
 import React from 'react';
 import axios from 'axios';
-import type { Task, Project } from '../types/dashboard';
-import { API_URL, STATUS_COLOR, STATUS_BORDER, STATUS_EMOJI, STATUS_LABELS, PRIORITY_COLOR, PRIORITY_LABELS, PRIORITY_EMOJI, cardBg } from '../constants/taskDisplay';
-import { getDueStatus, formatDueDate } from '../utils/dateUtils';
+import type { Task } from '../types/dashboard';
+import { API_URL, STATUS_COLOR, STATUS_BORDER, STATUS_EMOJI, STATUS_LABELS, PRIORITY_COLOR, PRIORITY_LABELS } from '../constants/taskDisplay';
+import { showToast } from '../utils/toast';
 import { BacklogTaskRow } from './BacklogPage';
 
 export default function ProjectNavPage({ projects, tasks, navProject, navTaskPath, onSelectProject, onPushTask, onEditProject, onOpenTask, onNewProject, onNewTask, changeStatusMutation, takeTaskMutation, myUserId, invalidate, ancestorBlockedIds }: any) {
@@ -18,47 +18,115 @@ export default function ProjectNavPage({ projects, tasks, navProject, navTaskPat
   // Get direct children of a node from the flat tasks array
   const getChildren = (parentId: number) => tasks.filter((t: any) => t.parent_task_id === parentId);
 
-  // Level 0: all projects
-  if (!navProject) {
+  // Get subprojects
+  const getSubprojects = (parentProjectId: number | null) => {
+    return projects.filter((p: any) => p.parent_project_id === parentProjectId);
+  };
+
+  // Recursive function to render project tree
+  const renderProjectTree = (parentProjectId: number | null, depth: number = 0) => {
+    const subprojects = getSubprojects(parentProjectId);
+    if (subprojects.length === 0) return null;
+
     return (
-      <>
-        <div className="flex justify-between items-center mb-3">
-          <h2 className="text-lg sm:text-xl font-bold">Проекты ({projects.length})</h2>
-          <button onClick={onNewProject} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium">+ Проект</button>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {projects.map((proj: any) => {
-            const projAllTasks = tasks.filter((t: any) => {
-              if (t.project_id === proj.id) return true;
-              return tasks.find((p: any) => p.id === t.parent_task_id)?.project_id === proj.id;
-            });
-            const doneCount = projAllTasks.filter((t: any) => t.status === 'DONE').length;
-            const pct = projAllTasks.length ? Math.round(doneCount / projAllTasks.length * 100) : 0;
+      <div className={depth > 0 ? 'ml-6 mt-2 space-y-2' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3'}>
+        {subprojects.map((proj: any) => {
+          const projAllTasks = tasks.filter((t: any) => {
+            if (t.project_id === proj.id) return true;
+            return tasks.find((p: any) => p.id === t.parent_task_id)?.project_id === proj.id;
+          });
+          const doneCount = projAllTasks.filter((t: any) => t.status === 'DONE').length;
+          const pct = projAllTasks.length ? Math.round(doneCount / projAllTasks.length * 100) : 0;
+
+          if (depth > 0) {
+            // List view for subprojects
             return (
               <div
                 key={proj.id}
                 onClick={() => onSelectProject(proj)}
-                className="bg-white rounded-lg border p-4 [@media(hover:hover)]:hover:shadow-md transition cursor-pointer group"
+                className="bg-white rounded-lg border px-3 py-2 [@media(hover:hover)]:hover:shadow-md transition cursor-pointer group flex items-center gap-2"
               >
-                <div className="flex items-start justify-between mb-2">
-                  <span className="text-3xl">{proj.emoji || '📁'}</span>
+                <span className="text-xl">{proj.emoji || '📁'}</span>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-bold text-sm truncate">{proj.name}</h3>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 bg-gray-100 rounded-full h-1 overflow-hidden">
+                      <div className="h-full bg-green-400 rounded-full" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-xs text-gray-400 shrink-0">{doneCount}/{projAllTasks.length}</span>
+                  </div>
+                </div>
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const url = `${window.location.origin}${window.location.pathname}?project=${proj.id}`;
+                      try { await navigator.clipboard.writeText(url); } catch {}
+                    }}
+                    className="text-xs hover:bg-gray-50 p-1 rounded"
+                    title="Скопировать ссылку"
+                  >🔗</button>
                   <button
                     onClick={(e) => { e.stopPropagation(); onEditProject(proj); }}
-                    className="opacity-0 group-hover:opacity-100 text-xs text-gray-400 hover:text-gray-600 transition"
+                    className="text-xs text-gray-400 hover:text-gray-600 transition p-1"
                   >✏️</button>
-                </div>
-                <h3 className="font-bold text-base mb-1">{proj.name}</h3>
-                {proj.description && <p className="text-xs text-gray-500 line-clamp-2 mb-2">{proj.description}</p>}
-                <div className="flex items-center gap-2 mt-2">
-                  <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                    <div className="h-full bg-green-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                  </div>
-                  <span className="text-xs text-gray-400 shrink-0">{doneCount}/{projAllTasks.length}</span>
                 </div>
               </div>
             );
-          })}
+          }
+
+          // Grid view for top-level projects
+          return (
+            <div
+              key={proj.id}
+              onClick={() => onSelectProject(proj)}
+              className="bg-white rounded-lg border p-4 [@media(hover:hover)]:hover:shadow-md transition cursor-pointer group"
+            >
+              <div className="flex items-start justify-between mb-2">
+                <span className="text-3xl">{proj.emoji || '📁'}</span>
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const url = `${window.location.origin}${window.location.pathname}?project=${proj.id}`;
+                      try { await navigator.clipboard.writeText(url); } catch {}
+                    }}
+                    className="text-xs hover:bg-gray-50 p-1 rounded"
+                    title="Скопировать ссылку"
+                  >🔗</button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onEditProject(proj); }}
+                    className="text-xs text-gray-400 hover:text-gray-600 transition p-1"
+                  >✏️</button>
+                </div>
+              </div>
+              <h3 className="font-bold text-base mb-1">{proj.name}</h3>
+              {proj.description && <p className="text-xs text-gray-500 line-clamp-2 mb-2">{proj.description}</p>}
+              <div className="flex items-center gap-2 mt-2">
+                <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                  <div className="h-full bg-green-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                </div>
+                <span className="text-xs text-gray-400 shrink-0">{doneCount}/{projAllTasks.length}</span>
+              </div>
+              {/* Render subprojects inline */}
+              {renderProjectTree(proj.id, depth + 1)}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Level 0: all projects (top-level only, subprojects rendered inline)
+  if (!navProject) {
+    const topLevelProjects = projects.filter((p: any) => !p.parent_project_id);
+    return (
+      <>
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-lg sm:text-xl font-bold">Проекты ({topLevelProjects.length})</h2>
+          <button onClick={onNewProject} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium">+ Проект</button>
         </div>
+        {renderProjectTree(null, 0)}
       </>
     );
   }
@@ -99,6 +167,16 @@ export default function ProjectNavPage({ projects, tasks, navProject, navTaskPat
             onClick={() => onNewTask({ projectId: navProject.id, parentTaskId: currentTask?.id })}
             className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium"
           >+ Задача</button>
+          {!currentTask && (
+            <button
+              onClick={async () => {
+                const url = `${window.location.origin}${window.location.pathname}?project=${navProject.id}`;
+                try { await navigator.clipboard.writeText(url); } catch {}
+              }}
+              className="px-3 py-1.5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+              title="Скопировать ссылку на проект"
+            >🔗</button>
+          )}
           {currentTask
             ? <button onClick={() => onOpenTask(currentTask)} className="px-3 py-1.5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">↗ Открыть</button>
             : <button onClick={() => onEditProject(navProject)} className="px-3 py-1.5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">✏️</button>
@@ -173,7 +251,22 @@ export default function ProjectNavPage({ projects, tasks, navProject, navTaskPat
                   )}
                   {task.status === 'DOING' && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); changeStatusMutation.mutate({ taskId: task.id, status: 'DONE' }); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const taskChildren = tasks.filter((t: any) => t.parent_task_id === task.id);
+                        const incomplete = taskChildren.filter((t: any) => t.status !== 'DONE');
+                        if (incomplete.length > 0) {
+                          const forms = ['подзадача не завершена', 'подзадачи не завершены', 'подзадач не завершено'];
+                          const n = incomplete.length;
+                          let formIdx: number;
+                          if (n % 10 === 1 && n % 100 !== 11) formIdx = 0;
+                          else if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) formIdx = 1;
+                          else formIdx = 2;
+                          showToast(`Нельзя завершить задачу: ${n} ${forms[formIdx]}. Завершите: ${incomplete.map((s: any) => `#${s.id}`).join(', ')}`, 'warning');
+                        } else {
+                          changeStatusMutation.mutate({ taskId: task.id, status: 'DONE' });
+                        }
+                      }}
                       className="absolute inset-0 hidden md:flex items-center justify-center px-1.5 py-0.5 rounded text-xs border border-green-300 bg-green-50 text-green-700 opacity-0 group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap hover:bg-green-100"
                     >✓</button>
                   )}

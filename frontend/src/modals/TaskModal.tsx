@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { Task, Project } from '../types/dashboard';
-import { API_URL, STATUS_COLOR, STATUS_BORDER, STATUS_EMOJI, STATUS_LABELS, DUE_BADGE, PRIORITY_LABELS, PRIORITY_COLOR, PRIORITY_EMOJI, STATUS_BG } from '../constants/taskDisplay';
-import { getDueStatus, formatDueDate, formatDatetime, timeAgo, toDateInputValue } from '../utils/dateUtils';
-import { showToast } from '../utils/toast';
+import type { Task } from '../types/dashboard';
+import { API_URL, STATUS_EMOJI, STATUS_LABELS, STATUS_COLOR, DUE_BADGE, PRIORITY_LABELS, PRIORITY_COLOR, PRIORITY_EMOJI } from '../constants/taskDisplay';
+import { getDueStatus, toDateInputValue, formatDueDate, formatDatetime, plural } from '../utils/dateUtils';
 import Modal from '../components/Modal';
 import MarkdownContent from '../components/MarkdownContent';
 import { CommentsSection } from '../components/CommentsSection';
+import { showToast } from '../utils/toast';
 
 export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks, users, projects, changeStatusMutation, assignMutation, assignProjectMutation, updateTaskMutation, setConfirmDelete, invalidate, createSubtaskMutation, isAncestorBlocked, myUserId }: any) {
   const [isEditing, setIsEditing] = useState(false);
@@ -15,6 +14,7 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
   const [description, setDescription] = useState(task.description || '');
   const [dueDate, setDueDate] = useState(toDateInputValue(task.due_date));
   const [descTab, setDescTab] = useState<'write' | 'preview'>('write');
+  const descTextareaRef = React.useRef<HTMLTextAreaElement>(null);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [newSubtaskDesc, setNewSubtaskDesc] = useState('');
   const [showSubtaskInput, setShowSubtaskInput] = useState(false);
@@ -22,10 +22,25 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
   const [attachTaskId, setAttachTaskId] = useState('');
   const [pendingBlock, setPendingBlock] = useState(false);
   const [blockReasonText, setBlockReasonText] = useState('');
+  // Concurrent edit conflict state
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [conflictData, setConflictData] = useState<{current: any; local: any} | null>(null);
   const dueStatusView = getDueStatus(task.due_date, task.status);
 
   // Build children from flat tasks list (supports any depth)
   const directChildren = (tasks || []).filter((t: any) => t.parent_task_id === task.id);
+  
+  // Check for incomplete subtasks (for DONE button blocking)
+  const incompleteSubtasks = directChildren.filter((t: any) => t.status !== 'DONE');
+  const hasIncompleteSubtasks = incompleteSubtasks.length > 0;
+  
+  // Track if user attempted to click DONE
+  const [showBlockedWarning, setShowBlockedWarning] = useState(false);
+  
+  // Hide warning when subtasks change or task status changes
+  React.useEffect(() => {
+    setShowBlockedWarning(false);
+  }, [directChildren, task.status]);
 
   // All descendant IDs (to prevent cycles in parent selector)
   const getDescendantIds = (id: number): Set<number> => {
@@ -46,12 +61,111 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
     setDueDate(toDateInputValue(task.due_date));
   }, [task]);
 
+  // Auto-suggest DONE when last subtask is completed
+  const [showDoneSuggestion, setShowDoneSuggestion] = React.useState(false);
+  React.useEffect(() => {
+    if (task.status !== 'DONE' && directChildren.length > 0) {
+      const allDone = directChildren.every((t: any) => t.status === 'DONE');
+      setShowDoneSuggestion(allDone);
+    } else {
+      setShowDoneSuggestion(false);
+    }
+  }, [directChildren, task.status]);
+
+  // Markdown insertion helper with toggle support
+  const insertMarkdown = (prefix: string, suffix: string) => {
+    const textarea = descTextareaRef.current;
+    if (!textarea) return;
+    
+    const start = textarea.selectionStart || 0;
+    const end = textarea.selectionEnd || 0;
+    const selectedText = description.substring(start, end);
+    
+    // Check if already formatted (toggle off)
+    const textBefore = description.substring(0, start);
+    const textAfter = description.substring(end);
+    const hasPrefix = textBefore.endsWith(prefix);
+    const hasSuffix = textAfter.startsWith(suffix);
+    
+    let newDescription: string;
+    let newCursorStart: number;
+    let newCursorEnd: number;
+    
+    if (hasPrefix && hasSuffix) {
+      // Remove formatting
+      const prefixStart = start - prefix.length;
+      const suffixEnd = end + suffix.length;
+      newDescription = description.substring(0, prefixStart) +
+                       selectedText +
+                       description.substring(suffixEnd);
+      newCursorStart = prefixStart;
+      newCursorEnd = prefixStart + selectedText.length;
+    } else {
+      // Add formatting
+      newDescription = textBefore + prefix + selectedText + suffix + textAfter;
+      newCursorStart = start + prefix.length;
+      newCursorEnd = end + prefix.length;
+    }
+    
+    setDescription(newDescription);
+    
+    // Restore focus and cursor position
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(newCursorStart, newCursorEnd);
+    }, 0);
+  };
+
+  // Keyboard shortcuts for markdown - uses e.code for layout-independent shortcuts
+  const handleMarkdownShortcuts = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Check for Ctrl/Cmd key
+    if (!e.ctrlKey && !e.metaKey) return;
+    
+    // Use e.code which is layout-independent (KeyB, KeyI, etc.)
+    const code = e.code;
+    
+    // Handle markdown shortcuts (works with any keyboard layout)
+    if (code === 'KeyB') {
+      e.preventDefault();
+      e.stopPropagation();
+      insertMarkdown('**', '**');
+    } else if (code === 'KeyI') {
+      e.preventDefault();
+      e.stopPropagation();
+      insertMarkdown('*', '*');
+    } else if (code === 'KeyE') {
+      e.preventDefault();
+      e.stopPropagation();
+      insertMarkdown('`', '`');
+    } else if (code === 'KeyK') {
+      e.preventDefault();
+      e.stopPropagation();
+      insertMarkdown('[', '](url)');
+    }
+  };
+
   const handleSave = () => {
     const data: any = { title, description };
     data.due_date = dueDate || null;
+    // Send expected_updated_at for optimistic locking
+    data.expected_updated_at = task.updated_at;
     updateTaskMutation.mutate(
       { id: task.id, data },
-      { onSuccess: () => setIsEditing(false) }
+      {
+        onSuccess: () => setIsEditing(false),
+        onError: (error: any) => {
+          if (error?.response?.status === 409 && error?.response?.data?.detail?.code === 'CONCURRENT_EDIT') {
+            // Show conflict resolution modal
+            setConflictData({
+              current: error.response.data.detail,
+              local: { title, description, due_date: data.due_date }
+            });
+            setShowConflictModal(true);
+          } else {
+            showToast('Ошибка при сохранении', 'error');
+          }
+        }
+      }
     );
   };
 
@@ -81,19 +195,37 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
               className="w-full px-3 py-2 border rounded-lg font-bold text-sm sm:text-base"
             />
             <div className="border rounded-lg overflow-hidden">
-              <div className="flex border-b bg-gray-50">
+              <div className="flex border-b bg-gray-50 flex-wrap gap-1 p-1">
                 <button type="button" onClick={() => setDescTab('write')}
-                  className={`px-3 py-1.5 text-xs font-medium transition ${descTab === 'write' ? 'bg-white text-gray-800 border-r' : 'text-gray-500 hover:text-gray-700'}`}
-                >✏️ Редактор</button>
+                  className={`px-2 py-1 text-xs font-medium transition rounded ${descTab === 'write' ? 'bg-white text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+                >✏️</button>
                 <button type="button" onClick={() => setDescTab('preview')}
-                  className={`px-3 py-1.5 text-xs font-medium transition ${descTab === 'preview' ? 'bg-white text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
-                >👁 Просмотр</button>
+                  className={`px-2 py-1 text-xs font-medium transition rounded ${descTab === 'preview' ? 'bg-white text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+                >👁</button>
+                <span className="border-l mx-1"></span>
+                <button type="button" onClick={() => insertMarkdown('**', '**')}
+                  className="px-2 py-1 text-xs hover:bg-gray-200 rounded" title="Жирный (Ctrl+B)"
+                >**B**</button>
+                <button type="button" onClick={() => insertMarkdown('*', '*')}
+                  className="px-2 py-1 text-xs hover:bg-gray-200 rounded" title="Курсив (Ctrl+I)"
+                >*I*</button>
+                <button type="button" onClick={() => insertMarkdown('`', '`')}
+                  className="px-2 py-1 text-xs hover:bg-gray-200 rounded" title="Код (Ctrl+E)"
+                >`code`</button>
+                <button type="button" onClick={() => insertMarkdown('- ', '')}
+                  className="px-2 py-1 text-xs hover:bg-gray-200 rounded" title="Список"
+                >• Список</button>
+                <button type="button" onClick={() => insertMarkdown('[', '](url)')}
+                  className="px-2 py-1 text-xs hover:bg-gray-200 rounded" title="Ссылка (Ctrl+K)"
+                >🔗</button>
               </div>
               {descTab === 'write' ? (
                 <textarea
+                  ref={descTextareaRef}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="w-full px-3 py-2 border-0 text-sm focus:outline-none"
+                  onKeyDown={handleMarkdownShortcuts}
+                  className="w-full px-3 py-2 border-0 text-sm focus:outline-none font-mono text-xs"
                   rows={4}
                   placeholder="Описание (поддерживается Markdown)"
                 />
@@ -103,7 +235,7 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
                 </div>
               )}
             </div>
-            <p className="text-xs text-gray-400">**жирный**, *курсив*, `код`, - список</p>
+            <p className="text-xs text-gray-400">Шорткаты: Ctrl+B жирный, Ctrl+I курсив, Ctrl+E код, Ctrl+K ссылка</p>
             <div>
               <label className="text-xs text-gray-500 block mb-1">📅 Дедлайн</label>
               <input
@@ -273,26 +405,52 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
         <div>
           <label className="text-xs text-gray-500 block mb-1">Статус</label>
           <div className="flex gap-1.5">
-            {Object.entries(STATUS_LABELS).map(([status, label]) => (
-              <button
-                key={status}
-                onClick={() => {
-                  if (status === 'BLOCKED' && task.status !== 'BLOCKED') {
-                    setPendingBlock(true);
-                    setBlockReasonText('');
-                  } else {
-                    changeStatusMutation.mutate({ taskId: task.id, status });
-                  }
-                }}
-                className={`flex-1 py-1.5 rounded text-xs font-medium border transition ${
-                  task.status === status ? 'bg-blue-600 text-white border-blue-600' : 'bg-white hover:bg-gray-50'
-                }`}
-                title={label}
-              >
-                {STATUS_EMOJI[status]} <span className="hidden sm:inline">{label}</span>
-              </button>
-            ))}
+            {Object.entries(STATUS_LABELS).map(([status, label]) => {
+              const isDone = status === 'DONE';
+              const isDisabled = isDone && hasIncompleteSubtasks;
+              
+              return (
+                <button
+                  key={status}
+                  onClick={() => {
+                    if (isDisabled) {
+                      setShowBlockedWarning(true);
+                      return;
+                    }
+                    if (status === 'BLOCKED' && task.status !== 'BLOCKED') {
+                      setPendingBlock(true);
+                      setBlockReasonText('');
+                    } else {
+                      changeStatusMutation.mutate({ taskId: task.id, status });
+                    }
+                  }}
+                  disabled={isDisabled}
+                  className={`flex-1 py-1.5 rounded text-xs font-medium border transition ${
+                    task.status === status ? 'bg-blue-600 text-white border-blue-600' : 
+                    isDisabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-50'
+                  }`}
+                  title={isDisabled ? `Сначала завершите подзадачи: ${incompleteSubtasks.map((s: any) => `#${s.id}`).join(', ')}` : label}
+                >
+                  {STATUS_EMOJI[status]} <span className="hidden sm:inline">{label}</span>
+                </button>
+              );
+            })}
           </div>
+          {showBlockedWarning && (
+            <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+              ⚠️ Нельзя завершить задачу: {incompleteSubtasks.length} {plural(incompleteSubtasks.length, ['подзадача не завершена', 'подзадачи не завершены', 'подзадач не завершено'])}.
+              Завершите: {incompleteSubtasks.map((s: any) => `#${s.id}`).join(', ')}
+            </div>
+          )}
+          {showDoneSuggestion && (
+            <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-800 flex items-center justify-between">
+              <span>✅ Все подзадачи завершены! Отметить задачу выполненной?</span>
+              <button
+                onClick={() => changeStatusMutation.mutate({ taskId: task.id, status: 'DONE' })}
+                className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 font-medium"
+              >Да, завершить</button>
+            </div>
+          )}
           {pendingBlock && (
             <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
               <div className="text-xs text-red-700 font-medium mb-1">Причина блокировки</div>
@@ -324,6 +482,33 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
             <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
               ⚠️ {task.blockers[task.blockers.length - 1].text}
             </div>
+          )}
+          {/* Blocker history */}
+          {task.blockers && task.blockers.length > 0 && (
+            <details className="mt-2 group">
+              <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700 flex items-center gap-1">
+                📜 История блокеров ({task.blockers.length})
+              </summary>
+              <div className="mt-1 space-y-1">
+                {task.blockers.map((b: any) => (
+                  <div key={b.id} className={`text-xs p-1.5 rounded border ${
+                    b.resolved_at 
+                      ? 'bg-gray-50 border-gray-200 text-gray-600 line-through' 
+                      : 'bg-red-50 border-red-200 text-red-700'
+                  }`}>
+                    <div>⚠️ {b.text}</div>
+                    <div className="text-gray-400 text-xs mt-0.5">
+                      {new Date(b.created_at).toLocaleDateString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      {b.resolved_at && (
+                        <span className="text-green-600 ml-2">
+                          → разблокировано: {new Date(b.resolved_at).toLocaleDateString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </details>
           )}
         </div>
       </div>
@@ -467,8 +652,12 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
         <button onClick={onClose} className="flex-1 py-2 bg-gray-100 rounded-lg text-sm">Закрыть</button>
         <button
           onClick={() => {
-            updateTaskMutation.mutate({ id: task.id, data: { backlog: !task.backlog } }, {
-              onSuccess: () => invalidate(),
+            const newBacklog = !task.backlog;
+            updateTaskMutation.mutate({ id: task.id, data: { backlog: newBacklog } }, {
+              onSuccess: () => {
+                invalidate();
+                showToast(newBacklog ? 'Задача добавлена в бэклог 📦' : 'Задача убрана из бэклога ✅', 'info');
+              },
             });
           }}
           className={`px-3 py-2 border rounded-lg text-sm transition ${task.backlog ? 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'}`}
@@ -490,6 +679,52 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
           title="Удалить"
         >🗑️</button>
       </div>
+
+      {/* Concurrent Edit Conflict Modal */}
+      {showConflictModal && conflictData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-bold mb-3 text-red-600">⚠️ Конфликт редактирования</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Другой пользователь изменил эту задачу пока вы её редактировали.
+            </p>
+            <div className="bg-amber-50 border border-amber-200 rounded p-3 mb-4 text-xs">
+              <div className="font-medium text-amber-800 mb-2">Ваши изменения:</div>
+              <div className="text-gray-600 truncate">Заголовок: {conflictData.local.title}</div>
+              <div className="text-gray-600 truncate">Дедлайн: {conflictData.local.due_date || 'не указан'}</div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setShowConflictModal(false);
+                  setConflictData(null);
+                  // Reload task from server
+                  invalidate();
+                  onClose();
+                }}
+                className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
+              >
+                Отменить и обновить
+              </button>
+              <button
+                onClick={() => {
+                  // Force save - overwrite server version
+                  const data: any = { title: conflictData.local.title, description: conflictData.local.description };
+                  data.due_date = conflictData.local.due_date || null;
+                  // Don't send expected_updated_at to force overwrite
+                  updateTaskMutation.mutate(
+                    { id: task.id, data },
+                    { onSuccess: () => { setShowConflictModal(false); setConflictData(null); setIsEditing(false); invalidate(); }}
+                  );
+                }}
+                className="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600"
+              >
+                Перезаписать
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

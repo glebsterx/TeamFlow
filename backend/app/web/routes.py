@@ -98,18 +98,23 @@ async def change_task_status(
 ):
     """Изменить статус задачи."""
     from app.domain.enums import TaskStatus
+    from fastapi import HTTPException
+    
     service = TaskService(db)
-    if request.status == TaskStatus.BLOCKED.value and request.block_reason:
-        await service.block_task(task_id, request.block_reason.strip())
-    else:
-        await service.change_status(task_id, TaskStatus(request.status))
-    await db.commit()
-    background_tasks.add_task(send_push,
-        title=f"Задача обновлена: #{task_id}",
-        body=f"Новый статус: {request.status}",
-        url=f"/?task={task_id}",
-    )
-    return {"ok": True}
+    try:
+        if request.status == TaskStatus.BLOCKED.value and request.block_reason:
+            await service.block_task(task_id, request.block_reason.strip())
+        else:
+            await service.change_status(task_id, TaskStatus(request.status))
+        await db.commit()
+        background_tasks.add_task(send_push,
+            title=f"Задача обновлена: #{task_id}",
+            body=f"Новый статус: {request.status}",
+            url=f"/?task={task_id}",
+        )
+        return {"ok": True}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/tasks/{task_id}/assign")
@@ -154,6 +159,7 @@ class ProjectCreateRequest(BaseModel):
     name: str
     description: Optional[str] = None
     emoji: Optional[str] = "📁"
+    parent_project_id: Optional[int] = None
 
 
 class ProjectUpdateRequest(BaseModel):
@@ -162,6 +168,7 @@ class ProjectUpdateRequest(BaseModel):
     description: Optional[str] = None
     emoji: Optional[str] = None
     is_active: Optional[bool] = None
+    parent_project_id: Optional[int] = None
 
 
 class ProjectResponse(BaseModel):
@@ -172,6 +179,7 @@ class ProjectResponse(BaseModel):
     emoji: Optional[str]
     is_active: bool
     created_at: datetime
+    parent_project_id: Optional[int] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -189,10 +197,21 @@ async def create_project(request: ProjectCreateRequest, db: AsyncSession = Depen
     """Создать проект."""
     from app.repositories.project_repository import ProjectRepository
     repo = ProjectRepository(db)
+    
+    # Validate parent_project_id if provided
+    if request.parent_project_id is not None:
+        parent = await repo.get_by_id(request.parent_project_id)
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent project not found")
+        # Prevent self-reference
+        if request.parent_project_id == request.name:
+            pass  # Will be validated after creation
+    
     project = await repo.create(
         name=request.name,
         description=request.description,
-        emoji=request.emoji
+        emoji=request.emoji,
+        parent_project_id=request.parent_project_id
     )
     await db.commit()
     return project
@@ -210,7 +229,7 @@ async def update_project(
     project = await repo.get_by_id(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     if request.name is not None:
         project.name = request.name
     if request.description is not None:
@@ -219,22 +238,81 @@ async def update_project(
         project.emoji = request.emoji
     if request.is_active is not None:
         project.is_active = request.is_active
-    
+    if request.parent_project_id is not None:
+        # Prevent self-reference
+        if request.parent_project_id == project_id:
+            raise HTTPException(status_code=400, detail="Project cannot be its own parent")
+        # Validate parent exists
+        parent = await repo.get_by_id(request.parent_project_id)
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent project not found")
+        project.parent_project_id = request.parent_project_id
+
     await db.commit()
     await db.refresh(project)
     return project
 
 
+@router.get("/projects/archived", response_model=List[ProjectResponse])
+async def get_archived_projects(db: AsyncSession = Depends(get_db)):
+    """Получить архивные проекты."""
+    from app.repositories.project_repository import ProjectRepository
+    repo = ProjectRepository(db)
+    projects = await repo.get_archived()
+    return projects
+
+
+@router.post("/projects/{project_id}/archive", response_model=ProjectResponse)
+async def archive_project(project_id: int, db: AsyncSession = Depends(get_db)):
+    """Архивировать проект (is_active=False)."""
+    from app.repositories.project_repository import ProjectRepository
+    repo = ProjectRepository(db)
+    await repo.archive(project_id)
+    await db.commit()
+    return await repo.get_by_id(project_id)
+
+
+@router.post("/projects/{project_id}/restore", response_model=ProjectResponse)
+async def restore_project(project_id: int, db: AsyncSession = Depends(get_db)):
+    """Восстановить проект из архива."""
+    from app.repositories.project_repository import ProjectRepository
+    repo = ProjectRepository(db)
+    await repo.restore(project_id)
+    await db.commit()
+    return await repo.get_by_id(project_id)
+
+
+@router.get("/projects/{project_id}/can-delete")
+async def check_can_delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
+    """Проверить можно ли удалить проект."""
+    from app.repositories.project_repository import ProjectRepository
+    repo = ProjectRepository(db)
+    result = await repo.can_delete(project_id)
+    return result
+
+
 @router.delete("/projects/{project_id}")
 async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
-    """Удалить проект (мягкое удаление)."""
+    """Удалить проект (мягкое удаление с проверкой)."""
     from app.repositories.project_repository import ProjectRepository
     repo = ProjectRepository(db)
     project = await repo.get_by_id(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    project.is_active = False
+
+    # Check if can be deleted
+    check = await repo.can_delete(project_id)
+    if not check["can_delete"]:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "PROJECT_HAS_DEPENDENCIES",
+                "message": "Нельзя удалить проект с подпроектами или задачами",
+                **check
+            }
+        )
+
+    await repo.soft_delete(project_id)
     await db.commit()
     return {"ok": True}
 
@@ -372,6 +450,8 @@ class TaskUpdateRequest(BaseModel):
     priority: Optional[str] = None
     parent_task_id: Optional[int] = None
     backlog: Optional[bool] = None
+    # Optimistic locking — client sends the updated_at they read
+    expected_updated_at: Optional[datetime] = None
 
 
 class SubtaskCreateRequest(BaseModel):
@@ -435,7 +515,22 @@ async def update_task_api(
     task = await service.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
+    # Optimistic locking check
+    if request.expected_updated_at is not None:
+        # Compare timestamps (allow 1 second tolerance for clock skew)
+        time_diff = abs((task.updated_at - request.expected_updated_at).total_seconds())
+        if time_diff > 1:
+            raise HTTPException(
+                status_code=409,  # Conflict
+                detail={
+                    "code": "CONCURRENT_EDIT",
+                    "message": "Задача была изменена другим пользователем",
+                    "current_updated_at": task.updated_at.isoformat(),
+                    "expected_updated_at": request.expected_updated_at.isoformat()
+                }
+            )
+
     if request.title is not None:
         task.title = request.title
     if request.description is not None:

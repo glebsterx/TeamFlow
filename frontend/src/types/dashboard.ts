@@ -31,6 +31,7 @@ export interface Task {
   subtasks?: SubTask[];
   due_date?: string;
   deleted?: boolean;
+  archived?: boolean;
   created_at: string;
   updated_at: string;
   started_at?: string;
@@ -46,6 +47,8 @@ export interface Project {
   description?: string;
   emoji?: string;
   is_active: boolean;
+  deleted?: boolean;
+  parent_project_id?: number;
 }
 
 export interface Meeting {

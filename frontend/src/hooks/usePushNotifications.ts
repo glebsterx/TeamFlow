@@ -30,10 +30,10 @@ export function usePushNotifications() {
       const { data } = await axios.get(`${API_URL}/api/push/vapid-public-key`);
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(data.public_key),
+        applicationServerKey: urlBase64ToUint8Array(data.public_key) as any,
       });
       const json = sub.toJSON();
-      await axios.post(`${API_URL}/api/push/subscribe`, { endpoint: json.endpoint, keys: json.keys });
+      await axios.post(`${API_URL}/api/push/subscribe`, { endpoint: json.endpoint, keys: json.keys as any });
       setSubscribed(true);
       setPermission('granted');
       setPushError(null);

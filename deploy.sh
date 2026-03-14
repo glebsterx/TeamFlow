@@ -123,7 +123,7 @@ SECRET_KEY=$(openssl rand -hex 32 2>/dev/null || echo "dev-secret-$(date +%s)")
 
 cat > backend/.env << EOF
 APP_NAME=TeamFlow
-VERSION=0.8.6
+VERSION=0.8.9
 DEBUG=False
 
 BASE_URL=${BASE_URL}
