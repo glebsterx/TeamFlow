@@ -68,6 +68,10 @@ class TaskService:
         old_status = TaskStatus(task.status)
         task.status = new_status.value
 
+        # Clear backlog flag on any status change
+        task.backlog = False
+        task.backlog_added_at = None
+
         now = datetime.utcnow()
         if new_status == TaskStatus.DOING and not task.started_at:
             task.started_at = now
@@ -102,7 +106,9 @@ class TaskService:
         
         # Change status to BLOCKED
         task.status = TaskStatus.BLOCKED.value
-        
+        task.backlog = False
+        task.backlog_added_at = None
+
         # Add blocker
         blocker = Blocker(
             task_id=task_id,

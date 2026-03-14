@@ -25,3 +25,7 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+CLAUDE.md
+TASKS.md
+.mcp.json
+DECISIONS.md

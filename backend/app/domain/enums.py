@@ -8,6 +8,7 @@ class TaskStatus(str, Enum):
     DOING = "DOING"
     DONE = "DONE"
     BLOCKED = "BLOCKED"
+    ON_HOLD = "ON_HOLD"
 
 
 class TaskSource(str, Enum):

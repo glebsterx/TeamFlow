@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     
     # Application
     APP_NAME: str = "TeamFlow"
-    VERSION: str = "0.8.4"
+    VERSION: str = "0.8.5"
     DEBUG: bool = False
     
     # Server
@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     
     # Security
     SECRET_KEY: str = "change-this-secret-key-in-production"
+
+    # Web Push (VAPID)
+    VAPID_PRIVATE_KEY: str = ""
+    VAPID_PUBLIC_KEY: str = ""
+    VAPID_CLAIMS_EMAIL: str = "admin@teamflow.local"
     
     # Performance
     DB_POOL_SIZE: int = 5

@@ -7,6 +7,7 @@ from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskSource
 from app.telegram.keyboards.task_keyboards import get_confirmation_keyboard
+from app.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -168,8 +169,11 @@ async def handle_confirm_task(callback: CallbackQuery, tg_user_id: int = 0):
         
         await session.commit()
     
+    web_url = f"{settings.web_url}/?task={task.id}"
     await callback.message.edit_text(
-        f"✅ *Задача создана!*\n\n#{task.id} {task.title}\n\n👤 Назначить исполнителя:",
+        f"✅ *Задача создана!*\n\n#{task.id} {task.title}\n\n"
+        f"🔗 [Открыть в браузере]({web_url})\n\n"
+        f"👤 Назначить исполнителя:",
         reply_markup=make_assign_keyboard(task.id, users),
         parse_mode="Markdown"
     )

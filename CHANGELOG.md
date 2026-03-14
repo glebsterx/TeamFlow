@@ -2,6 +2,48 @@
 
 ---
 
+## v0.8.5 — Backlog, Export/Import, Views, Frontend Refactor (2026-03-14)
+
+### #21 — Бэклог
+- Новая вкладка **📦 Бэклог** — агрегированный вид задач в бэклоге, сгруппированных по проектам
+- Секция бэклога внутри каждого проекта (`<details>` — свёрнута по умолчанию)
+- `BacklogTaskRow` — строка с кнопкой «→ В работу» (снимает флаг `backlog`)
+- **TaskModal**: кнопка 📦 — тогл бэклога, подсвечивается янтарным когда активен
+- **NewTaskModal**: чекбокс «📦 В бэклог» + `initialBacklog` из контекста
+- БД: колонки `tasks.backlog` (bool) и `tasks.backlog_added_at` (datetime)
+- Автосброс `backlog=False` при любой смене статуса (`change_status`, `block_task`)
+- `GET /api/backlog?project_id=N&no_project=true` — новый эндпоинт
+
+### #48 — Экспорт / Импорт
+- `GET /api/export?project_id=N&include=tasks,projects,meetings,comments` — скачивает JSON с заголовком `Content-Disposition`
+- `POST /api/import` `{ mode: "merge"|"full", data }` — импорт с двумя режимами
+  - `merge`: добавляет только записи, которых нет по ID
+  - `full`: очищает задачи/проекты (soft delete) и встречи/комментарии (hard delete), затем вставляет из файла
+- Поддержка `backlog`, `backlog_added_at` и всех полей задачи при импорте
+
+### #15 — Настройки
+- Новая вкладка **⚙️ Настройки** в навигации
+- Панель **Экспорт**: фильтр по проекту + чекбоксы включаемых сущностей + кнопка «Скачать JSON»
+- Панель **Импорт**: выбор режима (merge/full) + загрузка JSON файла + отображение результата/ошибки
+
+### #42 — Виды списка задач
+- Переключатель видов: **🃏 Карточки** / **☰ Список** / **⬛ Канбан**
+- Выбор сохраняется в `localStorage`
+- **Список**: компактные строки — статус, приоритет, ID, название, проект, исполнитель, дедлайн
+- **Канбан**: 4 колонки (TODO/DOING/BLOCKED/DONE), скролл внутри колонок, горизонтальный скролл на мобиле
+
+### Рефакторинг фронтенда (2026-03-14)
+- `Dashboard.tsx` (~3300 строк) разбит на изолированные модули
+- `src/pages/`: `BacklogPage`, `SettingsPage`, `ArchivePage`, `DigestPage`, `ProjectNavPage`
+- `src/modals/`: `TaskModal`, `NewTaskModal`, `ProjectModal`, `MeetingModal`, `NewProjectModal`, `NewMeetingModal`, `ConfirmDeleteModal`
+- `src/components/`: `Modal`, `MarkdownContent`, `CommentsSection`, `SearchPanel`, `Toast`, `TaskCard`
+- `src/hooks/`: `useTaskChangeDetector`, `usePushNotifications`
+- `src/constants/taskDisplay.ts` — цвета, эмоджи, порядок статусов/приоритетов
+- `src/utils/`: `dateUtils`, `taskUtils`, `toast`
+- `src/types/dashboard.ts` — все интерфейсы
+
+---
+
 ## v0.8.4 — UX Polish (2026-03-02)
 
 ### Web UI

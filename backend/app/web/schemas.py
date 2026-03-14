@@ -14,6 +14,21 @@ class AssigneeResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CommentResponse(BaseModel):
+    id: int
+    task_id: int
+    text: str
+    author_name: Optional[str]
+    author_telegram_id: Optional[int]
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CommentUpdate(BaseModel):
+    text: str
+
+
 class BlockerResponse(BaseModel):
     id: int
     task_id: int
@@ -50,6 +65,8 @@ class TaskResponse(BaseModel):
     completed_at: Optional[datetime] = None
     archived: bool = False
     deleted: bool = False
+    backlog: bool = False
+    backlog_added_at: Optional[datetime] = None
 
     # Project
     project_id: Optional[int] = None
@@ -61,6 +78,8 @@ class TaskResponse(BaseModel):
     # Для обратной совместимости
     assignee_name: Optional[str]
     assignee_telegram_id: Optional[int]
+
+    blockers: List[BlockerResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -77,6 +96,9 @@ class StatsResponse(BaseModel):
     doing: int
     done: int
     blocked: int
+    on_hold: int = 0
+    archived: int = 0
+    deleted: int = 0
 
 
 class TelegramUserResponse(BaseModel):
@@ -94,3 +116,13 @@ class TelegramUserResponse(BaseModel):
 class BotInfoResponse(BaseModel):
     username: str
     bot_name: str
+
+
+class PushSubscriptionCreate(BaseModel):
+    endpoint: str
+    keys: dict  # {"p256dh": "...", "auth": "..."}
+    user_telegram_id: Optional[int] = None
+
+
+class UnsubscribeRequest(BaseModel):
+    endpoint: str

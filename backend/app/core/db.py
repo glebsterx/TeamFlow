@@ -86,7 +86,7 @@ async def _run_migrations():
 
 async def init_db():
     """Initialize database — create all tables + run migrations."""
-    from app.domain.models import Task, Blocker, Meeting, TelegramUser  # noqa
+    from app.domain.models import Task, Blocker, Meeting, TelegramUser, Comment, PushSubscription  # noqa
     from app.domain.user import User  # noqa
 
     async with engine.begin() as conn:

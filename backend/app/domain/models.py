@@ -84,6 +84,10 @@ class Task(Base):
     archived = Column(Boolean, default=False, nullable=False)
     deleted = Column(Boolean, default=False, nullable=False)
 
+    # Backlog
+    backlog = Column(Boolean, default=False, nullable=False)
+    backlog_added_at = Column(DateTime, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -94,6 +98,7 @@ class Task(Base):
     project = relationship("Project", back_populates="tasks")
     assignee = relationship("TelegramUser", back_populates="assigned_tasks", foreign_keys=[assignee_id])
     blockers = relationship("Blocker", back_populates="task", cascade="all, delete-orphan")
+    comments = relationship("Comment", back_populates="task", cascade="all, delete-orphan", order_by="Comment.created_at")
     subtasks = relationship(
         "Task",
         backref=backref("parent_task", remote_side="Task.id"),
@@ -117,6 +122,20 @@ class Blocker(Base):
     task = relationship("Task", back_populates="blockers")
 
 
+class Comment(Base):
+    """Comment on a task."""
+    __tablename__ = "comments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+    text = Column(Text, nullable=False)
+    author_name = Column(String(100), nullable=True)
+    author_telegram_id = Column(BigInteger, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    task = relationship("Task", back_populates="comments")
+
+
 class Meeting(Base):
     """Meeting entity."""
     __tablename__ = "meetings"
@@ -124,4 +143,16 @@ class Meeting(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     meeting_date = Column(DateTime, nullable=False)
     summary = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class PushSubscription(Base):
+    """Web Push subscription (VAPID)."""
+    __tablename__ = "push_subscriptions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    endpoint = Column(Text, nullable=False, unique=True)
+    p256dh = Column(Text, nullable=False)
+    auth = Column(Text, nullable=False)
+    user_telegram_id = Column(BigInteger, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

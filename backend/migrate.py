@@ -9,13 +9,20 @@ DB_FILE = DB_URL.replace("sqlite+aiosqlite:///", "")
 
 MIGRATIONS = [
     # (table, column, sql)
-    ("tasks",          "assignee_id",    "ALTER TABLE tasks ADD COLUMN assignee_id INTEGER"),
-    ("tasks",          "source_chat_id", "ALTER TABLE tasks ADD COLUMN source_chat_id BIGINT"),
-    ("tasks",          "started_at",     "ALTER TABLE tasks ADD COLUMN started_at DATETIME"),
-    ("tasks",          "completed_at",   "ALTER TABLE tasks ADD COLUMN completed_at DATETIME"),
-    ("tasks",          "archived",       "ALTER TABLE tasks ADD COLUMN archived BOOLEAN DEFAULT 0"),
-    ("tasks",          "deleted",        "ALTER TABLE tasks ADD COLUMN deleted BOOLEAN DEFAULT 0"),
-    ("telegram_users", None,             """CREATE TABLE IF NOT EXISTS telegram_users (
+    ("tasks",          "assignee_id",           "ALTER TABLE tasks ADD COLUMN assignee_id INTEGER"),
+    ("tasks",          "source_chat_id",         "ALTER TABLE tasks ADD COLUMN source_chat_id BIGINT"),
+    ("tasks",          "started_at",             "ALTER TABLE tasks ADD COLUMN started_at DATETIME"),
+    ("tasks",          "completed_at",           "ALTER TABLE tasks ADD COLUMN completed_at DATETIME"),
+    ("tasks",          "archived",               "ALTER TABLE tasks ADD COLUMN archived BOOLEAN DEFAULT 0"),
+    ("tasks",          "deleted",                "ALTER TABLE tasks ADD COLUMN deleted BOOLEAN DEFAULT 0"),
+    ("tasks",          "due_date",               "ALTER TABLE tasks ADD COLUMN due_date DATETIME"),
+    ("tasks",          "definition_of_done",     "ALTER TABLE tasks ADD COLUMN definition_of_done TEXT"),
+    ("tasks",          "assignee_telegram_id",   "ALTER TABLE tasks ADD COLUMN assignee_telegram_id BIGINT"),
+    ("tasks",          "parent_task_id",         "ALTER TABLE tasks ADD COLUMN parent_task_id INTEGER REFERENCES tasks(id)"),
+    ("tasks",          "priority",               "ALTER TABLE tasks ADD COLUMN priority VARCHAR(10) DEFAULT 'NORMAL'"),
+    ("tasks",          "backlog",                "ALTER TABLE tasks ADD COLUMN backlog BOOLEAN DEFAULT 0"),
+    ("tasks",          "backlog_added_at",       "ALTER TABLE tasks ADD COLUMN backlog_added_at DATETIME"),
+    ("telegram_users", None, """CREATE TABLE IF NOT EXISTS telegram_users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         telegram_id BIGINT NOT NULL UNIQUE,
         username VARCHAR(100),
@@ -24,6 +31,22 @@ MIGRATIONS = [
         is_active BOOLEAN DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )"""),
+    ("comments", None, """CREATE TABLE IF NOT EXISTS comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL REFERENCES tasks(id),
+        text TEXT NOT NULL,
+        author_name VARCHAR(100),
+        author_telegram_id BIGINT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )"""),
+    ("push_subscriptions", None, """CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        user_telegram_id BIGINT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )"""),
 ]
 

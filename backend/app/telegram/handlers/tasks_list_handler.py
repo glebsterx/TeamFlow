@@ -7,6 +7,7 @@ from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskStatus
 from app.domain.models import TelegramUser
+from app.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -243,12 +244,14 @@ async def handle_task_detail(callback: CallbackQuery, tg_user_id: int = 0):
         
         assignee_str = f"\n👤 Исполнитель: {task.assignee.display_name}" if task.assignee else "\n👤 Не назначено"
         desc = f"\n\n{task.description}" if task.description else ""
-        
+        web_url = f"{settings.web_url}/?task={task.id}"
+
         text = (
             f"{STATUS_EMOJI[task.status]} *Задача #{task.id}*\n"
             f"{task.title}{assignee_str}"
             f"{desc}\n\n"
-            f"Статус: {task.status}"
+            f"Статус: {task.status}\n"
+            f"🔗 [Открыть в браузере]({web_url})"
         )
         
         await callback.message.edit_text(

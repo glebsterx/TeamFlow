@@ -8,6 +8,7 @@ from app.core.db import AsyncSessionLocal
 from app.services.task_service import TaskService
 from app.domain.enums import TaskStatus, TaskSource
 from app.telegram.keyboards.task_keyboards import get_task_action_keyboard
+from app.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -91,16 +92,18 @@ async def handle_skip_description(callback: CallbackQuery, state: FSMContext):
             )
             await session.commit()
         
+        web_url = f"{settings.web_url}/?task={task.id}"
         await callback.message.edit_text(
             f"✅ *Задача создана!*\n\n"
             f"#{task.id} {task.title}\n"
-            f"Статус: {task.status}",
+            f"Статус: {task.status}\n\n"
+            f"🔗 [Открыть в браузере]({web_url})",
             reply_markup=get_task_action_keyboard(task.id),
             parse_mode="Markdown"
         )
         await state.clear()
         logger.info("task_created", task_id=task.id, title=title)
-        
+
     except Exception as e:
         await callback.message.edit_text(f"❌ Ошибка: {str(e)}")
         await state.clear()
@@ -164,10 +167,12 @@ async def process_task_description(message: Message, state: FSMContext):
             )
             await session.commit()
         
+        web_url = f"{settings.web_url}/?task={task.id}"
         await message.answer(
             f"✅ *Задача создана!*\n\n"
             f"#{task.id} {task.title}\n"
-            f"Статус: {task.status}",
+            f"Статус: {task.status}\n\n"
+            f"🔗 [Открыть в браузере]({web_url})",
             reply_markup=get_task_action_keyboard(task.id),
             parse_mode="Markdown"
         )
