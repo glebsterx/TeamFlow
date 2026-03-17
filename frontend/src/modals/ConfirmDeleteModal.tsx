@@ -3,8 +3,8 @@ import Modal from '../components/Modal';
 import axios from 'axios';
 import { API_URL } from '../constants/taskDisplay';
 
-export default function ConfirmDeleteModal({ confirm, onClose, deleteTaskMutation, deleteProjectMutation, deleteMeetingMutation }: any) {
-  const labels: Record<string, string> = { task: 'задачу', project: 'проект', meeting: 'встречу' };
+export default function ConfirmDeleteModal({ confirm, onClose, deleteTaskMutation, deleteProjectMutation, deleteMeetingMutation, deleteSprintMutation }: any) {
+  const labels: Record<string, string> = { task: 'задачу', project: 'проект', meeting: 'встречу', sprint: 'спринт' };
   const [projectCheck, setProjectCheck] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
@@ -19,9 +19,18 @@ export default function ConfirmDeleteModal({ confirm, onClose, deleteTaskMutatio
   }, [confirm]);
 
   const handleDelete = () => {
-    if (confirm.type === 'task') deleteTaskMutation.mutate(confirm.id);
-    if (confirm.type === 'project') deleteProjectMutation.mutate(confirm.id);
-    if (confirm.type === 'meeting') deleteMeetingMutation.mutate(confirm.id);
+    if (confirm.type === 'task') {
+      deleteTaskMutation.mutate(confirm.id);
+    }
+    if (confirm.type === 'project') {
+      deleteProjectMutation.mutate(confirm.id);
+    }
+    if (confirm.type === 'meeting') {
+      deleteMeetingMutation.mutate(confirm.id);
+    }
+    if (confirm.type === 'sprint') {
+      deleteSprintMutation.mutate(confirm.id);
+    }
   };
 
   const handleArchive = () => {

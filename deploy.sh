@@ -177,9 +177,9 @@ echo -e "${BLUE}Bot:     @${BOT_USERNAME}${NC}"
 echo ""
 echo -e "${YELLOW}📝 После изменений кода:${NC}"
 if [ "$DEPLOY_MODE" = "1" ]; then
-    echo "  Backend:  docker restart teamflow-backend"
-    echo "  Frontend: docker restart teamflow-frontend"
+    echo "  Backend:  docker restart teamflow-backend  (app/ смонтирован, перезапуск подхватит изменения)"
+    echo "  Frontend: просто сохрани файл — Vite HMR обновит браузер автоматически (src/ смонтирован)"
 else
-    echo "  docker-compose up --build -d"
+    echo "  docker-compose -f docker-compose.yml up --build -d"
 fi
 echo ""

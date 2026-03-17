@@ -3,7 +3,7 @@ import json
 import asyncio
 import logging
 from typing import Optional, List
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Query, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text, delete, func
@@ -892,20 +892,35 @@ async def push_unsubscribe(
 # ============= SEARCH API =============
 
 @router.get("/search")
-async def search_tasks(q: str = "", limit: int = 20, db: AsyncSession = Depends(get_db)):
-    """Полнотекстовый поиск по задачам (title + description)."""
-    from sqlalchemy import or_, func
+async def search_tasks(q: str = Query(default=""), limit: int = 20, db: AsyncSession = Depends(get_db)):
+    """Полнотекстовый поиск по задачам (id + title + description)."""
+    from sqlalchemy import or_, cast, String
     q = q.strip()
     if len(q) < 2:
         return []
     limit = min(limit, 50)
+    # Поиск по ID задачи (без #)
+    try:
+        task_id = int(q)
+        id_match = (Task.id == task_id)
+    except (ValueError, TypeError):
+        id_match = None
+    # Поиск по title и description (case-insensitive через multiple LIKE)
+    q_lower = q.lower()
+    q_upper = q.upper()
+    q_title = q.capitalize()
     result = await db.execute(
         select(Task)
-        .where(Task.deleted == False)   # noqa: E712
-        .where(Task.archived == False)  # noqa: E712
+        .where(Task.deleted == False)
+        .where(Task.archived == False)
         .where(or_(
-            func.lower(Task.title).contains(q.lower()),
-            func.lower(Task.description).contains(q.lower()),
+            id_match if id_match else cast(Task.id, String).like(f"%{q}%"),
+            Task.title.like(f"%{q_lower}%"),
+            Task.title.like(f"%{q_upper}%"),
+            Task.title.like(f"%{q_title}%"),
+            Task.description.like(f"%{q_lower}%"),
+            Task.description.like(f"%{q_upper}%"),
+            Task.description.like(f"%{q_title}%"),
         ))
         .order_by(Task.updated_at.desc())
         .limit(limit)
@@ -915,16 +930,79 @@ async def search_tasks(q: str = "", limit: int = 20, db: AsyncSession = Depends(
         {
             "id": t.id,
             "title": t.title,
-            "description": t.description,
+            "description": t.description or "",
             "status": t.status,
             "priority": t.priority,
             "project_id": t.project_id,
             "parent_task_id": t.parent_task_id,
             "assignee_name": t.assignee_name,
+            "assignee_telegram_id": t.assignee_telegram_id,
             "due_date": t.due_date.isoformat() if t.due_date else None,
+            "archived": t.archived,
+            "deleted": t.deleted,
+            "backlog": t.backlog,
         }
         for t in tasks
     ]
+
+
+
+# ============= SPRINT STATUS & REORDER =============
+
+@router.patch("/sprints/{sprint_id}/status", response_model=dict)
+async def update_sprint_status(sprint_id: int, req: dict, db: AsyncSession = Depends(get_db)):
+    """Сменить статус спринта (activate/complete/archive)."""
+    from app.domain.models import Sprint, SprintTask, Task, Project
+    from sqlalchemy import update
+    
+    valid_statuses = ["planned", "active", "completed", "archived"]
+    status = req.get("status", "planned")
+    if status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+    
+    result = await db.execute(select(Sprint).where(Sprint.id == sprint_id))
+    sprint = result.scalar_one_or_none()
+    if not sprint:
+        raise HTTPException(status_code=404, detail="Sprint not found")
+    
+    await db.execute(update(Sprint).where(Sprint.id == sprint_id).values(status=status))
+    await db.commit()
+    
+    # Return simple response
+    return {"ok": True, "status": status, "id": sprint_id}
+
+
+@router.patch("/sprints/reorder")
+async def reorder_sprints(req: dict, db: AsyncSession = Depends(get_db)):
+    """Изменить порядок спринтов."""
+    from app.domain.models import Sprint
+    from sqlalchemy import update
+    
+    sprint_ids = req.get("sprint_ids", [])
+    for position, sprint_id in enumerate(sprint_ids):
+        await db.execute(update(Sprint).where(Sprint.id == sprint_id).values(position=position))
+    
+    await db.commit()
+    return {"ok": True}
+
+
+@router.patch("/sprints/{sprint_id}/tasks/reorder")
+async def reorder_sprint_tasks(sprint_id: int, req: dict, db: AsyncSession = Depends(get_db)):
+    """Изменить порядок задач в спринте."""
+    from app.domain.models import SprintTask
+    from sqlalchemy import update
+    
+    task_ids = req.get("task_ids", [])
+    for position, task_id in enumerate(task_ids):
+        await db.execute(
+            update(SprintTask)
+            .where(SprintTask.sprint_id == sprint_id)
+            .where(SprintTask.task_id == task_id)
+            .values(position=position)
+        )
+    
+    await db.commit()
+    return {"ok": True}
 
 
 # ============= DIGEST API =============
@@ -933,7 +1011,7 @@ async def search_tasks(q: str = "", limit: int = 20, db: AsyncSession = Depends(
 async def get_digest(db: AsyncSession = Depends(get_db)):
     """Данные для страницы дайджеста."""
     from app.repositories.project_repository import ProjectRepository
-    from app.domain.enums import TaskStatus as TS
+    from app.domain.enums import TaskStatus as TS, TaskPriority as TP
     from datetime import datetime, timedelta
 
     service = TaskService(db)
@@ -946,6 +1024,7 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
     soon = today + timedelta(days=7)
 
     terminal = {TS.DONE.value, TS.ON_HOLD.value}
+    active_statuses = {TS.TODO.value, TS.DOING.value, TS.BLOCKED.value}
 
     def is_overdue(t) -> bool:
         return bool(t.due_date and t.due_date.date() < today and t.status not in terminal)
@@ -961,10 +1040,13 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
 
     # Только верхнеуровневые задачи для статистики по проектам
     top_tasks = [t for t in all_tasks if not t.parent_task_id]
+    # Активные задачи (не DONE, не ON_HOLD, не удалённые)
+    active_tasks = [t for t in all_tasks if t.status in active_statuses]
 
     # Общая статистика
     stats = {
         "total": len(all_tasks),
+        "active": len(active_tasks),
         "todo": sum(1 for t in all_tasks if t.status == TS.TODO.value),
         "doing": sum(1 for t in all_tasks if t.status == TS.DOING.value),
         "done": sum(1 for t in all_tasks if t.status == TS.DONE.value),
@@ -973,45 +1055,95 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
         "overdue": sum(1 for t in all_tasks if is_overdue(t)),
         "due_soon": sum(1 for t in all_tasks if is_due_soon(t)),
         "avg_completion_days": avg_completion_days(all_tasks),
+        # Разбивка по приоритетам (#85)
+        "priority": {
+            "urgent": sum(1 for t in active_tasks if t.priority == TP.URGENT.value),
+            "high":   sum(1 for t in active_tasks if t.priority == TP.HIGH.value),
+            "normal": sum(1 for t in active_tasks if t.priority == TP.NORMAL.value),
+            "low":    sum(1 for t in active_tasks if t.priority == TP.LOW.value),
+        },
+        # Бэклог (#86)
+        "backlog": sum(1 for t in all_tasks if getattr(t, 'is_backlog', False)),
     }
 
-    # Статистика по проектам (только top-level задачи)
-    project_stats = []
-    for proj in projects:
-        proj_tasks = [t for t in top_tasks if t.project_id == proj.id]
-        if not proj_tasks:
+    # Задачи с дедлайнами (#87) — списки, не только счётчики
+    overdue_tasks = sorted(
+        [t for t in all_tasks if is_overdue(t)],
+        key=lambda t: t.due_date
+    )[:10]
+    due_soon_tasks = sorted(
+        [t for t in all_tasks if is_due_soon(t)],
+        key=lambda t: t.due_date
+    )[:10]
+
+    def task_brief(t):
+        return {
+            "id": t.id,
+            "title": t.title,
+            "due_date": t.due_date.date().isoformat() if t.due_date else None,
+            "priority": t.priority,
+            "status": t.status,
+            "project_id": t.project_id,
+        }
+
+    # Прогресс подзадач (#89) — задачи у которых есть дети
+    task_map = {t.id: t for t in all_tasks}
+    children_map: dict = {}
+    for t in all_tasks:
+        if t.parent_task_id:
+            children_map.setdefault(t.parent_task_id, []).append(t)
+
+    subtask_progress = []
+    for tid, children in children_map.items():
+        parent = task_map.get(tid)
+        if not parent or parent.status == TS.DONE.value:
             continue
-        project_stats.append({
-            "id": proj.id,
-            "name": proj.name,
-            "emoji": proj.emoji or "📁",
+        total_ch = len(children)
+        done_ch = sum(1 for c in children if c.status == TS.DONE.value)
+        subtask_progress.append({
+            "id": parent.id,
+            "title": parent.title,
+            "project_id": parent.project_id,
+            "done": done_ch,
+            "total": total_ch,
+            "pct": round(done_ch / total_ch * 100) if total_ch else 0,
+        })
+    subtask_progress.sort(key=lambda x: (-x["total"], -x["pct"]))
+    subtask_progress = subtask_progress[:15]
+
+    # Статистика по проектам (только top-level задачи)
+    def proj_stat(proj_tasks, proj_id, name, emoji):
+        active_p = [t for t in proj_tasks if t.status in active_statuses]
+        return {
+            "id": proj_id,
+            "name": name,
+            "emoji": emoji,
             "total": len(proj_tasks),
+            "active": len(active_p),
             "done": sum(1 for t in proj_tasks if t.status == TS.DONE.value),
             "doing": sum(1 for t in proj_tasks if t.status == TS.DOING.value),
             "todo": sum(1 for t in proj_tasks if t.status == TS.TODO.value),
             "blocked": sum(1 for t in proj_tasks if t.status == TS.BLOCKED.value),
             "on_hold": sum(1 for t in proj_tasks if t.status == TS.ON_HOLD.value),
+            "backlog": sum(1 for t in proj_tasks if getattr(t, 'is_backlog', False)),
             "overdue": sum(1 for t in proj_tasks if is_overdue(t)),
             "due_soon": sum(1 for t in proj_tasks if is_due_soon(t)),
             "avg_completion_days": avg_completion_days(proj_tasks),
-        })
+        }
 
-    # Задачи без проекта (только top-level)
+    project_stats = []
+    for proj in projects:
+        proj_tasks = [t for t in top_tasks if t.project_id == proj.id]
+        if not proj_tasks:
+            continue
+        project_stats.append(proj_stat(proj_tasks, proj.id, proj.name, proj.emoji or "📁"))
+
     no_proj = [t for t in top_tasks if not t.project_id]
     if no_proj:
-        project_stats.append({
-            "id": None,
-            "name": "Без проекта",
-            "emoji": "📋",
-            "total": len(no_proj),
-            "done": sum(1 for t in no_proj if t.status == TS.DONE.value),
-            "doing": sum(1 for t in no_proj if t.status == TS.DOING.value),
-            "todo": sum(1 for t in no_proj if t.status == TS.TODO.value),
-            "blocked": sum(1 for t in no_proj if t.status == TS.BLOCKED.value),
-            "overdue": sum(1 for t in no_proj if is_overdue(t)),
-            "due_soon": sum(1 for t in no_proj if is_due_soon(t)),
-            "avg_completion_days": avg_completion_days(no_proj),
-        })
+        project_stats.append(proj_stat(no_proj, None, "Без проекта", "📋"))
+
+    # Топ активных проектов (#88) — сортировка по числу активных задач
+    project_stats.sort(key=lambda p: (-p["active"], -p["total"]))
 
     # Топ исполнителей
     performers: dict = {}
@@ -1044,10 +1176,67 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
         secs = p.pop("_done_secs", [])
         p["avg_days"] = round(sum(secs) / len(secs) / 86400, 1) if secs else None
 
+    # Активность комментариев за неделю (#90)
+    from app.domain.models import Comment
+    week_ago = datetime.utcnow() - timedelta(days=7)
+    comments_result = await db.execute(
+        select(Comment).where(Comment.created_at >= week_ago)
+    )
+    week_comments = list(comments_result.scalars().all())
+    comment_authors: dict = {}
+    for c in week_comments:
+        name = c.author_name or "Аноним"
+        comment_authors[name] = comment_authors.get(name, 0) + 1
+    comment_activity = {
+        "total": len(week_comments),
+        "by_author": sorted(
+            [{"name": n, "count": v} for n, v in comment_authors.items()],
+            key=lambda x: -x["count"]
+        ),
+    }
+
+    # Прогресс активных спринтов (#91)
+    from app.domain.models import Sprint, SprintTask
+    from sqlalchemy.orm import selectinload
+    sprints_result = await db.execute(
+        select(Sprint)
+        .where(Sprint.status == "active", Sprint.is_deleted == False)
+        .options(selectinload(Sprint.tasks))
+        .order_by(Sprint.position)
+    )
+    active_sprints = list(sprints_result.scalars().all())
+    sprint_progress = []
+    for sp in active_sprints:
+        task_ids = [st.task_id for st in sp.tasks]
+        if not task_ids:
+            sprint_progress.append({
+                "id": sp.id, "name": sp.name,
+                "total": 0, "done": 0, "doing": 0, "todo": 0, "blocked": 0, "pct": 0,
+            })
+            continue
+        sp_tasks = [t for t in all_tasks if t.id in set(task_ids)]
+        sp_done = sum(1 for t in sp_tasks if t.status == TS.DONE.value)
+        sp_total = len(sp_tasks)
+        sprint_progress.append({
+            "id": sp.id,
+            "name": sp.name,
+            "total": sp_total,
+            "done": sp_done,
+            "doing": sum(1 for t in sp_tasks if t.status == TS.DOING.value),
+            "todo": sum(1 for t in sp_tasks if t.status == TS.TODO.value),
+            "blocked": sum(1 for t in sp_tasks if t.status == TS.BLOCKED.value),
+            "pct": round(sp_done / sp_total * 100) if sp_total else 0,
+        })
+
     return {
         "stats": stats,
         "projects": project_stats,
         "top_performers": top_performers,
+        "overdue_tasks": [task_brief(t) for t in overdue_tasks],
+        "due_soon_tasks": [task_brief(t) for t in due_soon_tasks],
+        "subtask_progress": subtask_progress,
+        "comment_activity": comment_activity,
+        "sprint_progress": sprint_progress,
     }
 
 
@@ -1431,7 +1620,9 @@ class SprintResponse(BaseModel):
     project_name: Optional[str] = None
     start_date: datetime
     end_date: datetime
-    is_active: bool
+    status: str
+    position: int = 0
+    is_deleted: bool = False
     created_at: datetime
     tasks: List[SprintTaskResponse] = []
     model_config = ConfigDict(from_attributes=True)
@@ -1448,7 +1639,7 @@ async def get_sprints(db: AsyncSession = Depends(get_db)):
             .selectinload(SprintTask.task)
             .selectinload(Task.project)
         )
-        .order_by(Sprint.start_date.desc())
+        .order_by(Sprint.position, Sprint.start_date)
     )
     sprints = list(result.scalars().all())
     
@@ -1463,7 +1654,7 @@ async def get_sprints(db: AsyncSession = Depends(get_db)):
                 project_name = proj.name
         
         task_list = []
-        for st in sprint.tasks:
+        for st in sorted(sprint.tasks, key=lambda x: x.position):
             task_list.append({
                 "id": st.id,
                 "sprint_id": st.sprint_id,
@@ -1474,7 +1665,7 @@ async def get_sprints(db: AsyncSession = Depends(get_db)):
                 "task_status": st.task.status,
                 "task_priority": st.task.priority
             })
-        
+
         response.append({
             "id": sprint.id,
             "name": sprint.name,
@@ -1483,7 +1674,9 @@ async def get_sprints(db: AsyncSession = Depends(get_db)):
             "project_name": project_name,
             "start_date": sprint.start_date,
             "end_date": sprint.end_date,
-            "is_active": sprint.is_active,
+            "status": sprint.status,
+            "position": sprint.position,
+            "is_deleted": sprint.is_deleted,
             "created_at": sprint.created_at,
             "tasks": task_list
         })
@@ -1494,12 +1687,15 @@ async def get_sprints(db: AsyncSession = Depends(get_db)):
 async def create_sprint(request: SprintCreateRequest, db: AsyncSession = Depends(get_db)):
     """Создать спринт."""
     from app.domain.models import Sprint
+    max_pos_result = await db.execute(select(func.max(Sprint.position)))
+    max_pos = max_pos_result.scalar_one_or_none() or 0
     sprint = Sprint(
         name=request.name,
         description=request.description,
         project_id=request.project_id,
         start_date=request.start_date,
-        end_date=request.end_date
+        end_date=request.end_date,
+        position=max_pos + 1,
     )
     db.add(sprint)
     await db.commit()
@@ -1512,7 +1708,8 @@ async def create_sprint(request: SprintCreateRequest, db: AsyncSession = Depends
         "project_name": None,
         "start_date": sprint.start_date,
         "end_date": sprint.end_date,
-        "is_active": sprint.is_active,
+        "status": sprint.status,
+        "position": sprint.position,
         "created_at": sprint.created_at,
         "tasks": []
     }
@@ -1543,7 +1740,7 @@ async def get_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
             project_name = proj.name
     
     task_list = []
-    for st in sprint.tasks:
+    for st in sorted(sprint.tasks, key=lambda x: x.position):
         task_list.append({
             "id": st.id,
             "sprint_id": st.sprint_id,
@@ -1554,7 +1751,7 @@ async def get_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
             "task_status": st.task.status,
             "task_priority": st.task.priority
         })
-    
+
     return {
         "id": sprint.id,
         "name": sprint.name,
@@ -1563,7 +1760,8 @@ async def get_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
         "project_name": project_name,
         "start_date": sprint.start_date,
         "end_date": sprint.end_date,
-        "is_active": sprint.is_active,
+        "status": sprint.status,
+        "position": sprint.position,
         "created_at": sprint.created_at,
         "tasks": task_list
     }
@@ -1589,7 +1787,7 @@ async def update_sprint(sprint_id: int, request: SprintUpdateRequest, db: AsyncS
     if request.end_date is not None:
         sprint.end_date = request.end_date
     if request.is_active is not None:
-        sprint.is_active = request.is_active
+        sprint.status = "active" if request.is_active else "planned"
     
     await db.commit()
     await db.refresh(sprint)
@@ -1632,7 +1830,8 @@ async def update_sprint(sprint_id: int, request: SprintUpdateRequest, db: AsyncS
         "project_name": project_name,
         "start_date": sprint.start_date,
         "end_date": sprint.end_date,
-        "is_active": sprint.is_active,
+        "status": sprint.status,
+        "position": sprint.position,
         "created_at": sprint.created_at,
         "tasks": task_list
     }
@@ -1642,12 +1841,27 @@ async def update_sprint(sprint_id: int, request: SprintUpdateRequest, db: AsyncS
 async def delete_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
     """Удалить спринт."""
     from app.domain.models import Sprint
+    from sqlalchemy import update as sa_update
     result = await db.execute(select(Sprint).where(Sprint.id == sprint_id))
     sprint = result.scalar_one_or_none()
     if not sprint:
         raise HTTPException(status_code=404, detail="Sprint not found")
-    
-    await db.delete(sprint)
+
+    await db.execute(sa_update(Sprint).where(Sprint.id == sprint_id).values(is_deleted=True))
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/sprints/{sprint_id}/restore")
+async def restore_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
+    """Восстановить удалённый спринт."""
+    from app.domain.models import Sprint
+    result = await db.execute(select(Sprint).where(Sprint.id == sprint_id))
+    sprint = result.scalar_one_or_none()
+    if not sprint:
+        raise HTTPException(status_code=404, detail="Sprint not found")
+    from sqlalchemy import update as sa_update
+    await db.execute(sa_update(Sprint).where(Sprint.id == sprint_id).values(is_deleted=False))
     await db.commit()
     return {"ok": True}
 
@@ -1675,13 +1889,24 @@ async def add_task_to_sprint(sprint_id: int, request: SprintTaskAddRequest, db: 
     sprint_task = SprintTask(
         sprint_id=sprint_id,
         task_id=request.task_id,
-        position=request.position or (max_pos + 1)
+        position=request.position if request.position is not None else (max_pos + 1)
     )
     db.add(sprint_task)
     await db.commit()
     await db.refresh(sprint_task)
-    await db.refresh(sprint_task.task)
-    return sprint_task
+    # Reload task for response fields
+    task_result2 = await db.execute(select(Task).where(Task.id == request.task_id))
+    task = task_result2.scalar_one()
+    return {
+        "id": sprint_task.id,
+        "sprint_id": sprint_task.sprint_id,
+        "task_id": sprint_task.task_id,
+        "position": sprint_task.position,
+        "created_at": sprint_task.created_at,
+        "task_title": task.title,
+        "task_status": task.status,
+        "task_priority": task.priority,
+    }
 
 
 @router.delete("/sprints/{sprint_id}/tasks/{task_id}")
@@ -1713,5 +1938,17 @@ async def get_sprint_tasks(sprint_id: int, db: AsyncSession = Depends(get_db)):
         .order_by(SprintTask.position)
     )
     sprint_tasks = list(result.scalars().all())
-    return sprint_tasks
+    return [
+        {
+            "id": st.id,
+            "sprint_id": st.sprint_id,
+            "task_id": st.task_id,
+            "position": st.position,
+            "created_at": st.created_at,
+            "task_title": st.task.title,
+            "task_status": st.task.status,
+            "task_priority": st.task.priority,
+        }
+        for st in sprint_tasks
+    ]
 

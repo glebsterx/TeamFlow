@@ -1,133 +1,149 @@
-"""Weekly digest service."""
+"""Digest service."""
 from datetime import datetime, timedelta
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.models import Task, Meeting
-from app.domain.enums import TaskStatus
+from app.domain.enums import TaskStatus, TaskPriority
 from app.repositories.task_repository import TaskRepository
 from app.repositories.meeting_repository import MeetingRepository
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+PRIORITY_EMOJI = {
+    TaskPriority.URGENT.value: "🔴",
+    TaskPriority.HIGH.value:   "🟠",
+    TaskPriority.NORMAL.value: "🟡",
+    TaskPriority.LOW.value:    "⚪",
+}
+
 
 class DigestService:
-    """Service for generating weekly digests."""
-    
+    """Service for generating digests."""
+
     def __init__(self, session: AsyncSession):
         self.session = session
         self.task_repo = TaskRepository(session)
         self.meeting_repo = MeetingRepository(session)
-    
+
     async def generate_weekly_digest(self) -> str:
-        """Generate weekly digest message for CURRENT week (Mon-Sun)."""
+        """Generate digest based on all active tasks (not filtered by creation date)."""
         from app.core.clock import Clock
-        
-        # Текущая неделя (Пн-Вс) — используем timezone-aware datetime
+
         now = Clock.now()
+        today = now.date()
+        soon = today + timedelta(days=7)
         week_start = now - timedelta(days=now.weekday())
         week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
-        week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
-        
-        # Задачи текущей недели
+
         all_tasks = await self.task_repo.get_all()
-        # Сравниваем aware datetime
-        week_tasks = [
-            t for t in all_tasks 
-            if t.created_at and week_start <= t.created_at.replace(tzinfo=now.tzinfo) <= week_end
+
+        terminal = {TaskStatus.DONE.value, TaskStatus.ON_HOLD.value}
+        active_statuses = {TaskStatus.TODO.value, TaskStatus.DOING.value, TaskStatus.BLOCKED.value}
+
+        active_tasks = [t for t in all_tasks if t.status in active_statuses]
+        done_this_week = [
+            t for t in all_tasks
+            if t.status == TaskStatus.DONE.value and t.completed_at
+            and t.completed_at.replace(tzinfo=now.tzinfo) >= week_start
         ]
-        
-        # Встречи текущей недели
-        all_meetings = await self.meeting_repo.get_recent(days=30)
+        overdue = sorted(
+            [t for t in all_tasks if t.due_date and t.due_date.date() < today and t.status not in terminal],
+            key=lambda t: t.due_date
+        )
+        due_soon = sorted(
+            [t for t in all_tasks if t.due_date and today <= t.due_date.date() <= soon and t.status not in terminal],
+            key=lambda t: t.due_date
+        )
+
+        # Встречи на этой неделе
+        all_meetings = await self.meeting_repo.get_recent(days=7)
         week_meetings = [
-            m for m in all_meetings 
-            if m.meeting_date and week_start <= m.meeting_date.replace(tzinfo=now.tzinfo) <= week_end
+            m for m in all_meetings
+            if m.meeting_date and m.meeting_date.replace(tzinfo=now.tzinfo) >= week_start
         ]
-        
-        digest = self._build_digest_message(week_tasks, week_meetings, week_start, week_end)
-        logger.info("weekly_digest_generated", tasks_count=len(week_tasks))
-        
+
+        digest = self._build_digest_message(
+            active_tasks, done_this_week, overdue, due_soon, week_meetings, today
+        )
+        logger.info("digest_generated", active=len(active_tasks), done_week=len(done_this_week))
         return digest
-    
+
     def _build_digest_message(
         self,
-        tasks: List[Task],
+        active_tasks: List[Task],
+        done_this_week: List[Task],
+        overdue: List[Task],
+        due_soon: List[Task],
         meetings: List[Meeting],
-        week_start: datetime,
-        week_end: datetime
+        today: "date",
     ) -> str:
         """Build formatted digest message."""
-        
-        # Header
-        start_str = week_start.strftime("%d.%m")
-        end_str = week_end.strftime("%d.%m.%Y")
-        message = (
-            f"📊 *Еженедельный дайджест*\n"
-            f"📅 {start_str} - {end_str}\n"
-            f"_Текущая неделя (Пн-Вс)_\n\n"
-        )
-        
-        # Tasks statistics
-        completed = [t for t in tasks if t.status == TaskStatus.DONE.value]
-        in_progress = [t for t in tasks if t.status == TaskStatus.DOING.value]
-        blocked = [t for t in tasks if t.status == TaskStatus.BLOCKED.value]
-        
-        message += "*📈 Статистика задач:*\n"
-        message += f"  ✅ Выполнено: {len(completed)}\n"
-        message += f"  🔄 В работе: {len(in_progress)}\n"
+        doing = [t for t in active_tasks if t.status == TaskStatus.DOING.value]
+        blocked = [t for t in active_tasks if t.status == TaskStatus.BLOCKED.value]
+        todo = [t for t in active_tasks if t.status == TaskStatus.TODO.value]
+
+        message = f"📊 *Дайджест* — {today.strftime('%d.%m.%Y')}\n\n"
+
+        # Активные задачи
+        message += "*📈 Активные задачи:*\n"
+        message += f"  🔄 В работе: {len(doing)}\n"
+        message += f"  📝 К выполнению: {len(todo)}\n"
         message += f"  🚫 Заблокировано: {len(blocked)}\n"
-        message += f"  📝 Всего за неделю: {len(tasks)}\n\n"
-        
-        # Completed tasks
-        if completed:
-            message += "*✅ Выполненные задачи:*\n"
-            for task in completed[:5]:
-                assignee = f" ({self._format_assignee(task)})" if task.assignee or task.assignee_name else ""
-                message += f"  • {task.title}{assignee}\n"
-            if len(completed) > 5:
-                message += f"  _...и ещё {len(completed) - 5}_\n"
+        message += f"  ✅ Закрыто на этой неделе: {len(done_this_week)}\n\n"
+
+        # Разбивка по приоритетам
+        urgent = [t for t in active_tasks if t.priority == TaskPriority.URGENT.value]
+        high = [t for t in active_tasks if t.priority == TaskPriority.HIGH.value]
+        if urgent or high:
+            message += "*🎯 Высокий приоритет:*\n"
+            for t in (urgent + high)[:7]:
+                emoji = PRIORITY_EMOJI.get(t.priority, "•")
+                message += f"  {emoji} {t.title}\n"
+            rest = len(urgent) + len(high) - 7
+            if rest > 0:
+                message += f"  _...и ещё {rest}_\n"
             message += "\n"
-        
-        # Blocked tasks
+
+        # Просроченные
+        if overdue:
+            message += f"*🔥 Просроченные задачи ({len(overdue)}):*\n"
+            for t in overdue[:5]:
+                days = (today - t.due_date.date()).days
+                message += f"  • {t.title} _{days} дн. назад_\n"
+            if len(overdue) > 5:
+                message += f"  _...и ещё {len(overdue) - 5}_\n"
+            message += "\n"
+
+        # Дедлайны на неделе
+        if due_soon:
+            message += f"*⏰ Дедлайн на неделе ({len(due_soon)}):*\n"
+            for t in due_soon[:5]:
+                date_str = t.due_date.strftime("%d.%m")
+                message += f"  • {t.title} _{date_str}_\n"
+            if len(due_soon) > 5:
+                message += f"  _...и ещё {len(due_soon) - 5}_\n"
+            message += "\n"
+
+        # Заблокированные с причиной
         if blocked:
-            message += "*⚠️ Заблокированные задачи:*\n"
-            for task in blocked:
+            message += "*⚠️ Блокеры:*\n"
+            for task in blocked[:5]:
                 message += f"  • {task.title}\n"
                 if task.blockers:
-                    latest_blocker = task.blockers[-1]
-                    message += f"    🚫 {latest_blocker.text}\n"
+                    message += f"    🚫 {task.blockers[-1].text}\n"
             message += "\n"
-        
-        # Meetings
+
+        # Встречи
         if meetings:
             message += "*🤝 Встречи на неделе:*\n"
-            for meeting in sorted(meetings, key=lambda m: m.meeting_date):
-                date_str = meeting.meeting_date.strftime("%d.%m %H:%M")
-                # Обрезаем длинные резюме
-                summary = meeting.summary[:60] + "..." if len(meeting.summary) > 60 else meeting.summary
+            for m in sorted(meetings, key=lambda m: m.meeting_date):
+                date_str = m.meeting_date.strftime("%d.%m %H:%M")
+                summary = m.summary[:60] + "..." if len(m.summary) > 60 else m.summary
                 message += f"  • *{date_str}:* {summary}\n"
             message += "\n"
-        
-        # Team activity
-        assignees = {}
-        for task in tasks:
-            name = self._format_assignee(task)
-            if name:
-                if name not in assignees:
-                    assignees[name] = {'total': 0, 'completed': 0}
-                assignees[name]['total'] += 1
-                if task.status == TaskStatus.DONE.value:
-                    assignees[name]['completed'] += 1
-        
-        if assignees:
-            message += "*👥 Активность команды:*\n"
-            for name, stats in sorted(assignees.items(), key=lambda x: x[1]['completed'], reverse=True):
-                completion_rate = int(stats['completed'] / stats['total'] * 100) if stats['total'] > 0 else 0
-                message += f"  • {name}: {stats['completed']}/{stats['total']} ({completion_rate}%)\n"
-            message += "\n"
-        
+
         message += "---\n🎯 Продуктивной недели!"
-        
         return message
     
     def _format_assignee(self, task: Task) -> str:

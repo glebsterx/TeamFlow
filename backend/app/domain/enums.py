@@ -23,3 +23,11 @@ class TaskPriority(str, Enum):
     HIGH = "HIGH"
     NORMAL = "NORMAL"
     LOW = "LOW"
+
+
+class SprintStatus(str, Enum):
+    """Sprint status values."""
+    PLANNED = "planned"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    ARCHIVED = "archived"

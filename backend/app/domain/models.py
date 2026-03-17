@@ -171,17 +171,24 @@ class Sprint(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)  # Optional project association
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
+    status = Column(String(20), nullable=False, default="planned")  # planned/active/completed/archived
+    position = Column(Integer, nullable=False, default=0)  # Explicit ordering
+    is_deleted = Column(Boolean, default=False)  # Soft delete
     start_date = Column(DateTime, nullable=False)
     end_date = Column(DateTime, nullable=False)
-    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     tasks = relationship("SprintTask", back_populates="sprint", cascade="all, delete-orphan")
     project = relationship("Project")
 
     def __repr__(self):
-        return f"<Sprint(id={self.id}, name='{self.name}', start={self.start_date})>"
+        return f"<Sprint(id={self.id}, name='{self.name}', status='{self.status}')>"
+
+    @property
+    def is_active(self):
+        """Legacy alias for Pydantic compatibility."""
+        return self.status == 'active'
 
 
 class SprintTask(Base):

@@ -18,9 +18,10 @@ export interface Sprint {
   description?: string;
   project_id?: number;
   project_name?: string;
+  status: 'planned' | 'active' | 'completed' | 'archived';
+  position: number;
   start_date: string;
   end_date: string;
-  is_active: boolean;
   created_at: string;
   tasks: SprintTask[];
 }
@@ -39,7 +40,8 @@ export interface SprintUpdateRequest {
   project_id?: number;
   start_date?: string;
   end_date?: string;
-  is_active?: boolean;
+  status?: string;
+  position?: number;
 }
 
 export interface SprintTaskAddRequest {
@@ -77,14 +79,30 @@ export const sprintsApi = {
     await axios.delete(`${API_URL}/api/sprints/${sprintId}`);
   },
 
-  // Archive sprint (set is_active=false)
+  // Archive sprint (set status=archived)
   archive: async (sprintId: number): Promise<Sprint> => {
-    return sprintsApi.update(sprintId, { is_active: false });
+    return sprintsApi.updateStatus(sprintId, 'archived');
   },
 
-  // Restore sprint
-  restore: async (sprintId: number): Promise<Sprint> => {
-    return sprintsApi.update(sprintId, { is_active: true });
+  // Update sprint status
+  updateStatus: async (sprintId: number, status: string): Promise<Sprint> => {
+    const response = await axios.patch(`${API_URL}/api/sprints/${sprintId}/status`, { status });
+    return response.data;
+  },
+
+  // Reorder sprints
+  reorder: async (sprintIds: number[]): Promise<void> => {
+    await axios.patch(`${API_URL}/api/sprints/reorder`, { sprint_ids: sprintIds });
+  },
+
+  // Reorder tasks in sprint
+  reorderTasks: async (sprintId: number, taskIds: number[]): Promise<void> => {
+    await axios.patch(`${API_URL}/api/sprints/${sprintId}/tasks/reorder`, { task_ids: taskIds });
+  },
+
+  // Restore deleted sprint
+  restore: async (sprintId: number): Promise<void> => {
+    await axios.post(`${API_URL}/api/sprints/${sprintId}/restore`);
   },
 
   // Add task to sprint
