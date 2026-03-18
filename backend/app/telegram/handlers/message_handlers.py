@@ -2,10 +2,12 @@
 import re
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from sqlalchemy import select, func
 from app.core.db import AsyncSessionLocal
 from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskSource
+from app.domain.models import Project
 from app.telegram.keyboards.task_keyboards import get_confirmation_keyboard
 from app.config import settings
 from app.core.logging import get_logger
@@ -42,6 +44,9 @@ ASSIGNMENT_PATTERNS = [
 ]
 
 MIN_MESSAGE_LEN = 10  # Минимум символов
+
+# Паттерн для детектирования хештегов проектов
+HASHTAG_RE = re.compile(r'#([A-Za-zА-Яа-яЁё0-9_]+)')
 
 
 def count_words(text: str) -> int:
@@ -114,6 +119,19 @@ def make_assign_keyboard(task_id: int, users: list) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+async def _find_project_by_hashtag(session, tag: str):
+    """Find a project by partial case-insensitive name match."""
+    result = await session.execute(
+        select(Project)
+        .where(
+            Project.deleted.is_(False),
+            func.lower(Project.name).contains(tag.lower()),
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 # Хранилище ожидающих подтверждения
 _pending = {}
 
@@ -125,21 +143,27 @@ async def handle_potential_task(message: Message):
     
     if not is_task_like_message(text):
         return
-    
+
+    # Detect project hashtag
+    hashtag_match = HASHTAG_RE.search(text)
+    project_tag = hashtag_match.group(1) if hashtag_match else None
+
     # Сохраняем в ожидании подтверждения
     msg_id = message.message_id
     _pending[msg_id] = {
         'text': text,
         'chat_id': message.chat.id,
-        'from_user': message.from_user.id
+        'from_user': message.from_user.id,
+        'project_tag': project_tag,
     }
-    
+
+    project_hint = f"\n🏷 Проект: `#{project_tag}`" if project_tag else ""
     await message.reply(
-        f"💡 Обнаружена задача!\n\n*Создать задачу?*\n_{extract_task_title(text)}_",
+        f"💡 Обнаружена задача!\n\n*Создать задачу?*\n_{extract_task_title(text)}_{project_hint}",
         reply_markup=get_confirmation_keyboard(msg_id),
         parse_mode="Markdown"
     )
-    logger.info("task_suggestion", message_id=msg_id)
+    logger.info("task_suggestion", message_id=msg_id, project_tag=project_tag)
 
 
 @router.callback_query(F.data.startswith("confirm_task:"))
@@ -153,7 +177,8 @@ async def handle_confirm_task(callback: CallbackQuery, tg_user_id: int = 0):
     
     pending = _pending.pop(msg_id)
     title = extract_task_title(pending['text'])
-    
+    project_tag = pending.get('project_tag')
+
     async with AsyncSessionLocal() as session:
         service = TaskService(session)
         task = await service.create_task(
@@ -162,23 +187,31 @@ async def handle_confirm_task(callback: CallbackQuery, tg_user_id: int = 0):
             source_message_id=msg_id,
             source_chat_id=pending['chat_id']
         )
-        
+
+        # Attach project if hashtag was detected
+        project_name_hint = ""
+        if project_tag:
+            project = await _find_project_by_hashtag(session, project_tag)
+            if project:
+                task.project_id = project.id
+                project_name_hint = f"\n🏷 Проект: {project.emoji or '📁'} {project.name}"
+
         # Получаем список пользователей для назначения
         user_repo = UserRepository(session)
         users = await user_repo.get_all()
-        
+
         await session.commit()
-    
+
     web_url = f"{settings.web_url}/?task={task.id}"
     await callback.message.edit_text(
-        f"✅ *Задача создана!*\n\n#{task.id} {task.title}\n\n"
+        f"✅ *Задача создана!*\n\n#{task.id} {task.title}{project_name_hint}\n\n"
         f"🔗 [Открыть в браузере]({web_url})\n\n"
         f"👤 Назначить исполнителя:",
         reply_markup=make_assign_keyboard(task.id, users),
         parse_mode="Markdown"
     )
     await callback.answer()
-    logger.info("task_created_from_keyword", task_id=task.id)
+    logger.info("task_created_from_keyword", task_id=task.id, project_id=task.project_id)
 
 
 @router.callback_query(F.data.startswith("cancel_task:"))

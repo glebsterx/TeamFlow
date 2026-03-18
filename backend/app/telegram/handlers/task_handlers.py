@@ -1,4 +1,6 @@
 """Telegram command handlers - Fixed version."""
+import re
+from datetime import datetime
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -12,6 +14,26 @@ from app.telegram.keyboards.task_keyboards import get_task_action_keyboard
 from app.config import settings
 from app.core.logging import get_logger
 
+# Accepts: "ДД.ММ ЧЧ:ММ" or "ДД.ММ.ГГГГ ЧЧ:ММ"
+_DUE_DATE_RE = re.compile(
+    r'^(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\s+(\d{1,2}):(\d{2})$'
+)
+
+
+def _parse_due_date(text: str) -> datetime | None:
+    m = _DUE_DATE_RE.match(text.strip())
+    if not m:
+        return None
+    day, month, year, hour, minute = (
+        int(m.group(1)), int(m.group(2)),
+        int(m.group(3)) if m.group(3) else datetime.now().year,
+        int(m.group(4)), int(m.group(5)),
+    )
+    try:
+        return datetime(year, month, day, hour, minute)
+    except ValueError:
+        return None
+
 logger = get_logger(__name__)
 router = Router()
 
@@ -20,6 +42,7 @@ class TaskCreationStates(StatesGroup):
     """States for task creation dialog."""
     waiting_for_title = State()
     waiting_for_description = State()
+    waiting_for_due_date = State()
 
 
 def get_cancel_keyboard() -> InlineKeyboardMarkup:
@@ -33,6 +56,13 @@ def get_skip_keyboard() -> InlineKeyboardMarkup:
     """Кнопка пропуска."""
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="⏭️ Пропустить", callback_data="skip_description")
+    ]])
+
+
+def get_skip_due_date_keyboard() -> InlineKeyboardMarkup:
+    """Кнопка пропуска дедлайна."""
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="⏭️ Без дедлайна", callback_data="skip_due_date")
     ]])
 
 
@@ -118,45 +148,67 @@ async def handle_cancel_button(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@router.callback_query(F.data == "skip_description")
-async def handle_skip_description(callback: CallbackQuery, state: FSMContext):
-    """Handle skip description button."""
+async def _create_and_reply(target, state: FSMContext, due_date: datetime | None = None):
+    """Create task from FSM state and send reply to message or callback."""
     data = await state.get_data()
     title = data.get("title")
-    
-    if not title:
+    description = data.get("description")
+
+    async with AsyncSessionLocal() as session:
+        service = TaskService(session)
+        task = await service.create_task(
+            title=title,
+            description=description,
+            due_date=due_date,
+            source=TaskSource.MANUAL_COMMAND,
+        )
+        await session.commit()
+
+    await state.clear()
+    due_line = f"\n📅 Дедлайн: {due_date.strftime('%d.%m.%Y %H:%M')}" if due_date else ""
+    web_url = f"{settings.web_url}/?task={task.id}"
+    text = (
+        f"✅ *Задача создана!*\n\n"
+        f"#{task.id} {task.title}{due_line}\n\n"
+        f"🔗 [Открыть в браузере]({web_url})"
+    )
+    kb = get_task_action_keyboard(task.id)
+    if hasattr(target, 'message'):
+        await target.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+        await target.answer()
+    else:
+        await target.answer(text, reply_markup=kb, parse_mode="Markdown")
+    logger.info("task_created", task_id=task.id, title=title)
+
+
+@router.callback_query(F.data == "skip_description")
+async def handle_skip_description(callback: CallbackQuery, state: FSMContext):
+    """Handle skip description button — move to due date step."""
+    data = await state.get_data()
+    if not data.get("title"):
         await callback.answer("❌ Ошибка")
         return
-    
-    # Create task without description
-    try:
-        async with AsyncSessionLocal() as session:
-            service = TaskService(session)
-            task = await service.create_task(
-                title=title,
-                description=None,
-                source=TaskSource.MANUAL_COMMAND
-            )
-            await session.commit()
-        
-        web_url = f"{settings.web_url}/?task={task.id}"
-        await callback.message.edit_text(
-            f"✅ *Задача создана!*\n\n"
-            f"#{task.id} {task.title}\n"
-            f"Статус: {task.status}\n\n"
-            f"🔗 [Открыть в браузере]({web_url})",
-            reply_markup=get_task_action_keyboard(task.id),
-            parse_mode="Markdown"
-        )
-        await state.clear()
-        logger.info("task_created", task_id=task.id, title=title)
 
+    await state.update_data(description=None)
+    await callback.message.edit_text(
+        "📅 Укажите дедлайн задачи в формате *ДД.ММ ЧЧ:ММ*\n"
+        "Например: `25.03 18:00`",
+        reply_markup=get_skip_due_date_keyboard(),
+        parse_mode="Markdown",
+    )
+    await state.set_state(TaskCreationStates.waiting_for_due_date)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "skip_due_date")
+async def handle_skip_due_date(callback: CallbackQuery, state: FSMContext):
+    """Create task without due date."""
+    try:
+        await _create_and_reply(callback, state, due_date=None)
     except Exception as e:
         await callback.message.edit_text(f"❌ Ошибка: {str(e)}")
         await state.clear()
         logger.error("task_creation_error", error=str(e))
-    
-    await callback.answer()
 
 
 @router.message(TaskCreationStates.waiting_for_title)
@@ -203,37 +255,39 @@ async def process_task_description(message: Message, state: FSMContext):
         return
     
     description = message.text.strip() if message.text else None
-    
+    await state.update_data(description=description)
+
+    await message.answer(
+        "📅 Укажите дедлайн задачи в формате *ДД.ММ ЧЧ:ММ*\n"
+        "Например: `25.03 18:00`",
+        reply_markup=get_skip_due_date_keyboard(),
+        parse_mode="Markdown",
+    )
+    await state.set_state(TaskCreationStates.waiting_for_due_date)
+
+
+@router.message(TaskCreationStates.waiting_for_due_date)
+async def process_due_date(message: Message, state: FSMContext):
+    """Process due date input in format DD.MM HH:MM."""
+    if message.text and message.text.startswith('/'):
+        return
+
+    due_date = _parse_due_date(message.text or "")
+    if due_date is None:
+        await message.answer(
+            "❌ Неверный формат. Введите дедлайн как *ДД.ММ ЧЧ:ММ*\n"
+            "Например: `25.03 18:00`",
+            reply_markup=get_skip_due_date_keyboard(),
+            parse_mode="Markdown",
+        )
+        return
+
     try:
-        async with AsyncSessionLocal() as session:
-            service = TaskService(session)
-            task = await service.create_task(
-                title=title,
-                description=description,
-                source=TaskSource.MANUAL_COMMAND
-            )
-            await session.commit()
-        
-        web_url = f"{settings.web_url}/?task={task.id}"
-        await message.answer(
-            f"✅ *Задача создана!*\n\n"
-            f"#{task.id} {task.title}\n"
-            f"Статус: {task.status}\n\n"
-            f"🔗 [Открыть в браузере]({web_url})",
-            reply_markup=get_task_action_keyboard(task.id),
-            parse_mode="Markdown"
-        )
-        
-        await state.clear()
-        logger.info("task_created", task_id=task.id, title=title)
-        
+        await _create_and_reply(message, state, due_date=due_date)
     except Exception as e:
-        await message.answer(
-            f"❌ Ошибка при создании задачи: {str(e)}\n"
-            f"Попробуйте ещё раз с /task"
-        )
+        await message.answer(f"❌ Ошибка при создании задачи: {str(e)}\nПопробуйте ещё раз с /task")
         await state.clear()
-        logger.error("task_creation_error", error=str(e), title=title)
+        logger.error("task_creation_error", error=str(e))
 
 
 @router.callback_query(F.data.startswith("task:"))

@@ -239,7 +239,7 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
             <div>
               <label className="text-xs text-gray-500 block mb-1">📅 Дедлайн</label>
               <input
-                type="date"
+                type="datetime-local"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
                 className="px-3 py-1.5 border rounded-lg text-sm w-full"

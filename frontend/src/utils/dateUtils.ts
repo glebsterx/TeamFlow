@@ -48,11 +48,17 @@ export function getDueStatus(dueDate?: string, status?: string): 'overdue' | 'to
 
 export function formatDueDate(dateStr: string): string {
   const date = new Date(dateStr.includes('Z') ? dateStr : dateStr + 'Z');
+  const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
+  if (hasTime) {
+    return date.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
   return date.toLocaleDateString('ru', { day: 'numeric', month: 'short' });
 }
 
 export function toDateInputValue(dateStr?: string): string {
   if (!dateStr) return '';
   const date = new Date(dateStr.includes('Z') ? dateStr : dateStr + 'Z');
-  return date.toISOString().split('T')[0];
+  // Return YYYY-MM-DDTHH:MM for datetime-local input
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }

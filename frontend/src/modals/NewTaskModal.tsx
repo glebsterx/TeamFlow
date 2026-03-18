@@ -271,7 +271,7 @@ export default function NewTaskModal({
         <div>
           <label className="text-xs text-gray-500 block mb-1">📅 Дедлайн <span className="text-gray-400">(необязательно)</span></label>
           <input
-            type="date"
+            type="datetime-local"
             value={dueDate}
             onChange={e => setDueDate(e.target.value)}
             className="w-full px-3 py-2 border rounded-lg text-sm"

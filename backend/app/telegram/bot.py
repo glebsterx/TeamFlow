@@ -16,6 +16,8 @@ from app.telegram.handlers import (
     message_handlers,
 )
 from app.telegram.handlers.tasks_list_handler import router as tasks_list_router
+from app.telegram.handlers.sprint_handlers import router as sprint_router
+from app.telegram.handlers.my_handler import router as my_router
 
 logger = get_logger(__name__)
 
@@ -44,6 +46,8 @@ def setup_handlers():
     dp.include_router(week_handlers.router)
     dp.include_router(meeting_handlers.router)
     dp.include_router(digest_handlers.router)
+    dp.include_router(sprint_router)
+    dp.include_router(my_router)
 
     # Message handler (lowest priority)
     dp.include_router(message_handlers.router)
@@ -65,6 +69,8 @@ async def start_bot():
         BotCommand(command="meeting",  description="Зафиксировать встречу"),
         BotCommand(command="meetings", description="История встреч"),
         BotCommand(command="digest",   description="Еженедельный дайджест"),
+        BotCommand(command="sprint",   description="Текущий спринт"),
+        BotCommand(command="my",       description="Мои задачи"),
         BotCommand(command="menu",     description="Главное меню"),
         BotCommand(command="help",     description="Справка"),
     ])
