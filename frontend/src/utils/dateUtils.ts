@@ -55,6 +55,26 @@ export function formatDueDate(dateStr: string): string {
   return date.toLocaleDateString('ru', { day: 'numeric', month: 'short' });
 }
 
+/**
+ * Format duration between two dates as human-readable string.
+ * Uses started_at if available, otherwise created_at as start point.
+ */
+export function formatDuration(startStr?: string, endStr?: string): string | null {
+  if (!endStr || !startStr) return null;
+  const start = new Date(startStr.includes('Z') ? startStr : startStr + 'Z');
+  const end = new Date(endStr.includes('Z') ? endStr : endStr + 'Z');
+  const ms = end.getTime() - start.getTime();
+  if (ms <= 0) return null;
+  const totalMinutes = Math.floor(ms / 60000);
+  if (totalMinutes < 60) return `${totalMinutes} мин`;
+  const hours = Math.floor(totalMinutes / 60);
+  if (hours < 24) return `${hours} ч`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} дн`;
+  const months = Math.floor(days / 30);
+  return `${months} мес`;
+}
+
 export function toDateInputValue(dateStr?: string): string {
   if (!dateStr) return '';
   const date = new Date(dateStr.includes('Z') ? dateStr : dateStr + 'Z');

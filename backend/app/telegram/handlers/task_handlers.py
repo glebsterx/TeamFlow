@@ -3,6 +3,7 @@ import re
 from datetime import datetime
 from aiogram import Router, F
 from aiogram.filters import Command
+from aiogram import Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -19,23 +20,49 @@ _DUE_DATE_RE = re.compile(
     r'^(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\s+(\d{1,2}):(\d{2})$'
 )
 
+# Moscow timezone offset (UTC+3)
+from datetime import timezone, timedelta
+_MSK = timezone(timedelta(hours=3))
+
 
 def _parse_due_date(text: str) -> datetime | None:
+    """Parse date in MSK timezone and convert to UTC for storage."""
     m = _DUE_DATE_RE.match(text.strip())
     if not m:
         return None
     day, month, year, hour, minute = (
         int(m.group(1)), int(m.group(2)),
-        int(m.group(3)) if m.group(3) else datetime.now().year,
+        int(m.group(3)) if m.group(3) else datetime.now(_MSK).year,
         int(m.group(4)), int(m.group(5)),
     )
     try:
-        return datetime(year, month, day, hour, minute)
+        # Create datetime in MSK, convert to UTC (naive)
+        dt_msk = datetime(year, month, day, hour, minute, tzinfo=_MSK)
+        return dt_msk.astimezone(timezone.utc).replace(tzinfo=None)
     except ValueError:
         return None
 
+
+def _format_dt_msk(dt: datetime | None) -> str:
+    """Format UTC datetime for display in Moscow time."""
+    if dt is None:
+        return "не задан"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    dt_msk = dt.astimezone(_MSK)
+    return dt_msk.strftime("%d.%m.%Y %H:%M (МСК)")
+
 logger = get_logger(__name__)
 router = Router()
+
+
+async def _clear_bot_msg_buttons(bot: Bot, chat_id: int, msg_ids: list[int]) -> None:
+    """Remove inline keyboards from previous dialog messages."""
+    for mid in msg_ids:
+        try:
+            await bot.edit_message_reply_markup(chat_id=chat_id, message_id=mid, reply_markup=None)
+        except Exception:
+            pass  # message may be deleted or too old — ignore
 
 
 class TaskCreationStates(StatesGroup):
@@ -97,8 +124,11 @@ async def cmd_task(message: Message, state: FSMContext):
             
             # Create task with reply context
             title = reply_text[:255]  # Truncate if too long
-            description = f"Из сообщения от @{reply_from.username or reply_from.first_name}:\n\n{reply_text}" if reply_text else None
-            
+            author_name = None
+            if reply_from and not reply_from.is_bot:
+                author_name = reply_from.username or reply_from.first_name
+            description = (f"Из сообщения от @{author_name}:\n\n{reply_text}" if author_name else reply_text)
+
             task = await service.create_task(
                 title=title,
                 description=description[:2000] if description else None,
@@ -106,23 +136,29 @@ async def cmd_task(message: Message, state: FSMContext):
                 source_message_id=message.reply_to_message.message_id,
                 source_chat_id=message.chat.id
             )
-            
+            await db.commit()  # fix: commit was missing — task was not persisted
+
+            web_url = f"{settings.web_url}/?task={task.id}"
+            author_line = f"👤 Автор: @{author_name}\n" if author_name else ""
             await message.answer(
-                f"✅ Задача #{task.id} создана из сообщения:\n\n*{title}*\n\n"
-                f"👤 Автор: @{reply_from.username or reply_from.first_name}\n"
-                f"📅 Создана: {task.created_at.strftime('%d.%m.%Y %H:%M')}",
-                parse_mode="Markdown"
+                f"✅ *Задача создана из сообщения!*\n\n"
+                f"#{task.id} {title}\n\n"
+                f"{author_line}"
+                f"🔗 [Открыть в браузере]({web_url})",
+                parse_mode="Markdown",
+                reply_markup=get_task_action_keyboard(task.id)
             )
             logger.info("task_created_from_reply", task_id=task.id, user_id=message.from_user.id)
         return
 
     # Normal task creation flow
-    await message.answer(
+    sent = await message.answer(
         "📝 *Создание новой задачи*\n\n"
         "Введите название задачи:",
         reply_markup=get_cancel_keyboard(),
         parse_mode="Markdown"
     )
+    await state.update_data(bot_msg_ids=[sent.message_id], chat_id=message.chat.id)
     await state.set_state(TaskCreationStates.waiting_for_title)
     logger.info("task_creation_started", user_id=message.from_user.id)
 
@@ -141,18 +177,24 @@ async def cmd_cancel(message: Message, state: FSMContext):
 
 
 @router.callback_query(F.data == "cancel_task_creation")
-async def handle_cancel_button(callback: CallbackQuery, state: FSMContext):
+async def handle_cancel_button(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Handle cancel button."""
+    data = await state.get_data()
+    bot_msg_ids = [m for m in (data.get("bot_msg_ids") or []) if m != callback.message.message_id]
+    chat_id = data.get("chat_id") or callback.message.chat.id
     await state.clear()
     await callback.message.edit_text("❌ Создание задачи отменено")
     await callback.answer()
+    await _clear_bot_msg_buttons(bot, chat_id, bot_msg_ids)
 
 
-async def _create_and_reply(target, state: FSMContext, due_date: datetime | None = None):
+async def _create_and_reply(target, state: FSMContext, due_date: datetime | None = None, bot: Bot | None = None):
     """Create task from FSM state and send reply to message or callback."""
     data = await state.get_data()
     title = data.get("title")
     description = data.get("description")
+    bot_msg_ids = data.get("bot_msg_ids") or []
+    chat_id = data.get("chat_id")
 
     async with AsyncSessionLocal() as session:
         service = TaskService(session)
@@ -165,7 +207,7 @@ async def _create_and_reply(target, state: FSMContext, due_date: datetime | None
         await session.commit()
 
     await state.clear()
-    due_line = f"\n📅 Дедлайн: {due_date.strftime('%d.%m.%Y %H:%M')}" if due_date else ""
+    due_line = f"\n📅 Дедлайн: {_format_dt_msk(due_date)}" if due_date else ""
     web_url = f"{settings.web_url}/?task={task.id}"
     text = (
         f"✅ *Задача создана!*\n\n"
@@ -173,16 +215,22 @@ async def _create_and_reply(target, state: FSMContext, due_date: datetime | None
         f"🔗 [Открыть в браузере]({web_url})"
     )
     kb = get_task_action_keyboard(task.id)
-    if hasattr(target, 'message'):
+    # Determine the message_id of the current step (being edited/answered)
+    current_msg_id = getattr(getattr(target, "message", None), "message_id", None)
+    prev_ids = [m for m in bot_msg_ids if m != current_msg_id]
+    if hasattr(target, "message"):
         await target.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
         await target.answer()
     else:
         await target.answer(text, reply_markup=kb, parse_mode="Markdown")
+    # Clean up buttons on all previous dialog messages
+    if bot and chat_id and prev_ids:
+        await _clear_bot_msg_buttons(bot, chat_id, prev_ids)
     logger.info("task_created", task_id=task.id, title=title)
 
 
 @router.callback_query(F.data == "skip_description")
-async def handle_skip_description(callback: CallbackQuery, state: FSMContext):
+async def handle_skip_description(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Handle skip description button — move to due date step."""
     data = await state.get_data()
     if not data.get("title"):
@@ -201,10 +249,10 @@ async def handle_skip_description(callback: CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(F.data == "skip_due_date")
-async def handle_skip_due_date(callback: CallbackQuery, state: FSMContext):
+async def handle_skip_due_date(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Create task without due date."""
     try:
-        await _create_and_reply(callback, state, due_date=None)
+        await _create_and_reply(callback, state, due_date=None, bot=bot)
     except Exception as e:
         await callback.message.edit_text(f"❌ Ошибка: {str(e)}")
         await state.clear()
@@ -225,12 +273,15 @@ async def process_task_title(message: Message, state: FSMContext):
         return
     
     await state.update_data(title=title)
-    await message.answer(
+    sent = await message.answer(
         f"✅ Название: *{title}*\n\n"
         "Теперь введите описание задачи:",
         reply_markup=get_skip_keyboard(),
         parse_mode="Markdown"
     )
+    data = await state.get_data()
+    ids = data.get("bot_msg_ids") or []
+    await state.update_data(bot_msg_ids=ids + [sent.message_id])
     await state.set_state(TaskCreationStates.waiting_for_description)
 
 
@@ -257,17 +308,20 @@ async def process_task_description(message: Message, state: FSMContext):
     description = message.text.strip() if message.text else None
     await state.update_data(description=description)
 
-    await message.answer(
+    sent = await message.answer(
         "📅 Укажите дедлайн задачи в формате *ДД.ММ ЧЧ:ММ*\n"
         "Например: `25.03 18:00`",
         reply_markup=get_skip_due_date_keyboard(),
         parse_mode="Markdown",
     )
+    data2 = await state.get_data()
+    ids2 = data2.get("bot_msg_ids") or []
+    await state.update_data(bot_msg_ids=ids2 + [sent.message_id])
     await state.set_state(TaskCreationStates.waiting_for_due_date)
 
 
 @router.message(TaskCreationStates.waiting_for_due_date)
-async def process_due_date(message: Message, state: FSMContext):
+async def process_due_date(message: Message, state: FSMContext, bot: Bot):
     """Process due date input in format DD.MM HH:MM."""
     if message.text and message.text.startswith('/'):
         return
@@ -283,7 +337,7 @@ async def process_due_date(message: Message, state: FSMContext):
         return
 
     try:
-        await _create_and_reply(message, state, due_date=due_date)
+        await _create_and_reply(message, state, due_date=due_date, bot=bot)
     except Exception as e:
         await message.answer(f"❌ Ошибка при создании задачи: {str(e)}\nПопробуйте ещё раз с /task")
         await state.clear()

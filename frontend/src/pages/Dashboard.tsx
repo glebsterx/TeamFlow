@@ -4,7 +4,7 @@ import axios from 'axios';
 
 import type { Task, Project, Meeting, Stats, TelegramUser } from '../types/dashboard';
 import { API_URL, STATUS_COLOR, STATUS_BORDER, STATUS_EMOJI, STATUS_LABELS, DUE_BADGE, PRIORITY_LABELS, PRIORITY_COLOR, PRIORITY_ORDER, PRIORITY_EMOJI, cardBg } from '../constants/taskDisplay';
-import { timeAgo, getDueStatus, formatDueDate } from '../utils/dateUtils';
+import { timeAgo, getDueStatus, formatDueDate, formatDuration, formatDatetime } from '../utils/dateUtils';
 import { getAncestorBlockedIds } from '../utils/taskUtils';
 import { showToast } from '../utils/toast';
 import { useTaskChangeDetector } from '../hooks/useTaskChangeDetector';
@@ -33,10 +33,14 @@ export default function Dashboard() {
   const [projectFilter, setProjectFilter] = useState<number | null>(null);
   const [assigneeFilter, setAssigneeFilter] = useState<number | null>(null);
   const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState<number | null>(null);
 
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+  const [bulkSelected, setBulkSelected] = useState<Set<number>>(new Set());
+  const toggleBulk = (id: number) => setBulkSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const clearBulk = () => setBulkSelected(new Set());
 
   // Project directory navigation (stack-based, supports unlimited depth)
   const [projNavProject, setProjNavProject] = useState<Project | null>(null);
@@ -128,6 +132,7 @@ export default function Dashboard() {
   const [showNewTask, setShowNewTask] = useState(false);
   const [newTaskDefaults, setNewTaskDefaults] = useState<{ projectId?: number; parentTaskId?: number; backlog?: boolean }>({});
   const [showNewProject, setShowNewProject] = useState(false);
+  const [newProjectParentId, setNewProjectParentId] = useState<number | undefined>(undefined);
   const [showNewMeeting, setShowNewMeeting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{type: string; id: number} | null>(null);
   const [showSearch, setShowSearch] = useState(false);
@@ -187,6 +192,11 @@ export default function Dashboard() {
   const { data: users = [] } = useQuery<TelegramUser[]>({
     queryKey: ['users'],
     queryFn: async () => (await axios.get(`${API_URL}/api/users`)).data,
+  });
+
+  const { data: allTags = [] } = useQuery<{id:number;name:string;color:string}[]>({
+    queryKey: ['tags'],
+    queryFn: async () => (await axios.get(`${API_URL}/api/tags`)).data,
   });
 
   const { data: projects = [] } = useQuery<Project[]>({
@@ -362,6 +372,27 @@ export default function Dashboard() {
     },
   });
 
+  const bulkStatusMutation = useMutation({
+    mutationFn: async ({ ids, status }: { ids: number[]; status: string }) => {
+      await Promise.all(ids.map(id => axios.post(`${API_URL}/api/tasks/${id}/status`, { status })));
+    },
+    onSuccess: () => { invalidate(); clearBulk(); showToast(`Статус обновлён`, 'success'); },
+  });
+
+  const bulkAssignMutation = useMutation({
+    mutationFn: async ({ ids, userId }: { ids: number[]; userId: number | null }) => {
+      await Promise.all(ids.map(id => axios.post(`${API_URL}/api/tasks/${id}/assign`, { user_id: userId })));
+    },
+    onSuccess: () => { invalidate(); clearBulk(); showToast(`Исполнитель обновлён`, 'success'); },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      await Promise.all(ids.map(id => axios.delete(`${API_URL}/api/tasks/${id}`)));
+    },
+    onSuccess: () => { invalidate(); clearBulk(); showToast(`Задачи удалены`, 'success'); },
+  });
+
   const createProjectMutation = useMutation({
     mutationFn: async (data: { name: string; description?: string; emoji?: string }) => {
       await axios.post(`${API_URL}/api/projects`, data);
@@ -441,11 +472,41 @@ export default function Dashboard() {
   if (priorityFilter !== null) {
     filteredTasks = filteredTasks.filter(t => t.priority === priorityFilter);
   }
+  if (tagFilter !== null) {
+    filteredTasks = filteredTasks.filter(t => t.tags?.some((tag: any) => tag.id === tagFilter));
+  }
+
+  // Канбан использует все фильтры КРОМЕ статуса — колонки сами разбивают по статусам.
+  // Статус-фильтр в канбане подсвечивает активную колонку, но не скрывает остальные.
+  let kanbanTasks = tasks;
+  if (projectFilter !== null) {
+    kanbanTasks = kanbanTasks.filter(t => {
+      const effectiveProjectId = t.project_id ?? tasks.find(p => p.id === t.parent_task_id)?.project_id ?? null;
+      return projectFilter === 0 ? !effectiveProjectId : effectiveProjectId === projectFilter;
+    });
+  }
+  if (assigneeFilter !== null) {
+    kanbanTasks = kanbanTasks.filter(t =>
+      assigneeFilter === 0 ? !t.assignee : t.assignee?.telegram_id === assigneeFilter
+    );
+  }
+  if (priorityFilter !== null) {
+    kanbanTasks = kanbanTasks.filter(t => t.priority === priorityFilter);
+  }
+  if (tagFilter !== null) {
+    kanbanTasks = kanbanTasks.filter(t => t.tags?.some((tag: any) => tag.id === tagFilter));
+  }
 
   const sortedTasks = [...filteredTasks].sort((a, b) => {
     const aDone = a.status === 'DONE' ? 1 : 0;
     const bDone = b.status === 'DONE' ? 1 : 0;
     if (aDone !== bDone) return aDone - bDone;
+    // DONE задачи: от выполненных недавно к выполненным давно
+    if (a.status === 'DONE' && b.status === 'DONE') {
+      const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+      const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+      return bTime - aTime;
+    }
     return (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2);
   });
 
@@ -453,8 +514,10 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-2 sm:px-4 py-3 sm:py-6">
 
-        {/* Header + Navigation — одна строка */}
-        <header className="border-b mb-3 flex items-center justify-between overflow-x-auto">
+        {/* Header + Navigation — sticky при скролле */}
+        <header className="sticky top-0 z-30 bg-gray-50 border-b mb-3 flex items-center justify-between overflow-x-auto scrollbar-none"
+          style={{ scrollbarWidth: 'none' }}
+        >
           <div className="flex items-center gap-1 sm:gap-2 min-w-max">
             <span className="text-base sm:text-lg font-bold text-gray-900 px-1 sm:px-2 shrink-0">TeamFlow</span>
             <span className="text-gray-200 shrink-0">|</span>
@@ -624,6 +687,18 @@ export default function Dashboard() {
                     <option key={val} value={val}>{label}</option>
                   ))}
                 </select>
+                {allTags.length > 0 && (
+                  <select
+                    value={tagFilter ?? ''}
+                    onChange={(e) => setTagFilter(e.target.value ? Number(e.target.value) : null)}
+                    className="px-2 py-1.5 border rounded-lg text-xs sm:text-sm w-full sm:w-auto col-span-2 sm:col-auto"
+                  >
+                    <option value="">Все теги</option>
+                    {allTags.map(tag => (
+                      <option key={tag.id} value={tag.id}>{tag.name}</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div className="flex gap-1 shrink-0">
@@ -642,14 +717,44 @@ export default function Dashboard() {
               >+ Задача</button>
             </div>
 
+            {/* Bulk-actions панель */}
+            {bulkSelected.size > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg mb-2 flex-wrap">
+                <span className="text-xs font-medium text-blue-700">Выбрано: {bulkSelected.size}</span>
+                <div className="flex gap-1.5 flex-wrap">
+                  {(['DOING','DONE','TODO','BLOCKED'] as const).map(s => (
+                    <button key={s} onClick={() => bulkStatusMutation.mutate({ ids: [...bulkSelected], status: s })}
+                      className={`px-2 py-1 text-xs rounded border transition ${STATUS_COLOR[s]} hover:opacity-80`}>
+                      {STATUS_EMOJI[s]} {STATUS_LABELS[s]}
+                    </button>
+                  ))}
+                  <span className="w-px bg-blue-200 mx-0.5" />
+                  {users.map((u: any) => (
+                    <button key={u.telegram_id} onClick={() => bulkAssignMutation.mutate({ ids: [...bulkSelected], userId: u.telegram_id })}
+                      className="px-2 py-1 text-xs rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50 transition">
+                      👤 {u.display_name}
+                    </button>
+                  ))}
+                  <span className="w-px bg-blue-200 mx-0.5" />
+                  <button onClick={() => bulkDeleteMutation.mutate([...bulkSelected])}
+                    className="px-2 py-1 text-xs rounded border bg-red-50 text-red-600 border-red-200 hover:bg-red-100 transition">
+                    🗑️ Удалить
+                  </button>
+                </div>
+                <button onClick={clearBulk} className="ml-auto text-xs text-blue-500 hover:text-blue-700">✕ Снять</button>
+              </div>
+            )}
+
             {/* Tasks — kanban */}
             {taskView === 'kanban' && (
               <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
                 {['TODO','DOING','BLOCKED','DONE'].map(col => {
-                  const colTasks = sortedTasks.filter(t => t.status === col);
+                  const colTasks = kanbanTasks.filter(t => t.status === col);
+                  const isHighlighted = statusFilter === col;
+                  const isDimmed = statusFilter !== null && statusFilter !== col;
                   return (
-                    <div key={col} className="flex-shrink-0 w-64 sm:w-72">
-                      <div className={`flex items-center gap-2 px-2 py-1.5 rounded-t-lg border border-b-0 text-xs font-semibold ${STATUS_COLOR[col]}`}>
+                    <div key={col} className={`flex-shrink-0 w-64 sm:w-72 transition-opacity ${isDimmed ? 'opacity-40' : ''}`}>
+                      <div className={`flex items-center gap-2 px-2 py-1.5 rounded-t-lg border border-b-0 text-xs font-semibold ${STATUS_COLOR[col]} ${isHighlighted ? 'ring-2 ring-blue-500' : ''}`}>
                         <span>{STATUS_EMOJI[col]} {STATUS_LABELS[col]}</span>
                         <span className="ml-auto opacity-60">{colTasks.length}</span>
                       </div>
@@ -694,16 +799,30 @@ export default function Dashboard() {
                     <div
                       key={task.id}
                       onClick={() => setSelectedTask(task)}
-                      className={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50 transition border-l-4 ${STATUS_BORDER[task.status]} ${isAncestorBlocked ? 'opacity-60' : ''}`}
+                      className={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50 transition border-l-4 ${STATUS_BORDER[task.status]} ${isAncestorBlocked ? 'opacity-60' : ''} ${bulkSelected.has(task.id) ? 'bg-blue-50' : ''}`}
                     >
+                      <input type="checkbox" checked={bulkSelected.has(task.id)}
+                        onChange={(e) => { e.stopPropagation(); toggleBulk(task.id); }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="rounded shrink-0 accent-blue-600" />
                       <span className={`text-xs px-1.5 py-0.5 rounded border shrink-0 ${STATUS_COLOR[task.status]}`}>{STATUS_EMOJI[task.status]}</span>
                       {task.priority !== 'NORMAL' && (
                         <span className={`text-xs px-1 rounded border shrink-0 ${PRIORITY_COLOR[task.priority]}`}>{PRIORITY_EMOJI[task.priority]}</span>
                       )}
                       <span className="text-xs text-gray-400 shrink-0">#{task.id}</span>
-                      <span className="text-sm flex-1 truncate">{task.title}</span>
+                      <span className="text-sm flex-1 truncate" title={task.title}>{task.title}</span>
+                      {task.tags?.map((tag: any) => (
+                        <span key={tag.id} className="px-1.5 py-0.5 rounded-full text-xs font-medium shrink-0 hidden sm:inline"
+                          style={{ backgroundColor: tag.color + '22', color: tag.color }}>
+                          {tag.name}
+                        </span>
+                      ))}
                       {proj && <span className="text-xs text-gray-400 shrink-0 hidden sm:inline">{proj.emoji} {proj.name}</span>}
                       {task.assignee && <span className="text-xs text-gray-400 shrink-0 hidden sm:inline">👤 {task.assignee.display_name}</span>}
+                      {task.status === 'DONE' && task.completed_at
+                        ? <span className="text-xs text-green-600 shrink-0 hidden sm:inline" title="Выполнено">✓ {formatDatetime(task.completed_at)}</span>
+                        : <span className="text-xs text-gray-400 shrink-0 hidden sm:inline">{timeAgo(task.created_at)}</span>
+                      }
                       {task.due_date && dueStatus && (
                         <span className={`text-xs px-1.5 py-0.5 rounded border shrink-0 hidden sm:inline ${DUE_BADGE[dueStatus]}`}>📅 {formatDueDate(task.due_date)}</span>
                       )}
@@ -725,8 +844,14 @@ export default function Dashboard() {
                   <div
                     key={task.id}
                     onClick={() => setSelectedTask(task)}
-                    className={`group relative rounded-lg border border-l-4 ${STATUS_BORDER[task.status]} ${isAncestorBlocked ? 'bg-gray-50' : cardBg(task.priority, task.status)} p-3 sm:p-4 [@media(hover:hover)]:hover:shadow-md transition cursor-pointer ${isAncestorBlocked ? 'opacity-70' : ''}`}
+                    className={`group relative rounded-lg border border-l-4 ${STATUS_BORDER[task.status]} ${isAncestorBlocked ? 'bg-gray-50' : cardBg(task.priority, task.status)} p-3 sm:p-4 [@media(hover:hover)]:hover:shadow-md transition cursor-pointer ${isAncestorBlocked ? 'opacity-70' : ''} ${bulkSelected.has(task.id) ? 'ring-2 ring-blue-400' : ''}`}
                   >
+                    {/* Checkbox — в верхнем левом углу, появляется при hover или когда уже выбраны задачи */}
+                    <input type="checkbox" checked={bulkSelected.has(task.id)}
+                      onChange={(e) => { e.stopPropagation(); toggleBulk(task.id); }}
+                      onClick={(e) => e.stopPropagation()}
+                      className={`absolute top-2 left-2 rounded accent-blue-600 transition-opacity ${bulkSelected.size > 0 || bulkSelected.has(task.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                    />
                     <div className="flex justify-between items-start mb-1.5">
                       <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-wrap">
                         <span className="text-xs text-gray-400 shrink-0">#{task.id}</span>
@@ -817,9 +942,19 @@ export default function Dashboard() {
                       </div>
                       </div>
                     </div>
-                    <h3 className="font-semibold text-sm leading-tight mb-1">{task.title}</h3>
+                    <h3 className="font-semibold text-sm leading-tight mb-1 line-clamp-2" title={task.title}>{task.title}</h3>
                     {task.description && (
                       <p className="text-xs text-gray-500 line-clamp-2 mb-1.5">{task.description}</p>
+                    )}
+                    {task.tags && task.tags.length > 0 && (
+                      <div className="flex gap-1 flex-wrap mb-1.5">
+                        {task.tags.map((tag: any) => (
+                          <span key={tag.id} className="px-1.5 py-0.5 rounded-full text-xs font-medium border"
+                            style={{ backgroundColor: tag.color + '22', borderColor: tag.color + '66', color: tag.color }}>
+                            {tag.name}
+                          </span>
+                        ))}
+                      </div>
                     )}
                     {(() => {
                       const cardChildren = tasks.filter((t: any) => t.parent_task_id === task.id);
@@ -850,7 +985,12 @@ export default function Dashboard() {
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-gray-400 shrink-0">{timeAgo(task.created_at)}</div>
+                      <div className="flex items-center gap-1.5 text-xs text-gray-400 shrink-0">
+                        {task.status === 'DONE' && task.completed_at && (
+                          <span className="text-green-600" title="Выполнено">✓ {formatDatetime(task.completed_at)}</span>
+                        )}
+                        {task.status !== 'DONE' && <span>{timeAgo(task.created_at)}</span>}
+                      </div>
                     </div>
                   </div>
                 );
@@ -870,13 +1010,14 @@ export default function Dashboard() {
             onPushTask={(t: Task) => { pushHist(); setProjNavTaskPath(p => [...p, t]); }}
             onEditProject={setSelectedProject}
             onOpenTask={setSelectedTask}
-            onNewProject={() => setShowNewProject(true)}
+            onNewProject={(parentId?: number) => { setNewProjectParentId(parentId); setShowNewProject(true); }}
             onNewTask={(ctx: { projectId?: number; parentTaskId?: number }) => { setNewTaskDefaults(ctx); setShowNewTask(true); }}
             changeStatusMutation={changeStatusMutation}
             takeTaskMutation={takeTaskMutation}
             myUserId={myUserId}
             invalidate={invalidate}
             ancestorBlockedIds={ancestorBlockedIds}
+            onDeleteTask={(id: number) => setConfirmDelete({ type: 'task', id })}
           />
         )}
 
@@ -921,7 +1062,7 @@ export default function Dashboard() {
         )}
         {/* SPRINTS PAGE */}
         {currentPage === 'sprints' && (
-          <SprintsPage />
+          <SprintsPage onOpenTask={setSelectedTask} changeStatusMutation={changeStatusMutation} tasks={tasks} />
         )}
 
         {/* BACKLOG PAGE */}
@@ -966,7 +1107,7 @@ export default function Dashboard() {
       {selectedProject && <ProjectModal project={selectedProject} projects={projects} invalidate={invalidate} onClose={() => setSelectedProject(null)} {...{ updateProjectMutation, setConfirmDelete }} />}
       {selectedMeeting && <MeetingModal meeting={selectedMeeting} onClose={() => setSelectedMeeting(null)} {...{ updateMeetingMutation, setConfirmDelete }} />}
       {showNewTask && <NewTaskModal onClose={() => { setShowNewTask(false); setNewTaskDefaults({}); }} onOpenTask={(t: Task) => { setShowNewTask(false); setNewTaskDefaults({}); setSelectedTask(t); }} initialProjectId={newTaskDefaults.projectId} initialParentTaskId={newTaskDefaults.parentTaskId} initialBacklog={newTaskDefaults.backlog} {...{ projects, tasks, createTaskMutation }} />}
-      {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} projects={projects} {...{ createProjectMutation }} />}
+      {showNewProject && <NewProjectModal onClose={() => { setShowNewProject(false); setNewProjectParentId(undefined); }} projects={projects} initialParentProjectId={newProjectParentId} {...{ createProjectMutation }} />}
       {showNewMeeting && <NewMeetingModal onClose={() => setShowNewMeeting(false)} {...{ createMeetingMutation }} />}
       {confirmDelete && <ConfirmDeleteModal confirm={confirmDelete} onClose={() => setConfirmDelete(null)} {...{ deleteTaskMutation, deleteProjectMutation, deleteMeetingMutation }} />}
       <ToastContainer />

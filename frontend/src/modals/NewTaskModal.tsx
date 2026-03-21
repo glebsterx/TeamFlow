@@ -1,4 +1,6 @@
 import { useState, useRef } from 'react';
+import axios from 'axios';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Modal from '../components/Modal';
 import MarkdownContent from '../components/MarkdownContent';
 import { Task, Project } from '../types/dashboard';
@@ -6,6 +8,7 @@ import {
   STATUS_COLOR, STATUS_EMOJI, STATUS_LABELS,
   PRIORITY_LABELS, PRIORITY_COLOR,
 } from '../constants/taskDisplay';
+import { API_URL } from '../constants/taskDisplay';
 
 function tokenize(s: string): string[] {
   return s.toLowerCase()
@@ -54,12 +57,15 @@ export default function NewTaskModal({
   const [projectId, setProjectId] = useState(initialProjectId ? String(initialProjectId) : '');
   const [parentTaskId, setParentTaskId] = useState(initialParentTaskId ? String(initialParentTaskId) : '');
   const [dueDate, setDueDate] = useState('');
+  const [recurrence, setRecurrence] = useState('');
   const [priority, setPriority] = useState('NORMAL');
   const [backlog, setBacklog] = useState(!!initialBacklog);
   const [dupCandidates, setDupCandidates] = useState<Task[]>([]);
   const descRef = useRef<HTMLTextAreaElement>(null);
   const submittingRef = useRef(false);
   const [descTab, setDescTab] = useState<'write' | 'preview'>('write');
+
+  const [titleError, setTitleError] = useState(false);
 
   // Markdown insertion helper with toggle support
   const insertMarkdown = (prefix: string, suffix: string) => {
@@ -143,12 +149,14 @@ export default function NewTaskModal({
         priority,
         parent_task_id: parentTaskId ? Number(parentTaskId) : undefined,
         backlog,
+        recurrence: recurrence || undefined,
       });
     }
   };
 
   const handleSubmit = () => {
-    if (!title.trim()) return;
+    if (!title.trim()) { setTitleError(true); return; }
+    setTitleError(false);
     const similar = findSimilarTasks(title, description, tasks || []);
     if (similar.length > 0) setDupCandidates(similar);
     else doCreate();
@@ -198,14 +206,17 @@ export default function NewTaskModal({
     <Modal onClose={onClose}>
       <h2 className="text-lg sm:text-xl font-bold mb-4">Новая задача</h2>
       <div className="space-y-3 mb-4">
-        <input
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); descRef.current?.focus(); } }}
-          placeholder="Название"
-          className="w-full px-3 py-2 border rounded-lg text-sm"
-          autoFocus
-        />
+        <div>
+          <input
+            value={title}
+            onChange={e => { setTitle(e.target.value); if (e.target.value.trim()) setTitleError(false); }}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); descRef.current?.focus(); } }}
+            placeholder="Название задачи"
+            className={`w-full px-3 py-2 border rounded-lg text-sm ${titleError ? 'border-red-400 bg-red-50' : ''}`}
+            autoFocus
+          />
+          {titleError && <p className="text-xs text-red-500 mt-1">Введите название задачи</p>}
+        </div>
         <div>
           <div className="border rounded-lg overflow-hidden">
             <div className="flex border-b bg-gray-50 flex-wrap gap-1 p-1">
@@ -250,24 +261,30 @@ export default function NewTaskModal({
           </div>
           <p className="text-xs text-gray-400 mt-0.5">Шорткаты: Ctrl+B жирный, Ctrl+I курсив, Ctrl+E код, Ctrl+K ссылка</p>
         </div>
-        <select
-          value={projectId}
-          onChange={e => setProjectId(e.target.value)}
-          className="w-full px-3 py-2 border rounded-lg text-sm"
-        >
-          <option value="">Без проекта</option>
-          {projects.map(p => <option key={p.id} value={p.id}>{p.emoji} {p.name}</option>)}
-        </select>
-        <select
-          value={parentTaskId}
-          onChange={e => setParentTaskId(e.target.value)}
-          className="w-full px-3 py-2 border rounded-lg text-sm"
-        >
-          <option value="">Без родительской задачи</option>
-          {(tasks || []).map(t => (
-            <option key={t.id} value={t.id}>#{t.id} {t.title}</option>
-          ))}
-        </select>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">📁 Проект <span className="text-gray-400">(необязательно)</span></label>
+          <select
+            value={projectId}
+            onChange={e => setProjectId(e.target.value)}
+            className="w-full px-3 py-2 border rounded-lg text-sm"
+          >
+            <option value="">Без проекта</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.emoji} {p.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">↳ Родительская задача <span className="text-gray-400">(необязательно)</span></label>
+          <select
+            value={parentTaskId}
+            onChange={e => setParentTaskId(e.target.value)}
+            className="w-full px-3 py-2 border rounded-lg text-sm"
+          >
+            <option value="">Без родительской задачи</option>
+            {(tasks || []).map(t => (
+              <option key={t.id} value={t.id}>#{t.id} {t.title}</option>
+            ))}
+          </select>
+        </div>
         <div>
           <label className="text-xs text-gray-500 block mb-1">📅 Дедлайн <span className="text-gray-400">(необязательно)</span></label>
           <input
@@ -276,6 +293,19 @@ export default function NewTaskModal({
             onChange={e => setDueDate(e.target.value)}
             className="w-full px-3 py-2 border rounded-lg text-sm"
           />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">🔁 Повторение <span className="text-gray-400">(необязательно)</span></label>
+          <select
+            value={recurrence}
+            onChange={e => setRecurrence(e.target.value)}
+            className="w-full px-3 py-2 border rounded-lg text-sm"
+          >
+            <option value="">Без повторения</option>
+            <option value="daily">Ежедневно</option>
+            <option value="weekly">Еженедельно</option>
+            <option value="monthly">Ежемесячно</option>
+          </select>
         </div>
         <div>
           <label className="text-xs text-gray-500 block mb-2">Приоритет</label>
@@ -293,15 +323,24 @@ export default function NewTaskModal({
           </div>
         </div>
       </div>
-      <label className="flex items-center gap-2 mb-4 cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={backlog}
-          onChange={e => setBacklog(e.target.checked)}
-          className="w-4 h-4 rounded border-gray-300"
-        />
+      <label className="flex items-center gap-2 mb-3 cursor-pointer select-none">
+        <input type="checkbox" checked={backlog} onChange={e => setBacklog(e.target.checked)} className="w-4 h-4 rounded border-gray-300" />
         <span className="text-sm text-gray-600">📦 В бэклог</span>
       </label>
+
+      {/* Шаблоны */}
+      <TemplatePanel
+        title={title} description={description} priority={priority}
+        projectId={projectId ? Number(projectId) : undefined} recurrence={recurrence}
+        onApply={(tpl) => {
+          if (tpl.title) setTitle(tpl.title);
+          if (tpl.description) setDescription(tpl.description);
+          if (tpl.priority) setPriority(tpl.priority);
+          if (tpl.project_id) setProjectId(String(tpl.project_id));
+          if (tpl.recurrence) setRecurrence(tpl.recurrence);
+        }}
+      />
+
       <div className="flex gap-2">
         <button onClick={onClose} className="flex-1 py-2 bg-gray-100 rounded-lg text-sm">Отмена</button>
         <button
@@ -311,5 +350,90 @@ export default function NewTaskModal({
         >{createTaskMutation.isPending ? '...' : 'Создать'}</button>
       </div>
     </Modal>
+  );
+}
+
+type TplType = { id: number; name: string; title: string; description?: string; priority: string; project_id?: number; recurrence?: string };
+
+function TemplatePanel({ title, description, priority, projectId, recurrence, onApply }: {
+  title: string; description: string; priority: string;
+  projectId?: number; recurrence?: string;
+  onApply: (tpl: TplType) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [tplName, setTplName] = useState('');
+  const qc = useQueryClient();
+
+  const { data: templates = [] } = useQuery<TplType[]>({
+    queryKey: ['task-templates'],
+    queryFn: () => axios.get(`${API_URL}/api/task-templates`).then(r => r.data),
+  });
+
+  const saveTemplate = async () => {
+    if (!tplName.trim() || !title.trim()) return;
+    await axios.post(`${API_URL}/api/task-templates`, {
+      name: tplName.trim(), title, description, priority, project_id: projectId, recurrence,
+    });
+    qc.invalidateQueries({ queryKey: ['task-templates'] });
+    setTplName('');
+    setSaving(false);
+  };
+
+  const deleteTemplate = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await axios.delete(`${API_URL}/api/task-templates/${id}`);
+    qc.invalidateQueries({ queryKey: ['task-templates'] });
+  };
+
+  return (
+    <div className="mb-3 border-t pt-3">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-xs text-gray-500">📋 Шаблоны</span>
+        <div className="flex gap-1.5">
+          {templates.length > 0 && (
+            <button onClick={() => setOpen(v => !v)}
+              className="text-xs px-2 py-0.5 border rounded text-gray-600 hover:bg-gray-50 transition">
+              {open ? 'Скрыть' : `Применить (${templates.length})`}
+            </button>
+          )}
+          <button onClick={() => setSaving(v => !v)}
+            className="text-xs px-2 py-0.5 border rounded text-gray-600 hover:bg-gray-50 transition">
+            Сохранить как шаблон
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <div className="space-y-1 mb-2 max-h-36 overflow-y-auto">
+          {templates.map(tpl => (
+            <div key={tpl.id}
+              onClick={() => { onApply(tpl); setOpen(false); }}
+              className="flex items-center gap-2 px-2 py-1.5 rounded border hover:bg-blue-50 hover:border-blue-300 cursor-pointer transition group">
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium truncate">{tpl.name}</div>
+                <div className="text-xs text-gray-400 truncate">{tpl.title}</div>
+              </div>
+              <button onClick={(e) => deleteTemplate(tpl.id, e)}
+                className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition text-xs shrink-0">✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {saving && (
+        <div className="flex gap-1.5 mb-2">
+          <input autoFocus className="flex-1 px-2 py-1.5 border rounded text-xs"
+            placeholder="Название шаблона…" value={tplName}
+            onChange={e => setTplName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') saveTemplate(); if (e.key === 'Escape') setSaving(false); }} />
+          <button onClick={saveTemplate} disabled={!tplName.trim() || !title.trim()}
+            className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 disabled:opacity-40">
+            Сохранить
+          </button>
+          <button onClick={() => setSaving(false)} className="px-2 py-1.5 bg-gray-100 rounded text-xs">✕</button>
+        </div>
+      )}
+    </div>
   );
 }

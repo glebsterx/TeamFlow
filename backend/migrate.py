@@ -50,6 +50,26 @@ MIGRATIONS = [
     )"""),
     ("blockers", "resolved_at", "ALTER TABLE blockers ADD COLUMN resolved_at DATETIME"),
     ("projects", "parent_project_id", "ALTER TABLE projects ADD COLUMN parent_project_id INTEGER REFERENCES projects(id)"),
+    ("tags", None, """CREATE TABLE IF NOT EXISTS tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name VARCHAR(50) NOT NULL UNIQUE,
+        color VARCHAR(7) NOT NULL DEFAULT '#6366f1',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )"""),
+    ("task_tags", None, """CREATE TABLE IF NOT EXISTS task_tags (
+        task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+        PRIMARY KEY (task_id, tag_id)
+    )"""),
+    ("task_dependencies", None, """CREATE TABLE IF NOT EXISTS task_dependencies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        depends_on_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(task_id, depends_on_id)
+    )"""),
+    ("tasks", "recurrence", "ALTER TABLE tasks ADD COLUMN recurrence VARCHAR(20)"),
+    ("tasks", "recurrence_end_date", "ALTER TABLE tasks ADD COLUMN recurrence_end_date DATETIME"),
 ]
 
 async def run():

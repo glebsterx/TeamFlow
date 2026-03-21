@@ -3,7 +3,7 @@ from typing import Optional, List
 from sqlalchemy import select, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from app.domain.models import Task
+from app.domain.models import Task, TaskDependency
 from app.domain.enums import TaskStatus, TaskSource
 
 
@@ -28,6 +28,9 @@ class TaskRepository:
                 selectinload(Task.blockers),
                 selectinload(Task.assignee),
                 selectinload(Task.subtasks).selectinload(Task.assignee),
+                selectinload(Task.tags),
+                selectinload(Task.dependencies).selectinload(TaskDependency.depends_on),
+                selectinload(Task.blocking).selectinload(TaskDependency.task),
             )
             .where(Task.id == task_id)
         )
@@ -52,6 +55,7 @@ class TaskRepository:
                 selectinload(Task.blockers),
                 selectinload(Task.assignee),
                 selectinload(Task.subtasks).selectinload(Task.assignee),
+                selectinload(Task.tags),
             )
             .where(Task.archived == False)  # noqa: E712
             .where(Task.deleted == False)   # noqa: E712
@@ -75,6 +79,7 @@ class TaskRepository:
                 selectinload(Task.blockers),
                 selectinload(Task.assignee),
                 selectinload(Task.subtasks).selectinload(Task.assignee),
+                selectinload(Task.tags),
             )
             .where(Task.archived == True)  # noqa: E712
             .where(Task.deleted == False)  # noqa: E712
@@ -90,6 +95,7 @@ class TaskRepository:
                 selectinload(Task.blockers),
                 selectinload(Task.assignee),
                 selectinload(Task.subtasks).selectinload(Task.assignee),
+                selectinload(Task.tags),
             )
             .where(Task.deleted == True)  # noqa: E712
             .order_by(Task.updated_at.desc())
@@ -120,7 +126,7 @@ class TaskRepository:
 
         result = await self.session.execute(
             select(Task)
-            .options(selectinload(Task.blockers), selectinload(Task.assignee))
+            .options(selectinload(Task.blockers), selectinload(Task.assignee), selectinload(Task.tags))
             .where(Task.created_at >= week_start)
             .order_by(Task.status, Task.created_at.desc())
         )

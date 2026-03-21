@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     
     # Application
     APP_NAME: str = "TeamFlow"
-    VERSION: str = "0.8.12"
+    VERSION: str = "0.8.13"
     DEBUG: bool = False
     
     # Server

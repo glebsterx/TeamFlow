@@ -65,14 +65,14 @@ async def start_bot():
     await bot.set_my_commands([
         BotCommand(command="task",     description="Создать новую задачу"),
         BotCommand(command="tasks",    description="Список задач с фильтрами"),
+        BotCommand(command="my",       description="Мои активные задачи"),
+        BotCommand(command="sprint",   description="Текущий спринт (кнопки прямо в боте)"),
         BotCommand(command="week",     description="Недельная доска"),
         BotCommand(command="meeting",  description="Зафиксировать встречу"),
         BotCommand(command="meetings", description="История встреч"),
         BotCommand(command="digest",   description="Еженедельный дайджест"),
-        BotCommand(command="sprint",   description="Текущий спринт"),
-        BotCommand(command="my",       description="Мои задачи"),
         BotCommand(command="menu",     description="Главное меню"),
-        BotCommand(command="help",     description="Справка"),
+        BotCommand(command="help",     description="Справка по всем командам"),
     ])
 
     try:

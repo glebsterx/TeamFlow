@@ -44,7 +44,11 @@ function SortableTask({ task, children }: any) {
   );
 }
 
-export default function SprintsPage() {
+export default function SprintsPage({ onOpenTask, changeStatusMutation, tasks: allTasks = [] }: {
+  onOpenTask?: (task: any) => void;
+  changeStatusMutation?: any;
+  tasks?: any[];
+}) {
   const [showModal, setShowModal] = useState(false);
   const [editingSprint, setEditingSprint] = useState<Sprint | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<any>(null);
@@ -140,6 +144,47 @@ export default function SprintsPage() {
   const getStatusBadge = (status: string) => {
     const badges: Record<string, string> = { planned: 'bg-gray-100 text-gray-700', active: 'bg-green-100 text-green-700', completed: 'bg-blue-100 text-blue-700', archived: 'bg-gray-200 text-gray-600', TODO: 'bg-gray-100 text-gray-700', DOING: 'bg-blue-100 text-blue-700', DONE: 'bg-green-100 text-green-700', BLOCKED: 'bg-red-100 text-red-700', ON_HOLD: 'bg-yellow-100 text-yellow-700' };
     return badges[status] || badges.planned;
+  };
+
+  const TASK_STATUS_NEXT: Record<string, { status: string; label: string; cls: string }> = {
+    TODO:    { status: 'DOING',   label: '▶ Взять',    cls: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100' },
+    DOING:   { status: 'DONE',    label: '✓ Готово',   cls: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' },
+    DONE:    { status: 'TODO',    label: '↩ Вернуть',  cls: 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200' },
+    BLOCKED: { status: 'TODO',    label: '↩ Разблок.', cls: 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200' },
+    ON_HOLD: { status: 'TODO',    label: '▶ К работе', cls: 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200' },
+  };
+
+  const renderInteractiveTask = (task: any, dragHandleProps?: any) => {
+    const fullTask = allTasks.find((t: any) => t.id === task.task_id);
+    const next = TASK_STATUS_NEXT[task.task_status];
+    return (
+      <div className="flex items-center gap-1.5 text-xs bg-gray-50 px-2 py-1.5 rounded group/task">
+        {dragHandleProps && (
+          <span {...dragHandleProps} className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none shrink-0">⠿</span>
+        )}
+        <span className={`px-1.5 py-0.5 rounded shrink-0 ${getStatusBadge(task.task_status)}`}>{getStatusLabel(task.task_status)}</span>
+        <span
+          className="flex-1 truncate text-gray-700 cursor-pointer hover:text-blue-600 hover:underline"
+          title={task.task_title}
+          onClick={() => onOpenTask && fullTask && onOpenTask(fullTask)}
+        >
+          #{task.task_id} {task.task_title}
+        </span>
+        {next && changeStatusMutation && (
+          <button
+            onClick={() => changeStatusMutation.mutate({ taskId: task.task_id, status: next.status })}
+            className={`shrink-0 px-2 py-0.5 rounded border text-xs opacity-0 group-hover/task:opacity-100 transition-opacity ${next.cls}`}
+          >{next.label}</button>
+        )}
+        {onOpenTask && fullTask && (
+          <button
+            onClick={() => onOpenTask(fullTask)}
+            className="shrink-0 text-gray-400 opacity-0 group-hover/task:opacity-100 hover:text-blue-600 transition-opacity"
+            title="Открыть задачу"
+          >↗</button>
+        )}
+      </div>
+    );
   };
 
   if (isLoading) return <div className="p-4 max-w-6xl mx-auto"><div className="text-center py-12 text-gray-400">Загрузка...</div></div>;
@@ -262,15 +307,7 @@ export default function SprintsPage() {
                                 <div className="space-y-1">
                                   {visibleTasks.map((task) => (
                                     <SortableTask key={task.task_id} task={task}>
-                                      {({ dragHandleProps }: any) => (
-                                        <div className="flex items-center justify-between text-xs bg-gray-50 px-2 py-1 rounded">
-                                          <div className="flex items-center gap-1 flex-1 min-w-0">
-                                            <span {...dragHandleProps} className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none shrink-0" title="Перетащить">⠿</span>
-                                            <span className="flex-1 truncate">{task.task_title}</span>
-                                          </div>
-                                          <span className={`px-1.5 py-0.5 rounded ml-2 shrink-0 ${getStatusBadge(task.task_status)}`}>{getStatusLabel(task.task_status)}</span>
-                                        </div>
-                                      )}
+                                      {({ dragHandleProps }: any) => renderInteractiveTask(task, dragHandleProps)}
                                     </SortableTask>
                                   ))}
                                 </div>

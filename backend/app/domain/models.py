@@ -1,9 +1,32 @@
 """Domain models."""
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, BigInteger, Boolean
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, BigInteger, Boolean, Table
 from sqlalchemy.orm import relationship, backref, Mapped, mapped_column
 from app.core.db import Base
 from app.domain.enums import TaskStatus, TaskSource, TaskPriority
+
+# M2M table: task ↔ tag
+task_tags = Table(
+    "task_tags",
+    Base.metadata,
+    Column("task_id", Integer, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
+class Tag(Base):
+    """Тег/метка для поперечной категоризации задач."""
+    __tablename__ = "tags"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(50), nullable=False, unique=True)
+    color = Column(String(7), nullable=False, default="#6366f1")  # hex color
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    tasks = relationship("Task", secondary=task_tags, back_populates="tags")
+
+    def __repr__(self):
+        return f"<Tag(id={self.id}, name='{self.name}')>"
 
 
 class Project(Base):
@@ -93,6 +116,10 @@ class Task(Base):
     backlog = Column(Boolean, default=False, nullable=False)
     backlog_added_at = Column(DateTime, nullable=True)
 
+    # Recurrence — повторяющиеся задачи
+    recurrence = Column(String(20), nullable=True)  # daily / weekly / monthly / None
+    recurrence_end_date = Column(DateTime, nullable=True)  # до какой даты повторять
+
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -109,6 +136,9 @@ class Task(Base):
         backref=backref("parent_task", remote_side="Task.id"),
         foreign_keys="Task.parent_task_id",
     )
+    tags = relationship("Tag", secondary="task_tags", back_populates="tasks")
+    dependencies = relationship("TaskDependency", foreign_keys="TaskDependency.task_id", back_populates="task", cascade="all, delete-orphan")
+    blocking = relationship("TaskDependency", foreign_keys="TaskDependency.depends_on_id", back_populates="depends_on", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Task(id={self.id}, title='{self.title}', status='{self.status}')>"
@@ -222,3 +252,16 @@ class ApiKey(Base):
 
     def __repr__(self):
         return f"<ApiKey(id={self.id}, name='{self.name}')>"
+
+
+class TaskDependency(Base):
+    """Явная зависимость: task_id зависит от depends_on_id (depends_on блокирует task)."""
+    __tablename__ = "task_dependencies"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
+    depends_on_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    task = relationship("Task", foreign_keys=[task_id], back_populates="dependencies")
+    depends_on = relationship("Task", foreign_keys=[depends_on_id], back_populates="blocking")

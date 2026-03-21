@@ -2,11 +2,11 @@ import { useState, useRef } from 'react';
 import Modal from '../components/Modal';
 import MarkdownContent from '../components/MarkdownContent';
 
-export default function NewProjectModal({ onClose, createProjectMutation, projects }: any) {
+export default function NewProjectModal({ onClose, createProjectMutation, projects, initialParentProjectId }: any) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [emoji, setEmoji] = useState('📁');
-  const [parentProjectId, setParentProjectId] = useState<number | undefined>(undefined);
+  const [parentProjectId, setParentProjectId] = useState<number | undefined>(initialParentProjectId);
   const [descTab, setDescTab] = useState<'write' | 'preview'>('write');
   const descRef = useRef<HTMLTextAreaElement>(null);
 

@@ -5,7 +5,7 @@ import { API_URL, STATUS_COLOR, STATUS_BORDER, STATUS_EMOJI, STATUS_LABELS, PRIO
 import { showToast } from '../utils/toast';
 import { BacklogTaskRow } from './BacklogPage';
 
-export default function ProjectNavPage({ projects, tasks, navProject, navTaskPath, onSelectProject, onPushTask, onEditProject, onOpenTask, onNewProject, onNewTask, changeStatusMutation, takeTaskMutation, myUserId, invalidate, ancestorBlockedIds }: any) {
+export default function ProjectNavPage({ projects, tasks, navProject, navTaskPath, onSelectProject, onPushTask, onEditProject, onOpenTask, onNewProject, onNewTask, changeStatusMutation, takeTaskMutation, myUserId, invalidate, ancestorBlockedIds, onDeleteTask }: any) {
   const [statusFilter, setStatusFilter] = React.useState<string | null>(null);
 
   // Current node: last task in path, or project root (берём актуальные данные из tasks)
@@ -43,7 +43,7 @@ export default function ProjectNavPage({ projects, tasks, navProject, navTaskPat
             return (
               <div
                 key={proj.id}
-                onClick={() => onSelectProject(proj)}
+                onClick={(e) => { e.stopPropagation(); onSelectProject(proj); }}
                 className="bg-white rounded-lg border px-3 py-2 [@media(hover:hover)]:hover:shadow-md transition cursor-pointer group flex items-center gap-2"
               >
                 <span className="text-xl">{proj.emoji || '📁'}</span>
@@ -169,6 +169,13 @@ export default function ProjectNavPage({ projects, tasks, navProject, navTaskPat
           >+ Задача</button>
           {!currentTask && (
             <button
+              onClick={() => onNewProject(navProject.id)}
+              className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium"
+              title="Создать подпроект внутри текущего проекта"
+            >+ Подпроект</button>
+          )}
+          {!currentTask && (
+            <button
               onClick={async () => {
                 const url = `${window.location.origin}${window.location.pathname}?project=${navProject.id}`;
                 try { await navigator.clipboard.writeText(url); } catch {}
@@ -291,6 +298,13 @@ export default function ProjectNavPage({ projects, tasks, navProject, navTaskPat
                   ? <span className="text-xs text-gray-400 shrink-0">{doneCount}/{taskChildren.length} ›</span>
                   : <button onClick={(e) => { e.stopPropagation(); onOpenTask(task); }} className="text-xs text-gray-400 opacity-0 group-hover:opacity-100 hover:text-blue-600 shrink-0 transition">↗</button>
                 }
+                {onDeleteTask && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDeleteTask(task.id); }}
+                    className="text-xs text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-500 shrink-0 transition ml-0.5"
+                    title="Удалить задачу"
+                  >✕</button>
+                )}
               </div>
               {taskChildren.length > 0 && (
                 <div className="mt-2 flex items-center gap-2">

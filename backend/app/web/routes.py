@@ -109,6 +109,42 @@ async def change_task_status(
         else:
             await service.change_status(task_id, TaskStatus(request.status))
         await db.commit()
+
+        # Повторяющаяся задача: при DONE создаём следующий экземпляр
+        if request.status == TaskStatus.DONE.value:
+            from sqlalchemy import select as sa_select
+            from app.domain.models import Task as TaskModel
+            from app.domain.enums import TaskSource
+            result = await db.execute(sa_select(TaskModel).where(TaskModel.id == task_id))
+            task = result.scalar_one_or_none()
+            if task and task.recurrence and task.due_date:
+                from datetime import timedelta
+                delta = {
+                    "daily": timedelta(days=1),
+                    "weekly": timedelta(weeks=1),
+                    "monthly": timedelta(days=30),
+                }.get(task.recurrence)
+                if delta:
+                    next_due = task.due_date + delta
+                    # Не создавать если вышли за recurrence_end_date
+                    if not task.recurrence_end_date or next_due <= task.recurrence_end_date:
+                        next_task = TaskModel(
+                            title=task.title,
+                            description=task.description,
+                            project_id=task.project_id,
+                            assignee_id=task.assignee_id,
+                            assignee_name=task.assignee_name,
+                            assignee_telegram_id=task.assignee_telegram_id,
+                            priority=task.priority,
+                            due_date=next_due,
+                            recurrence=task.recurrence,
+                            recurrence_end_date=task.recurrence_end_date,
+                            source=TaskSource.MANUAL_COMMAND.value,
+                            status="TODO",
+                        )
+                        db.add(next_task)
+                        await db.commit()
+
         background_tasks.add_task(send_push,
             title=f"Задача обновлена: #{task_id}",
             body=f"Новый статус: {request.status}",
@@ -442,6 +478,8 @@ class TaskCreateRequest(BaseModel):
     due_date: Optional[datetime] = None
     priority: Optional[str] = "NORMAL"
     backlog: bool = False
+    recurrence: Optional[str] = None
+    recurrence_end_date: Optional[datetime] = None
 
 
 class TaskUpdateRequest(BaseModel):
@@ -452,6 +490,8 @@ class TaskUpdateRequest(BaseModel):
     priority: Optional[str] = None
     parent_task_id: Optional[int] = None
     backlog: Optional[bool] = None
+    recurrence: Optional[str] = None
+    recurrence_end_date: Optional[datetime] = None
     # Optimistic locking — client sends the updated_at they read
     expected_updated_at: Optional[datetime] = None
 
@@ -492,6 +532,11 @@ async def create_task_api(request: TaskCreateRequest, db: AsyncSession = Depends
     if request.backlog:
         task.backlog = True
         task.backlog_added_at = datetime.utcnow()
+
+    if request.recurrence:
+        task.recurrence = request.recurrence
+    if request.recurrence_end_date:
+        task.recurrence_end_date = request.recurrence_end_date
 
     if request.assignee_telegram_id:
         user_repo = UserRepository(db)
@@ -556,6 +601,11 @@ async def update_task_api(
     if request.backlog is not None:
         task.backlog = request.backlog
         task.backlog_added_at = datetime.utcnow() if request.backlog else None
+
+    if 'recurrence' in request.model_fields_set:
+        task.recurrence = request.recurrence
+    if 'recurrence_end_date' in request.model_fields_set:
+        task.recurrence_end_date = request.recurrence_end_date
 
     await db.commit()
     from app.repositories.task_repository import TaskRepository
@@ -659,6 +709,7 @@ async def get_backlog_tasks(
         selectinload(Task.blockers),
         selectinload(Task.assignee),
         selectinload(Task.subtasks).selectinload(Task.assignee),
+        selectinload(Task.tags),
     )
     result = await db.execute(query)
     return result.scalars().all()

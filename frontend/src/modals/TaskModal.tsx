@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import axios from 'axios';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Task } from '../types/dashboard';
 import { API_URL, STATUS_EMOJI, STATUS_LABELS, STATUS_COLOR, DUE_BADGE, PRIORITY_LABELS, PRIORITY_COLOR, PRIORITY_EMOJI } from '../constants/taskDisplay';
 import { getDueStatus, toDateInputValue, formatDueDate, formatDatetime, plural } from '../utils/dateUtils';
@@ -8,11 +9,260 @@ import MarkdownContent from '../components/MarkdownContent';
 import { CommentsSection } from '../components/CommentsSection';
 import { showToast } from '../utils/toast';
 
+type TagType = { id: number; name: string; color: string };
+
+function TagPicker({ taskId, taskTags, onTagsChange }: {
+  taskId: number;
+  taskTags: TagType[];
+  onTagsChange: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [newName, setNewName] = React.useState('');
+  const [newColor, setNewColor] = React.useState('#6366f1');
+  const ref = React.useRef<HTMLDivElement>(null);
+  const qc = useQueryClient();
+
+  const { data: allTags = [] } = useQuery<TagType[]>({
+    queryKey: ['tags'],
+    queryFn: () => axios.get(`${API_URL}/api/tags`).then(r => r.data),
+  });
+
+  React.useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  const taskTagIds = new Set(taskTags.map(t => t.id));
+
+  const toggle = async (tag: TagType) => {
+    if (taskTagIds.has(tag.id)) {
+      await axios.delete(`${API_URL}/api/tasks/${taskId}/tags/${tag.id}`);
+    } else {
+      await axios.post(`${API_URL}/api/tasks/${taskId}/tags/${tag.id}`);
+    }
+    qc.invalidateQueries({ queryKey: ['tasks'] });
+    onTagsChange();
+  };
+
+  const createTag = async () => {
+    if (!newName.trim()) return;
+    try {
+      const { data } = await axios.post(`${API_URL}/api/tags`, { name: newName.trim(), color: newColor });
+      await axios.post(`${API_URL}/api/tasks/${taskId}/tags/${data.id}`);
+      qc.invalidateQueries({ queryKey: ['tags'] });
+      qc.invalidateQueries({ queryKey: ['tasks'] });
+      onTagsChange();
+      setNewName('');
+    } catch {
+      showToast('Тег уже существует', 'error');
+    }
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {taskTags.map(tag => (
+          <button key={tag.id}
+            onClick={() => toggle(tag)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border hover:opacity-75 transition"
+            style={{ backgroundColor: tag.color + '22', borderColor: tag.color + '66', color: tag.color }}
+            title="Снять тег"
+          >
+            {tag.name} ✕
+          </button>
+        ))}
+        <button onClick={() => setOpen(v => !v)}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-dashed border-gray-300 text-gray-500 hover:border-gray-400 hover:text-gray-700 transition">
+          + тег
+        </button>
+      </div>
+
+      {open && (
+        <div className="absolute z-50 top-full left-0 mt-1 bg-white border rounded-lg shadow-lg w-56 p-2">
+          <div className="space-y-1 max-h-40 overflow-y-auto mb-2">
+            {allTags.length === 0 && <p className="text-xs text-gray-400 py-1 text-center">Нет тегов</p>}
+            {allTags.map(tag => (
+              <button key={tag.id} onClick={() => toggle(tag)}
+                className={`w-full flex items-center gap-2 px-2 py-1 rounded text-xs transition ${taskTagIds.has(tag.id) ? 'bg-gray-100' : 'hover:bg-gray-50'}`}>
+                <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
+                <span className="flex-1 text-left">{tag.name}</span>
+                {taskTagIds.has(tag.id) && <span className="text-green-500">✓</span>}
+              </button>
+            ))}
+          </div>
+          <div className="border-t pt-2 flex gap-1">
+            <input className="flex-1 px-2 py-1 border rounded text-xs" placeholder="Новый тег"
+              value={newName} onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && createTag()} />
+            <input type="color" value={newColor} onChange={e => setNewColor(e.target.value)}
+              className="w-7 h-7 rounded border cursor-pointer p-0.5" title="Цвет" />
+            <button onClick={createTag}
+              className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">+</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Зависимости задачи: «блокирует» / «зависит от»
+function DependencyPicker({ taskId, tasks, onOpenTask }: {
+  taskId: number;
+  tasks: any[];
+  onOpenTask?: (t: any) => void;
+}) {
+  const [deps, setDeps] = React.useState<any[]>([]);
+  const [open, setOpen] = React.useState(false);
+  const [search, setSearch] = React.useState('');
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  const load = React.useCallback(() => {
+    axios.get(`${API_URL}/api/tasks/${taskId}/dependencies`)
+      .then(r => setDeps(r.data))
+      .catch(() => {});
+  }, [taskId]);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  const addDep = async (dependsOnId: number) => {
+    await axios.post(`${API_URL}/api/tasks/${taskId}/dependencies`, { depends_on_id: dependsOnId });
+    load();
+    setOpen(false);
+    setSearch('');
+  };
+
+  const removeDep = async (depId: number) => {
+    await axios.delete(`${API_URL}/api/tasks/${taskId}/dependencies/${depId}`);
+    load();
+  };
+
+  const depIds = new Set(deps.map((d: any) => d.depends_on_id));
+  const filtered = (tasks || []).filter((t: any) =>
+    t.id !== taskId &&
+    !depIds.has(t.id) &&
+    (search === '' || t.title.toLowerCase().includes(search.toLowerCase()) || String(t.id).includes(search))
+  ).slice(0, 20);
+
+  if (deps.length === 0 && !open) {
+    return (
+      <div className="mb-3">
+        <button onClick={() => setOpen(true)}
+          className="text-xs text-gray-400 hover:text-gray-600 border border-dashed border-gray-300 rounded px-2 py-1 hover:border-gray-400 transition">
+          + зависит от…
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={ref} className="mb-3">
+      <div className="flex items-center gap-1 mb-1">
+        <span className="text-xs text-gray-500">🔗 Зависит от</span>
+      </div>
+      <div className="space-y-1">
+        {deps.map((d: any) => {
+          const fullTask = (tasks || []).find((t: any) => t.id === d.depends_on_id);
+          const isDone = d.depends_on_status === 'DONE';
+          return (
+            <div key={d.id} className="flex items-center gap-2 text-xs px-2 py-1 bg-gray-50 rounded border">
+              <span className={`shrink-0 ${isDone ? 'text-green-500' : 'text-amber-500'}`}>{isDone ? '✅' : '⏳'}</span>
+              <button
+                onClick={() => fullTask && onOpenTask?.(fullTask)}
+                className="flex-1 text-left truncate hover:text-blue-600 hover:underline"
+                title={d.depends_on_title}
+              >#{d.depends_on_id} {d.depends_on_title}</button>
+              <button onClick={() => removeDep(d.id)} className="shrink-0 text-gray-400 hover:text-red-500">✕</button>
+            </div>
+          );
+        })}
+        <div className="relative">
+          <button onClick={() => setOpen(v => !v)}
+            className="text-xs text-gray-400 hover:text-gray-600 border border-dashed border-gray-300 rounded px-2 py-1 hover:border-gray-400 transition">
+            + добавить зависимость
+          </button>
+          {open && (
+            <div className="absolute z-50 top-full left-0 mt-1 bg-white border rounded-lg shadow-lg w-64 p-2">
+              <input
+                autoFocus
+                className="w-full px-2 py-1.5 border rounded text-xs mb-2"
+                placeholder="Поиск задачи…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+              <div className="max-h-48 overflow-y-auto space-y-0.5">
+                {filtered.length === 0 && <p className="text-xs text-gray-400 text-center py-2">Нет задач</p>}
+                {filtered.map((t: any) => (
+                  <button key={t.id} onClick={() => addDep(t.id)}
+                    className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-gray-50 flex items-center gap-2">
+                    <span className="text-gray-400 shrink-0">#{t.id}</span>
+                    <span className="flex-1 truncate">{t.title}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Компактное поле с dropdown — показывает текущее значение как кнопку, по клику открывает select
+function DropdownField({ label, value, placeholder, options, current, onChange }: {
+  label: string; value: string | null; placeholder: string;
+  options: { value: string; label: string }[]; current: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      {label && <div className="text-xs text-gray-500 mb-1">{label}</div>}
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-2 py-1.5 border rounded-lg text-xs bg-white hover:bg-gray-50 transition text-left"
+      >
+        <span className={value ? 'text-gray-800 truncate' : 'text-gray-400'}>{value || placeholder}</span>
+        <span className="text-gray-400 ml-1 shrink-0">▾</span>
+      </button>
+      {open && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+          {options.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 transition ${opt.value === current ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}
+            >{opt.label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks, users, projects, changeStatusMutation, assignMutation, assignProjectMutation, updateTaskMutation, setConfirmDelete, invalidate, createSubtaskMutation, isAncestorBlocked, myUserId }: any) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description || '');
   const [dueDate, setDueDate] = useState(toDateInputValue(task.due_date));
+  const [recurrence, setRecurrence] = useState(task.recurrence || '');
   const [descTab, setDescTab] = useState<'write' | 'preview'>('write');
   const descTextareaRef = React.useRef<HTMLTextAreaElement>(null);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
@@ -59,6 +309,7 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
     setTitle(task.title);
     setDescription(task.description || '');
     setDueDate(toDateInputValue(task.due_date));
+    setRecurrence(task.recurrence || '');
   }, [task]);
 
   // Auto-suggest DONE when last subtask is completed
@@ -147,8 +398,7 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
   const handleSave = () => {
     const data: any = { title, description };
     data.due_date = dueDate || null;
-    // Send expected_updated_at for optimistic locking
-    data.expected_updated_at = task.updated_at;
+    data.recurrence = recurrence || null;
     updateTaskMutation.mutate(
       { id: task.id, data },
       {
@@ -245,6 +495,19 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
                 className="px-3 py-1.5 border rounded-lg text-sm w-full"
               />
             </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">🔁 Повторение</label>
+              <select
+                value={recurrence}
+                onChange={(e) => setRecurrence(e.target.value)}
+                className="w-full px-3 py-1.5 border rounded-lg text-sm"
+              >
+                <option value="">Без повторения</option>
+                <option value="daily">Ежедневно</option>
+                <option value="weekly">Еженедельно</option>
+                <option value="monthly">Ежемесячно</option>
+              </select>
+            </div>
             <div className="flex gap-2">
               <button
                 onClick={handleSave}
@@ -313,7 +576,7 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
             </div>
             {task.description && <MarkdownContent content={task.description} className="mt-2" />}
             {/* Дедлайн в режиме просмотра */}
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
               <span className="text-xs text-gray-400">📅 Дедлайн:</span>
               {task.due_date ? (
                 dueStatusView ? (
@@ -328,60 +591,82 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
                   не задан
                 </button>
               )}
+              {task.recurrence && (
+                <span className="text-xs px-1.5 py-0.5 rounded border bg-purple-50 text-purple-600 border-purple-200">
+                  🔁 {task.recurrence === 'daily' ? 'Ежедневно' : task.recurrence === 'weekly' ? 'Еженедельно' : 'Ежемесячно'}
+                </span>
+              )}
             </div>
           </>
         )}
       </div>
 
       <div className="space-y-2 mb-4">
+
+        {/* Проект + Исполнитель — компактные кликабельные поля */}
         <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Проект</label>
-            <select
-              key={`project-${task.project_id || 'none'}`}
-              value={task.project_id || ''}
-              onChange={(e) => {
-                const projectId = e.target.value ? Number(e.target.value) : null;
-                assignProjectMutation.mutate({ taskId: task.id, projectId });
-              }}
-              className="w-full px-2 py-1.5 border rounded-lg text-xs"
-            >
-              <option value="">Без проекта</option>
-              {projects.map((p: any) => <option key={p.id} value={p.id}>{p.emoji} {p.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Исполнитель</label>
-            <select
-              value={task.assignee?.telegram_id || ''}
-              onChange={(e) => {
-                const userId = e.target.value ? Number(e.target.value) : null;
-                assignMutation.mutate({ taskId: task.id, userId });
-              }}
-              className="w-full px-2 py-1.5 border rounded-lg text-xs"
-            >
-              <option value="">Не назначено</option>
-              {users.map((u: any) => <option key={u.telegram_id} value={u.telegram_id}>{u.display_name}</option>)}
-            </select>
-          </div>
+          <DropdownField
+            label="📁 Проект"
+            value={task.project_id ? `${projects.find((p:any)=>p.id===task.project_id)?.emoji||''} ${projects.find((p:any)=>p.id===task.project_id)?.name||''}`.trim() : null}
+            placeholder="Без проекта"
+            options={[
+              { value: '', label: '— Без проекта' },
+              ...projects.map((p:any) => ({ value: String(p.id), label: `${p.emoji} ${p.name}` }))
+            ]}
+            current={String(task.project_id || '')}
+            onChange={(v) => assignProjectMutation.mutate({ taskId: task.id, projectId: v ? Number(v) : null })}
+          />
+          <DropdownField
+            label="👤 Исполнитель"
+            value={task.assignee ? task.assignee.display_name : null}
+            placeholder="Не назначен"
+            options={[
+              { value: '', label: '— Не назначен' },
+              ...users.map((u:any) => ({ value: String(u.telegram_id), label: u.display_name }))
+            ]}
+            current={String(task.assignee?.telegram_id || '')}
+            onChange={(v) => assignMutation.mutate({ taskId: task.id, userId: v ? Number(v) : null })}
+          />
         </div>
 
+        {/* Родительская задача */}
         <div>
-          <label className="text-xs text-gray-500 block mb-1">Родительская задача</label>
-          <select
-            key={`parent-${task.parent_task_id || 'none'}`}
-            value={task.parent_task_id || ''}
-            onChange={(e) => {
-              const parentId = e.target.value ? Number(e.target.value) : null;
-              updateTaskMutation.mutate({ id: task.id, data: { parent_task_id: parentId } });
-            }}
-            className="w-full px-2 py-1.5 border rounded-lg text-xs"
-          >
-            <option value="">Без родителя</option>
-            {(tasks || []).filter((t: any) => !excludedIds.has(t.id)).map((t: any) => (
-              <option key={t.id} value={t.id}>#{t.id} {t.title}</option>
-            ))}
-          </select>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs text-gray-500">↳ Родительская задача</label>
+            {task.parent_task_id && (() => {
+              const parentTask = (tasks || []).find((t: any) => t.id === task.parent_task_id);
+              return parentTask ? (
+                <button
+                  onClick={() => onOpenTask?.(parentTask)}
+                  className="text-xs text-blue-600 hover:underline"
+                  title={`Открыть: ${parentTask.title}`}
+                >
+                  → #{parentTask.id} {parentTask.title.length > 24 ? parentTask.title.slice(0, 24) + '…' : parentTask.title}
+                </button>
+              ) : null;
+            })()}
+          </div>
+          {(() => {
+            // Показываем только задачи того же проекта (или без проекта если задача без проекта)
+            const sameProjectTasks = (tasks || []).filter((t: any) =>
+              !excludedIds.has(t.id) &&
+              (task.project_id ? t.project_id === task.project_id : true)
+            );
+            const parentTask = (tasks || []).find((t: any) => t.id === task.parent_task_id);
+            return (
+              <DropdownField
+                label=""
+                value={parentTask ? `#${parentTask.id} ${parentTask.title}` : null}
+                placeholder="Без родителя"
+                options={[
+                  { value: '', label: '— Без родителя' },
+                  ...sameProjectTasks.map((t: any) => ({ value: String(t.id), label: `#${t.id} ${t.title}` }))
+                ]}
+                current={String(task.parent_task_id || '')}
+                onChange={(v) => updateTaskMutation.mutate({ id: task.id, data: { parent_task_id: v ? Number(v) : null } })}
+              />
+            );
+          })()}
         </div>
 
         <div>
@@ -396,7 +681,7 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
                 }`}
                 title={label}
               >
-                {PRIORITY_EMOJI[p]}
+                {label}
               </button>
             ))}
           </div>
@@ -513,6 +798,19 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
         </div>
       </div>
 
+      {/* Tags */}
+      <div className="mb-4">
+        <label className="text-xs text-gray-500 block mb-1.5">🏷 Теги</label>
+        <TagPicker
+          taskId={task.id}
+          taskTags={task.tags || []}
+          onTagsChange={invalidate}
+        />
+      </div>
+
+      {/* Dependencies */}
+      <DependencyPicker taskId={task.id} tasks={tasks} onOpenTask={onOpenTask} />
+
       {/* Subtasks section */}
       <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
@@ -625,7 +923,7 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
                   <button
                     title="Открыть подзадачу"
                     onClick={() => { const full = (tasks || []).find((t: Task) => t.id === sub.id) ?? sub; onOpenTask?.(full); }}
-                    className={`text-sm flex-1 truncate text-left hover:underline hover:text-blue-600 transition ${sub.status === 'DONE' ? 'line-through text-gray-400' : ''}`}
+                    className={`text-sm flex-1 min-w-0 text-left hover:underline hover:text-blue-600 transition line-clamp-2 ${sub.status === 'DONE' ? 'line-through text-gray-400' : ''}`}
                   >
                     {sub.title}
                   </button>

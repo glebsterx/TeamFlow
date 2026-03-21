@@ -14,6 +14,14 @@ class AssigneeResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TagResponse(BaseModel):
+    id: int
+    name: str
+    color: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class CommentResponse(BaseModel):
     id: int
     task_id: int
@@ -81,6 +89,9 @@ class TaskResponse(BaseModel):
     assignee_telegram_id: Optional[int]
 
     blockers: List[BlockerResponse] = []
+    tags: List[TagResponse] = []
+    recurrence: Optional[str] = None
+    recurrence_end_date: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
