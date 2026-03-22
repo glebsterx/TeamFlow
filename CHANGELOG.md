@@ -2,7 +2,26 @@
 
 ---
 
-## v0.8.14 — UX: теги, повторения, шаблоны, зависимости, массовые операции (2026-03-21)
+## v0.8.14 — Встречи v2: UX, фиксы, консистентность (2026-03-22)
+
+### Встречи v2 — UX и бэкенд
+- **MeetingModal** полностью переработан: 3 вкладки (Основное / Повестка / Участники), идентично NewMeetingModal, убран режим просмотра/редактирования
+- **participants** передаются как `{display_name, telegram_user_id}` в обоих модалках — telegram_user_id сохраняется при PATCH (#201)
+- **constants/meetingTypes.ts** — MEETING_TYPES/MEETING_TYPE_LABELS вынесены в единый файл, убрано дублирование (#202)
+- **MeetingsPage** вынесена из Dashboard.tsx в отдельный файл pages/MeetingsPage.tsx (#204)
+
+### Backend фиксы
+- **TaskSource.MEETING** добавлен в enums.py (#198)
+- **TaskCreateRequest.source** — поле добавлено, используется при создании задачи из встречи (#203)
+- **MeetingUpdateRequest / MeetingCreateRequest** принимают `participants: List[ParticipantInput]` (#201)
+- **get_week_tasks** — добавлен `selectinload(Task.subtasks).selectinload(Task.assignee)` (#200)
+- **SubtaskResponse** — добавлено поле `recurrence`, убрано `tags` (lazy load в async → ResponseValidationError) (#199)
+- **migrate.py** — поля встреч v2 (title/meeting_type/duration_min/agenda) добавлены в MIGRATIONS (#197)
+- **ParticipantInput** объявлен до MeetingCreateRequest (устранён NameError при старте)
+
+---
+
+## v0.8.13 — UX: теги, повторения, шаблоны, зависимости, массовые операции (2026-03-21)
 
 ### #62 — Редизайн модалки задачи
 - `DropdownField` — компактный dropdown вместо `<select>` для проекта, исполнителя, родителя
@@ -60,7 +79,7 @@
 
 ---
 
-## v0.8.13 — Баги бота + Sprint UX + переход к родителю (2026-03-21)
+## v0.8.12 — Баги бота + Sprint UX + переход к родителю (2026-03-21)
 
 ### #131 — Переход к родительской задаче (URGENT)
 - В модалке задачи появилась кнопка-ссылка "→ #X Название" над селектом родителя
@@ -96,7 +115,7 @@
 
 ---
 
-## v0.8.12 — Telegram: /sprint start/end, /my приоритеты, хештеги, дедлайн с временем (2026-03-18)
+## v0.8.11 — Telegram: /sprint start/end, /my приоритеты, хештеги, дедлайн с временем (2026-03-18)
 
 ### #99 — /sprint start / end
 - `/sprint start <id>` — активировать спринт (деактивирует текущий активный)

@@ -15,6 +15,7 @@ class TaskSource(str, Enum):
     """Task creation source."""
     MANUAL_COMMAND = "MANUAL_COMMAND"
     CHAT_MESSAGE = "CHAT_MESSAGE"
+    MEETING = "MEETING"
 
 
 class TaskPriority(str, Enum):

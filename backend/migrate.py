@@ -70,6 +70,27 @@ MIGRATIONS = [
     )"""),
     ("tasks", "recurrence", "ALTER TABLE tasks ADD COLUMN recurrence VARCHAR(20)"),
     ("tasks", "recurrence_end_date", "ALTER TABLE tasks ADD COLUMN recurrence_end_date DATETIME"),
+    # Meetings v2
+    ("meetings", "title",        "ALTER TABLE meetings ADD COLUMN title VARCHAR(255)"),
+    ("meetings", "meeting_type", "ALTER TABLE meetings ADD COLUMN meeting_type VARCHAR(30)"),
+    ("meetings", "duration_min", "ALTER TABLE meetings ADD COLUMN duration_min INTEGER"),
+    ("meetings", "agenda",       "ALTER TABLE meetings ADD COLUMN agenda TEXT"),
+    ("meeting_projects", None, """CREATE TABLE IF NOT EXISTS meeting_projects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE
+    )"""),
+    ("meeting_participants", None, """CREATE TABLE IF NOT EXISTS meeting_participants (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+        telegram_user_id INTEGER REFERENCES telegram_users(id) ON DELETE SET NULL,
+        display_name VARCHAR(100) NOT NULL
+    )"""),
+    ("meeting_tasks", None, """CREATE TABLE IF NOT EXISTS meeting_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+        task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE
+    )"""),
 ]
 
 async def run():

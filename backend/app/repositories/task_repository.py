@@ -126,7 +126,12 @@ class TaskRepository:
 
         result = await self.session.execute(
             select(Task)
-            .options(selectinload(Task.blockers), selectinload(Task.assignee), selectinload(Task.tags))
+            .options(
+                selectinload(Task.blockers),
+                selectinload(Task.assignee),
+                selectinload(Task.subtasks).selectinload(Task.assignee),
+                selectinload(Task.tags),
+            )
             .where(Task.created_at >= week_start)
             .order_by(Task.status, Task.created_at.desc())
         )

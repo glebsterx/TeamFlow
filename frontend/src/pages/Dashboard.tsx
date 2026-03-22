@@ -16,6 +16,7 @@ import ConfirmDeleteModal from '../modals/ConfirmDeleteModal';
 import BacklogPage from './BacklogPage';
 import SettingsPage from './SettingsPage';
 import SprintsPage from './SprintsPage';
+import MeetingsPage from './MeetingsPage';
 import ArchivePage from './ArchivePage';
 import DigestPage from './DigestPage';
 import ProjectNavPage from './ProjectNavPage';
@@ -425,7 +426,7 @@ export default function Dashboard() {
   });
 
   const createMeetingMutation = useMutation({
-    mutationFn: async (data: { summary: string }) => {
+    mutationFn: async (data: any) => {
       await axios.post(`${API_URL}/api/meetings`, data);
     },
     onSuccess: () => {
@@ -435,12 +436,11 @@ export default function Dashboard() {
   });
 
   const updateMeetingMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: { summary: string } }) => {
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
       await axios.patch(`${API_URL}/api/meetings/${id}`, data);
     },
     onSuccess: () => {
       invalidate();
-      setSelectedMeeting(null);
     },
   });
 
@@ -1023,42 +1023,13 @@ export default function Dashboard() {
 
         {/* MEETINGS PAGE */}
         {currentPage === 'meetings' && (
-          <>
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="text-lg sm:text-xl font-bold">Встречи ({meetings.length})</h2>
-              <button
-                onClick={() => setShowNewMeeting(true)}
-                className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium"
-              >+ Встреча</button>
-            </div>
-
-            <div className="space-y-2">
-              {meetings.map(meeting => (
-                <div key={meeting.id} className="bg-white rounded-lg border p-3">
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1 cursor-pointer" onClick={() => setSelectedMeeting(meeting)}>
-                      <div className="text-xs text-gray-500 mb-1">
-                        {new Date(meeting.meeting_date).toLocaleDateString('ru', {
-                          day: 'numeric',
-                          month: 'long',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </div>
-                      <p className="text-sm whitespace-pre-wrap">{meeting.summary}</p>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setConfirmDelete({ type: 'meeting', id: meeting.id });
-                      }}
-                      className="ml-2 text-red-500 hover:text-red-700"
-                    >🗑️</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
+          <MeetingsPage
+            meetings={meetings}
+            projects={projects}
+            onNew={() => setShowNewMeeting(true)}
+            onOpen={setSelectedMeeting}
+            onDelete={(id) => setConfirmDelete({ type: 'meeting', id })}
+          />
         )}
         {/* SPRINTS PAGE */}
         {currentPage === 'sprints' && (
@@ -1105,12 +1076,13 @@ export default function Dashboard() {
         />
       )}
       {selectedProject && <ProjectModal project={selectedProject} projects={projects} invalidate={invalidate} onClose={() => setSelectedProject(null)} {...{ updateProjectMutation, setConfirmDelete }} />}
-      {selectedMeeting && <MeetingModal meeting={selectedMeeting} onClose={() => setSelectedMeeting(null)} {...{ updateMeetingMutation, setConfirmDelete }} />}
+      {selectedMeeting && <MeetingModal meeting={selectedMeeting} onClose={() => setSelectedMeeting(null)} projects={projects} tasks={tasks} onOpenTask={setSelectedTask} invalidate={invalidate} {...{ updateMeetingMutation, setConfirmDelete }} />}
       {showNewTask && <NewTaskModal onClose={() => { setShowNewTask(false); setNewTaskDefaults({}); }} onOpenTask={(t: Task) => { setShowNewTask(false); setNewTaskDefaults({}); setSelectedTask(t); }} initialProjectId={newTaskDefaults.projectId} initialParentTaskId={newTaskDefaults.parentTaskId} initialBacklog={newTaskDefaults.backlog} {...{ projects, tasks, createTaskMutation }} />}
       {showNewProject && <NewProjectModal onClose={() => { setShowNewProject(false); setNewProjectParentId(undefined); }} projects={projects} initialParentProjectId={newProjectParentId} {...{ createProjectMutation }} />}
-      {showNewMeeting && <NewMeetingModal onClose={() => setShowNewMeeting(false)} {...{ createMeetingMutation }} />}
+      {showNewMeeting && <NewMeetingModal onClose={() => setShowNewMeeting(false)} projects={projects} {...{ createMeetingMutation }} />}
       {confirmDelete && <ConfirmDeleteModal confirm={confirmDelete} onClose={() => setConfirmDelete(null)} {...{ deleteTaskMutation, deleteProjectMutation, deleteMeetingMutation }} />}
       <ToastContainer />
     </div>
   );
 }
+

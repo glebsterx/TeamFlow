@@ -49,7 +49,7 @@ class BlockerResponse(BaseModel):
 
 
 class SubtaskResponse(BaseModel):
-    """Lightweight subtask (no nested subtasks to avoid infinite recursion)."""
+    """Lightweight subtask — без вложенных подзадач и без tags (требует отдельного selectinload)."""
     id: int
     title: str
     status: str
@@ -57,6 +57,7 @@ class SubtaskResponse(BaseModel):
     assignee: Optional[AssigneeResponse] = None
     due_date: Optional[datetime] = None
     created_at: datetime
+    recurrence: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

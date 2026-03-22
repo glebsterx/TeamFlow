@@ -173,13 +173,61 @@ class Comment(Base):
 
 
 class Meeting(Base):
-    """Meeting entity."""
+    """Meeting entity — v2."""
     __tablename__ = "meetings"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     meeting_date = Column(DateTime, nullable=False)
     summary = Column(Text, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # v2 fields
+    title = Column(String(255), nullable=True)
+    meeting_type = Column(String(30), nullable=True)  # standup/planning/retro/review/1:1/other
+    duration_min = Column(Integer, nullable=True)
+    agenda = Column(Text, nullable=True)  # JSON list of agenda items
+
+    # Relationships v2
+    projects = relationship("MeetingProject", back_populates="meeting", cascade="all, delete-orphan")
+    participants = relationship("MeetingParticipant", back_populates="meeting", cascade="all, delete-orphan")
+    meeting_tasks = relationship("MeetingTask", back_populates="meeting", cascade="all, delete-orphan")
+
+
+class MeetingProject(Base):
+    """M2M: meeting ↔ project."""
+    __tablename__ = "meeting_projects"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+
+    meeting = relationship("Meeting", back_populates="projects")
+    project = relationship("Project")
+
+
+class MeetingParticipant(Base):
+    """Meeting participant — telegram user or external name."""
+    __tablename__ = "meeting_participants"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False)
+    telegram_user_id = Column(Integer, ForeignKey("telegram_users.id", ondelete="SET NULL"), nullable=True)
+    display_name = Column(String(100), nullable=False)  # always stored for display
+
+    meeting = relationship("Meeting", back_populates="participants")
+    user = relationship("TelegramUser")
+
+
+class MeetingTask(Base):
+    """M2M: meeting ↔ task (action items born in meeting)."""
+    __tablename__ = "meeting_tasks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
+
+    meeting = relationship("Meeting", back_populates="meeting_tasks")
+    task = relationship("Task")
 
 
 class PushSubscription(Base):
