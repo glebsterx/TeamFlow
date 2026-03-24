@@ -15,9 +15,12 @@
 - Явные зависимости, без глобальных объектов
 
 ### TypeScript / React
-- Все компоненты в `Dashboard.tsx` (монолит, ~1700 строк)
+- Функциональные компоненты + hooks, строгий режим
 - TanStack Query для всех HTTP запросов и кеша
 - Tailwind CSS классы напрямую, без CSS файлов
+- Все даты из бэкенда — через `parseUTC()` из `utils/dateUtils.ts`
+- Статусы задач: `TODO | DOING | DONE | BLOCKED | ON_HOLD` (не `IN_PROGRESS`!)
+- Не экспортировать не-компоненты из файлов с React-компонентами (ломает Vite HMR)
 
 ---
 
@@ -34,11 +37,14 @@
 
 | Проблема | Решение |
 |---------|---------|
-| `ResponseValidationError` при возврате task | Использовать `TaskRepository.get_by_id()` вместо `db.refresh()` |
+| `ResponseValidationError` при возврате task | Использовать `TaskRepository.get_by_id()` с `selectinload` |
 | Stale closure в useEffect | Использовать `useRef` для обработчиков событий |
 | Nullable поля (due_date, parent_task_id) | Использовать `model_fields_set` чтобы отличить "не передано" от `null` |
 | SQLite deadlock | NullPool в `db.py` (уже настроен) |
-| Vite build check | `npx vite build` — проверяет JSX без TS ошибок |
+| pydantic ValidationError при старте | Лишние поля в .env → `extra = "ignore"` в Settings.Config |
+| AiohttpSession(connector=...) | aiogram 3.4.1 не принимает `connector=`; только `proxy="url"` строкой |
+| ProxyConnector на уровне модуля | Требует event loop — вызывать только внутри async-функции |
+| aiohttp-socks пропал после rebuild | После `docker compose build` — проверить: `docker exec backend python3 -c "import aiohttp_socks"` |
 
 ---
 

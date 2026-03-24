@@ -80,12 +80,48 @@ fi
 
 [ -z "$BOT_TOKEN" ] && { echo -e "${RED}❌ Token обязателен!${NC}"; exit 1; }
 
-echo "📡 Получаю данные бота..."
-BOT_INFO=$(curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getMe")
-BOT_USERNAME=$(echo "$BOT_INFO" | grep -o '"username":"[^"]*' | cut -d'"' -f4)
+# Прокси для Telegram (опционально)
+CURRENT_PROXY=""
+[ -f "backend/.env" ] && CURRENT_PROXY=$(grep "^TELEGRAM_PROXY_URL=" backend/.env 2>/dev/null | cut -d'=' -f2-)
 
-[ -z "$BOT_USERNAME" ] && { echo -e "${RED}❌ Неверный токен!${NC}"; exit 1; }
-echo -e "${GREEN}✓ Бот: @${BOT_USERNAME}${NC}"
+echo ""
+echo -e "${YELLOW}🔌 Прокси для Telegram-бота (если заблокирован):${NC}"
+echo "  Поддерживаемые форматы:"
+echo "    socks5://user:pass@host:1080"
+echo "    https://t.me/proxy?server=HOST&port=PORT&secret=SECRET"
+echo "    tg://proxy?server=HOST&port=PORT&secret=SECRET"
+if [ -n "$CURRENT_PROXY" ]; then
+    echo -e "${GREEN}Текущий прокси: ${CURRENT_PROXY}${NC}"
+    read -p "Изменить? (y/n) [n]: " CHANGE_PROXY
+    CHANGE_PROXY=${CHANGE_PROXY:-n}
+    if [ "$CHANGE_PROXY" = "y" ]; then
+        read -p "Новый прокси (Enter = пропустить, 'off' = отключить): " BOT_PROXY_RAW
+    else
+        BOT_PROXY_RAW="$CURRENT_PROXY"
+    fi
+else
+    read -p "Прокси URL (Enter = пропустить): " BOT_PROXY_RAW
+fi
+
+BOT_PROXY=""
+if [ -n "$BOT_PROXY_RAW" ] && [ "$BOT_PROXY_RAW" != "off" ]; then
+    BOT_PROXY="$BOT_PROXY_RAW"
+fi
+
+echo "📡 Получаю данные бота..."
+BOT_USERNAME=""
+BOT_INFO=$(curl -s --connect-timeout 8 "https://api.telegram.org/bot${BOT_TOKEN}/getMe" 2>/dev/null || true)
+BOT_USERNAME=$(echo "$BOT_INFO" | grep -o '"username":"[^"]*' | cut -d'"' -f4 || true)
+
+if [ -z "$BOT_USERNAME" ]; then
+    echo -e "${YELLOW}⚠ Telegram недоступен напрямую — токен не проверен.${NC}"
+    if [ -n "$BOT_PROXY" ]; then
+        echo -e "${YELLOW}  Бот запустится через прокси: ${BOT_PROXY}${NC}"
+    fi
+    BOT_USERNAME="unknown"
+else
+    echo -e "${GREEN}✓ Бот: @${BOT_USERNAME}${NC}"
+fi
 
 # Извлекаем домен (без trailing slash)
 DOMAIN=$(echo "$BASE_URL" | sed 's|https*://||' | sed 's:/*$::' | cut -d':' -f1)
@@ -132,6 +168,11 @@ FRONTEND_PORT=${FRONTEND_PORT}
 
 TELEGRAM_BOT_TOKEN=${BOT_TOKEN}
 TELEGRAM_BOT_USERNAME=${BOT_USERNAME}
+TELEGRAM_PROXY_URL=${BOT_PROXY}
+
+# Telegram Mini App (WEBAPP_URL требует HTTPS для Telegram WebApp)
+# Пример: WEBAPP_URL=https://tf.example.com:5180/app
+WEBAPP_URL=${BASE_URL}:${FRONTEND_PORT}/app
 
 DATABASE_URL=sqlite+aiosqlite:///./data/teamflow.db
 API_HOST=0.0.0.0

@@ -1,7 +1,7 @@
 """Help and menu handlers."""
 from aiogram import Router, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from app.config import settings
@@ -25,6 +25,14 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="📊 Дайджест",       callback_data="menu:digest"),
         InlineKeyboardButton(text="🤝 Встреча",        callback_data="menu:meeting"),
     )
+    # Кнопка Mini App — показывается только если WEBAPP_URL задан и использует HTTPS
+    if settings.WEBAPP_URL and settings.WEBAPP_URL.startswith("https://"):
+        builder.row(
+            InlineKeyboardButton(
+                text="🌐 Открыть TeamFlow",
+                web_app=WebAppInfo(url=settings.WEBAPP_URL),
+            )
+        )
     builder.row(
         InlineKeyboardButton(text="❓ Справка",        callback_data="menu:help"),
     )
@@ -64,7 +72,11 @@ HELP_TEXT = (
     "Команда /sprint показывает доску с кнопками — можно\n"
     "менять статусы задач прямо из Telegram на телефоне.\n\n"
 
-    f"*🌐 Web UI:* {settings.web_url}"
+    + (
+        f"*🌐 Mini App:* доступен через кнопку меню\n"
+        if settings.WEBAPP_URL and settings.WEBAPP_URL.startswith("https://") else ""
+    )
+    + f"*🔗 Web UI:* {settings.web_url}"
 )
 
 
@@ -123,14 +135,11 @@ async def handle_menu_callback(callback: CallbackQuery):
         await task_handlers.cmd_task(message, state)
 
     elif action == "my":
-        from app.telegram.handlers.my_handler import cmd_my
-        # Подделываем from_user для /my
-        class _FakeMsg:
-            text = "/my"
-            chat = message.chat
-            from_user = callback.from_user
-            async def answer(self, *a, **kw): return await message.answer(*a, **kw)
-        await cmd_my(_FakeMsg())
+        from app.telegram.handlers.my_handler import get_my_tasks_text
+        user = callback.from_user
+        display = f"@{user.username}" if user.username else user.first_name
+        text = await get_my_tasks_text(user.id, user.username, display)
+        await message.answer(text, parse_mode="Markdown")
 
     elif action == "sprint":
         from app.telegram.handlers.sprint_handlers import _cmd_sprint_current

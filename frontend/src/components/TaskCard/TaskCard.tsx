@@ -1,6 +1,7 @@
 import React from 'react';
 import { Task, TaskStatus, TaskPriority } from '../../types/task';
 import { format } from 'date-fns';
+import { parseUTC } from '../../utils/dateUtils';
 
 interface TaskCardProps {
   task: Task;
@@ -49,7 +50,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onClick }) => {
             </span>
           )}
           {task.due_date && (
-            <span>{format(new Date(task.due_date), 'MMM d')}</span>
+            <span>{format(parseUTC(task.due_date), 'MMM d')}</span>
           )}
         </div>
       </div>

@@ -1459,19 +1459,20 @@ async def export_data(
     include: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Export all data as JSON. include=tasks,projects,meetings,comments (default: all)."""
-    parts = set(include.split(",")) if include else {"tasks", "projects", "meetings", "comments"}
+    """Export all data as JSON."""
+    parts = set(include.split(",")) if include else {
+        "tasks", "projects", "meetings", "comments", "sprints",
+        "tags", "dependencies", "templates"
+    }
     today = datetime.utcnow().strftime("%Y-%m-%d")
 
     payload: dict = {
         "version": settings.VERSION,
         "exported_at": datetime.utcnow().isoformat(),
         "filters": {"project_id": project_id, "include": sorted(parts)},
-        "projects": [],
-        "tasks": [],
-        "meetings": [],
-        "comments": [],
-        "sprints": [],
+        "projects": [], "tasks": [], "meetings": [], "comments": [],
+        "sprints": [], "sprint_tasks": [], "tags": [], "task_tags": [],
+        "task_dependencies": [], "task_templates": [],
     }
 
     if "projects" in parts:
@@ -1481,7 +1482,8 @@ async def export_data(
         rows = (await db.execute(q)).scalars().all()
         payload["projects"] = [
             {"id": r.id, "name": r.name, "description": r.description,
-             "emoji": r.emoji, "is_active": r.is_active, "parent_project_id": r.parent_project_id,
+             "emoji": r.emoji, "is_active": r.is_active,
+             "parent_project_id": r.parent_project_id, "deleted": getattr(r, "deleted", False),
              "created_at": _dt(r.created_at)}
             for r in rows
         ]
@@ -1502,20 +1504,49 @@ async def export_data(
              "due_date": _dt(r.due_date), "definition_of_done": r.definition_of_done,
              "archived": r.archived, "deleted": r.deleted,
              "backlog": r.backlog, "backlog_added_at": _dt(r.backlog_added_at),
+             "recurrence": getattr(r, "recurrence", None),
+             "recurrence_end_date": _dt(getattr(r, "recurrence_end_date", None)),
              "created_at": _dt(r.created_at), "updated_at": _dt(r.updated_at),
              "started_at": _dt(r.started_at), "completed_at": _dt(r.completed_at)}
             for r in rows
         ]
+        task_ids = [t["id"] for t in payload["tasks"]]
+
+        # Tags per task
+        if "tags" in parts and task_ids:
+            from app.domain.models import Tag, TaskTag
+            tag_rows = (await db.execute(select(Tag))).scalars().all()
+            payload["tags"] = [
+                {"id": t.id, "name": t.name, "color": t.color} for t in tag_rows
+            ]
+            tt_rows = (await db.execute(
+                select(TaskTag).where(TaskTag.task_id.in_(task_ids))
+            )).scalars().all()
+            payload["task_tags"] = [
+                {"task_id": tt.task_id, "tag_id": tt.tag_id} for tt in tt_rows
+            ]
+
+        # Dependencies
+        if "dependencies" in parts and task_ids:
+            from app.domain.models import TaskDependency
+            dep_rows = (await db.execute(
+                select(TaskDependency).where(TaskDependency.task_id.in_(task_ids))
+            )).scalars().all()
+            payload["task_dependencies"] = [
+                {"task_id": d.task_id, "depends_on_id": d.depends_on_id,
+                 "created_at": _dt(d.created_at)}
+                for d in dep_rows
+            ]
+    else:
+        task_ids = []
 
     if "comments" in parts:
         q = select(Comment)
-        if project_id:
-            task_ids = [t["id"] for t in payload["tasks"]]
-            if task_ids:
-                q = q.where(Comment.task_id.in_(task_ids))
-            else:
-                payload["comments"] = []
-                q = None
+        if project_id and task_ids:
+            q = q.where(Comment.task_id.in_(task_ids))
+        elif project_id:
+            payload["comments"] = []
+            q = None
         if q is not None:
             rows = (await db.execute(q)).scalars().all()
             payload["comments"] = [
@@ -1525,24 +1556,61 @@ async def export_data(
                 for r in rows
             ]
 
-    if "meetings" in parts and not project_id:
-        rows = (await db.execute(select(Meeting))).scalars().all()
-        payload["meetings"] = [
-            {"id": r.id, "meeting_date": _dt(r.meeting_date),
-             "summary": r.summary, "created_at": _dt(r.created_at)}
-            for r in rows
-        ]
+    if "meetings" in parts:
+        from app.domain.models import MeetingParticipant
+        q = select(Meeting)
+        if project_id:
+            from app.domain.models import MeetingProject
+            mp_sub = select(MeetingProject.meeting_id).where(MeetingProject.project_id == project_id)
+            q = q.where(Meeting.id.in_(mp_sub))
+        rows = (await db.execute(q)).scalars().all()
+        meeting_list = []
+        for r in rows:
+            parts_rows = (await db.execute(
+                select(MeetingParticipant).where(MeetingParticipant.meeting_id == r.id)
+            )).scalars().all()
+            meeting_list.append({
+                "id": r.id, "meeting_date": _dt(r.meeting_date), "summary": r.summary,
+                "title": getattr(r, "title", None), "meeting_type": getattr(r, "meeting_type", None),
+                "duration_min": getattr(r, "duration_min", None), "agenda": getattr(r, "agenda", None),
+                "created_at": _dt(r.created_at),
+                "participants": [
+                    {"display_name": p.display_name, "telegram_user_id": p.telegram_user_id}
+                    for p in parts_rows
+                ],
+            })
+        payload["meetings"] = meeting_list
 
     if "sprints" in parts:
         from app.domain.models import Sprint, SprintTask
-        q = select(Sprint)
+        q = select(Sprint).where(Sprint.is_deleted == False)  # noqa: E712
         if project_id:
             q = q.where(Sprint.project_id == project_id)
         rows = (await db.execute(q)).scalars().all()
-        payload["sprints"] = [
-            {"id": r.id, "name": r.name, "description": r.description,
-             "project_id": r.project_id, "start_date": _dt(r.start_date),
-             "end_date": _dt(r.end_date), "is_active": r.is_active,
+        sprint_ids = []
+        payload["sprints"] = []
+        for r in rows:
+            sprint_ids.append(r.id)
+            payload["sprints"].append({
+                "id": r.id, "name": r.name, "description": r.description,
+                "project_id": r.project_id, "status": r.status, "position": r.position,
+                "start_date": _dt(r.start_date), "end_date": _dt(r.end_date),
+                "created_at": _dt(r.created_at),
+            })
+        if sprint_ids:
+            st_rows = (await db.execute(
+                select(SprintTask).where(SprintTask.sprint_id.in_(sprint_ids))
+            )).scalars().all()
+            payload["sprint_tasks"] = [
+                {"sprint_id": st.sprint_id, "task_id": st.task_id, "position": st.position}
+                for st in st_rows
+            ]
+
+    if "templates" in parts:
+        from app.domain.models import TaskTemplate
+        rows = (await db.execute(select(TaskTemplate))).scalars().all()
+        payload["task_templates"] = [
+            {"id": r.id, "name": r.name, "fields_json": r.fields_json,
              "created_at": _dt(r.created_at)}
             for r in rows
         ]
@@ -1565,16 +1633,19 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail="mode must be 'full' or 'merge'")
 
     data = req.data
-    counts = {"projects": 0, "tasks": 0, "meetings": 0, "comments": 0, "sprints": 0}
+    counts = {"projects": 0, "tasks": 0, "meetings": 0, "comments": 0,
+              "sprints": 0, "tags": 0, "task_tags": 0, "dependencies": 0, "templates": 0}
 
     if req.mode == "full":
-        # Soft-delete tasks and projects; hard-delete meetings and comments
         await db.execute(text("UPDATE tasks SET deleted = 1"))
         await db.execute(text("UPDATE projects SET is_active = 0"))
         await db.execute(text("DELETE FROM comments"))
         await db.execute(text("DELETE FROM meetings"))
+        await db.execute(text("DELETE FROM meeting_participants"))
         await db.execute(text("DELETE FROM sprint_tasks"))
-        await db.execute(text("UPDATE sprints SET is_active = 0"))
+        await db.execute(text("UPDATE sprints SET status = 'archived'"))
+        await db.execute(text("DELETE FROM task_tags"))
+        await db.execute(text("DELETE FROM task_dependencies"))
         await db.commit()
 
     def _parse_dt(v):
@@ -1588,31 +1659,27 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
     # Projects
     for p in data.get("projects", []):
         if req.mode == "merge":
-            exists = (await db.execute(select(Project).where(Project.id == p["id"]))).scalar_one_or_none()
-            if exists:
+            if (await db.execute(select(Project).where(Project.id == p["id"]))).scalar_one_or_none():
                 continue
-        proj = Project(
+        db.add(Project(
             id=p["id"], name=p["name"], description=p.get("description"),
             emoji=p.get("emoji", "📁"), is_active=p.get("is_active", True),
             parent_project_id=p.get("parent_project_id"),
             created_at=_parse_dt(p.get("created_at")) or datetime.utcnow(),
-        )
-        db.add(proj)
+        ))
         counts["projects"] += 1
-
     await db.flush()
 
-    # Tasks — two passes: top-level first, then children (to satisfy FK on parent_task_id)
+    # Tasks — two passes: roots first, then children
     tasks_data = data.get("tasks", [])
-    for parent_pass in (True, False):
+    for parent_pass in (False, True):
         for t in tasks_data:
-            if bool(t.get("parent_task_id")) == parent_pass:
+            if bool(t.get("parent_task_id")) != parent_pass:
                 continue
             if req.mode == "merge":
-                exists = (await db.execute(select(Task).where(Task.id == t["id"]))).scalar_one_or_none()
-                if exists:
+                if (await db.execute(select(Task).where(Task.id == t["id"]))).scalar_one_or_none():
                     continue
-            task = Task(
+            db.add(Task(
                 id=t["id"], title=t["title"], description=t.get("description"),
                 status=t.get("status", "TODO"), priority=t.get("priority", "NORMAL"),
                 project_id=t.get("project_id"), parent_task_id=t.get("parent_task_id"),
@@ -1626,59 +1693,127 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
                 archived=t.get("archived", False), deleted=t.get("deleted", False),
                 backlog=t.get("backlog", False),
                 backlog_added_at=_parse_dt(t.get("backlog_added_at")),
+                recurrence=t.get("recurrence"),
+                recurrence_end_date=_parse_dt(t.get("recurrence_end_date")),
                 created_at=_parse_dt(t.get("created_at")) or datetime.utcnow(),
                 updated_at=_parse_dt(t.get("updated_at")) or datetime.utcnow(),
                 started_at=_parse_dt(t.get("started_at")),
                 completed_at=_parse_dt(t.get("completed_at")),
-            )
-            db.add(task)
+            ))
             counts["tasks"] += 1
-
     await db.flush()
 
-    # Meetings
+    # Tags
+    from app.domain.models import Tag, TaskTag, TaskDependency, TaskTemplate
+    for tg in data.get("tags", []):
+        if req.mode == "merge":
+            if (await db.execute(select(Tag).where(Tag.id == tg["id"]))).scalar_one_or_none():
+                continue
+        db.add(Tag(id=tg["id"], name=tg["name"], color=tg.get("color", "#6366f1")))
+        counts["tags"] += 1
+    await db.flush()
+
+    # Task-tag relations
+    for tt in data.get("task_tags", []):
+        if req.mode == "merge":
+            if (await db.execute(
+                select(TaskTag).where(TaskTag.task_id == tt["task_id"], TaskTag.tag_id == tt["tag_id"])
+            )).scalar_one_or_none():
+                continue
+        db.add(TaskTag(task_id=tt["task_id"], tag_id=tt["tag_id"]))
+        counts["task_tags"] += 1
+
+    # Dependencies
+    for dep in data.get("task_dependencies", []):
+        if req.mode == "merge":
+            if (await db.execute(
+                select(TaskDependency).where(
+                    TaskDependency.task_id == dep["task_id"],
+                    TaskDependency.depends_on_id == dep["depends_on_id"]
+                )
+            )).scalar_one_or_none():
+                continue
+        db.add(TaskDependency(
+            task_id=dep["task_id"], depends_on_id=dep["depends_on_id"],
+            created_at=_parse_dt(dep.get("created_at")) or datetime.utcnow(),
+        ))
+        counts["dependencies"] += 1
+
+    # Templates
+    for tmpl in data.get("task_templates", []):
+        if req.mode == "merge":
+            if (await db.execute(select(TaskTemplate).where(TaskTemplate.id == tmpl["id"]))).scalar_one_or_none():
+                continue
+        db.add(TaskTemplate(
+            id=tmpl["id"], name=tmpl["name"], fields_json=tmpl.get("fields_json"),
+            created_at=_parse_dt(tmpl.get("created_at")) or datetime.utcnow(),
+        ))
+        counts["templates"] += 1
+
+    # Meetings v2
+    from app.domain.models import MeetingParticipant
     for m in data.get("meetings", []):
         if req.mode == "merge":
-            exists = (await db.execute(select(Meeting).where(Meeting.id == m["id"]))).scalar_one_or_none()
-            if exists:
+            if (await db.execute(select(Meeting).where(Meeting.id == m["id"]))).scalar_one_or_none():
                 continue
-        meeting = Meeting(
-            id=m["id"], summary=m["summary"],
+        db.add(Meeting(
+            id=m["id"], summary=m.get("summary"), title=m.get("title"),
+            meeting_type=m.get("meeting_type"), duration_min=m.get("duration_min"),
+            agenda=m.get("agenda"),
             meeting_date=_parse_dt(m.get("meeting_date")) or datetime.utcnow(),
             created_at=_parse_dt(m.get("created_at")) or datetime.utcnow(),
-        )
-        db.add(meeting)
+        ))
         counts["meetings"] += 1
+        for p in m.get("participants", []):
+            db.add(MeetingParticipant(
+                meeting_id=m["id"],
+                display_name=p.get("display_name", ""),
+                telegram_user_id=p.get("telegram_user_id"),
+            ))
+    await db.flush()
 
     # Comments
     for c in data.get("comments", []):
         if req.mode == "merge":
-            exists = (await db.execute(select(Comment).where(Comment.id == c["id"]))).scalar_one_or_none()
-            if exists:
+            if (await db.execute(select(Comment).where(Comment.id == c["id"]))).scalar_one_or_none():
                 continue
-        comment = Comment(
+        db.add(Comment(
             id=c["id"], task_id=c["task_id"], text=c["text"],
             author_name=c.get("author_name"), author_telegram_id=c.get("author_telegram_id"),
             created_at=_parse_dt(c.get("created_at")) or datetime.utcnow(),
-        )
-        db.add(comment)
+        ))
         counts["comments"] += 1
 
     # Sprints
     from app.domain.models import Sprint, SprintTask
     for s in data.get("sprints", []):
         if req.mode == "merge":
-            exists = (await db.execute(select(Sprint).where(Sprint.id == s["id"]))).scalar_one_or_none()
-            if exists:
+            if (await db.execute(select(Sprint).where(Sprint.id == s["id"]))).scalar_one_or_none():
                 continue
-        sprint = Sprint(
+        db.add(Sprint(
             id=s["id"], name=s["name"], description=s.get("description"),
-            project_id=s.get("project_id"), start_date=_parse_dt(s.get("start_date")),
-            end_date=_parse_dt(s.get("end_date")), is_active=s.get("is_active", True),
+            project_id=s.get("project_id"),
+            status=s.get("status", "planned"), position=s.get("position", 0),
+            start_date=_parse_dt(s.get("start_date")),
+            end_date=_parse_dt(s.get("end_date")),
             created_at=_parse_dt(s.get("created_at")) or datetime.utcnow(),
-        )
-        db.add(sprint)
+        ))
         counts["sprints"] += 1
+    await db.flush()
+
+    for st in data.get("sprint_tasks", []):
+        if req.mode == "merge":
+            if (await db.execute(
+                select(SprintTask).where(
+                    SprintTask.sprint_id == st["sprint_id"],
+                    SprintTask.task_id == st["task_id"]
+                )
+            )).scalar_one_or_none():
+                continue
+        db.add(SprintTask(
+            sprint_id=st["sprint_id"], task_id=st["task_id"],
+            position=st.get("position", 0),
+        ))
 
     await db.commit()
     return {"imported": counts}
@@ -1704,6 +1839,277 @@ class ApiKeyUpdateRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
+
+
+# ============= SETTINGS: PROXY =============
+
+@router.get("/settings/version")
+async def get_version():
+    """Получить версию приложения."""
+    return {"version": settings.VERSION, "app_name": settings.APP_NAME}
+
+
+@router.get("/bot-status")
+async def get_bot_status_endpoint():
+    """Статус Telegram-бота — живой ли, когда последний раз видели."""
+    from app.telegram.deadline_notifier import get_bot_status_from_db
+    return await get_bot_status_from_db()
+
+
+@router.post("/settings/restart/{service}")
+async def restart_service(service: str):
+    """Перезапустить контейнер backend или frontend через Docker socket API."""
+    import socket, json as _json
+    allowed = {"backend": "teamflow-backend", "frontend": "teamflow-frontend"}
+    if service not in allowed:
+        raise HTTPException(status_code=400, detail="service must be 'backend' or 'frontend'")
+    container = allowed[service]
+
+    def _docker_post(path: str) -> int:
+        """HTTP POST к Docker socket — возвращает только статус-код."""
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(8)
+        try:
+            sock.connect("/var/run/docker.sock")
+            request = f"POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            sock.sendall(request.encode())
+            # Читаем только первую строку — статус
+            data = b""
+            while b"\r\n" not in data:
+                chunk = sock.recv(256)
+                if not chunk:
+                    break
+                data += chunk
+        finally:
+            sock.close()
+        first_line = data.split(b"\r\n")[0].decode(errors="replace")
+        try:
+            return int(first_line.split(" ")[1])
+        except (IndexError, ValueError):
+            return 500
+
+    try:
+        status = _docker_post(f"/containers/{container}/restart")
+        # 204 = success, 404 = not found, 500 = error
+        if status in (204, 200):
+            return {"ok": True, "service": service, "container": container}
+        elif status == 404:
+            raise HTTPException(status_code=404, detail=f"Container {container} not found")
+        else:
+            raise HTTPException(status_code=500, detail=f"Docker API returned {status}")
+    except HTTPException:
+        raise
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="Docker socket not found at /var/run/docker.sock")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/settings/proxy")
+async def get_proxy_settings():
+    """Получить текущий URL прокси — из БД."""
+    import os
+    # Сначала пробуем из БД
+    try:
+        from sqlalchemy import select, text
+        from app.domain.models import AppSetting
+        from app.core.db import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key == "telegram_proxy_url")
+            )
+            setting = result.scalar_one_or_none()
+            if setting and setting.value:
+                return {"proxy_url": setting.value}
+    except Exception:
+        pass
+    
+    # Fallback: читаем из .env (для обратной совместимости)
+    env_path = "/app/.env"
+    try:
+        if os.path.exists(env_path):
+            import re
+            with open(env_path) as f:
+                content = f.read()
+            m = re.search(r"^TELEGRAM_PROXY_URL=(.+)$", content, re.MULTILINE)
+            if m:
+                return {"proxy_url": m.group(1).strip()}
+    except Exception:
+        pass
+    return {"proxy_url": None}
+
+
+@router.post("/settings/proxy")
+async def set_proxy_settings(req: dict):
+    """Сохранить прокси в БД и .env. Принимает только SOCKS5/HTTP прокси."""
+    import re, os
+    raw = (req.get("proxy_url") or "").strip()
+    proxy_url = raw if raw else None
+
+    # Читаем старый прокси из БД перед изменением
+    old_proxy_url = None
+    try:
+        from sqlalchemy import select
+        from app.domain.models import AppSetting
+        from app.core.db import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key == "telegram_proxy_url")
+            )
+            setting = result.scalar_one_or_none()
+            if setting and setting.value:
+                old_proxy_url = setting.value
+    except Exception:
+        pass
+    
+    # Fallback: читаем из .env
+    if not old_proxy_url:
+        env_path = "/app/.env"
+        try:
+            if os.path.exists(env_path):
+                with open(env_path) as f:
+                    content = f.read()
+                m = re.search(r"^TELEGRAM_PROXY_URL=(.+)$", content, re.MULTILINE)
+                if m:
+                    old_proxy_url = m.group(1).strip() or None
+        except Exception:
+            pass
+
+    # Сохраняем новый прокси в БД
+    try:
+        from sqlalchemy import select
+        from app.domain.models import AppSetting
+        from app.core.db import AsyncSessionLocal
+        from datetime import datetime
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key == "telegram_proxy_url")
+            )
+            setting = result.scalar_one_or_none()
+            if setting:
+                setting.value = proxy_url
+                setting.updated_at = datetime.utcnow()
+            else:
+                setting = AppSetting(key="telegram_proxy_url", value=proxy_url)
+                session.add(setting)
+            await session.commit()
+    except Exception as e:
+        logger.warning("proxy_save_to_db_failed", error=str(e))
+
+    # Также сохраняем в .env (для обратной совместимости)
+    env_path = "/app/.env"
+    try:
+        if os.path.exists(env_path):
+            with open(env_path) as f:
+                content = f.read()
+            if re.search(r"^TELEGRAM_PROXY_URL=.*$", content, re.MULTILINE):
+                if proxy_url:
+                    content = re.sub(r"^TELEGRAM_PROXY_URL=.*$", f"TELEGRAM_PROXY_URL={proxy_url}", content, flags=re.MULTILINE)
+                else:
+                    content = re.sub(r"^TELEGRAM_PROXY_URL=.*\n?", "", content, flags=re.MULTILINE)
+            elif proxy_url:
+                content = content.rstrip("\n") + f"\nTELEGRAM_PROXY_URL={proxy_url}\n"
+            with open(env_path, "w") as f:
+                f.write(content)
+    except Exception as e:
+        logger.warning("proxy_save_to_env_failed", error=str(e))
+
+    return {
+        "ok": True,
+        "proxy_url": proxy_url,
+        "normalized": proxy_url != raw if raw else False,
+    }
+
+
+@router.get("/settings/proxy/check")
+async def check_proxy_connectivity():
+    """Проверить доступность Telegram через текущий прокси.
+
+    ВАЖНО: читает TELEGRAM_PROXY_URL напрямую из /app/.env (не из кэша settings),
+    чтобы отражать последнее сохранённое значение без перезапуска.
+    """
+    import aiohttp, time, re, os
+
+    # Читаем актуальный прокси из БД, с fallback на .env
+    proxy_url: str | None = None
+    try:
+        from sqlalchemy import select
+        from app.domain.models import AppSetting
+        from app.core.db import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key == "telegram_proxy_url")
+            )
+            setting = result.scalar_one_or_none()
+            if setting and setting.value:
+                proxy_url = setting.value
+    except Exception:
+        pass
+    
+    # Fallback: читаем из .env
+    if not proxy_url:
+        env_path = "/app/.env"
+        try:
+            if os.path.exists(env_path):
+                with open(env_path) as f:
+                    content = f.read()
+                m = re.search(r"^TELEGRAM_PROXY_URL=(.+)$", content, re.MULTILINE)
+                if m:
+                    proxy_url = m.group(1).strip() or None
+        except Exception:
+            pass
+
+    result: dict = {
+        "proxy_configured": bool(proxy_url),
+        "proxy_url": proxy_url or "",
+        "proxy_type": None,
+        "reachable": False,
+        "http_status": None,
+        "latency_ms": None,
+        "error": None,
+    }
+
+    connector = None
+    try:
+        if proxy_url:
+            if proxy_url.startswith(("socks4://", "socks5://")):
+                from aiohttp_socks import ProxyConnector
+                connector = ProxyConnector.from_url(proxy_url)
+                result["proxy_type"] = "SOCKS5"
+            elif proxy_url.startswith(("http://", "https://")):
+                from aiohttp_socks import ProxyConnector
+                connector = ProxyConnector.from_url(proxy_url)
+                result["proxy_type"] = "HTTP"
+            elif proxy_url.startswith("mtproto://"):
+                result["error"] = "MTProxy не поддерживается. Используйте SOCKS5 прокси."
+                result["proxy_type"] = "MTProxy (не поддерживается)"
+                return result
+            else:
+                result["error"] = f"Неизвестная схема: {proxy_url.split('://')[0]}://"
+                return result
+        else:
+            result["proxy_type"] = "direct (нет прокси)"
+
+        t0 = time.monotonic()
+        async with aiohttp.ClientSession(connector=connector) as session:
+            async with session.get(
+                "https://api.telegram.org",
+                timeout=aiohttp.ClientTimeout(total=15),  # 15s — медленные прокси
+                allow_redirects=False,  # 302 от Telegram = успех, не редиректим
+            ) as resp:
+                # Telegram отвечает 302 или 200 — оба означают доступность
+                result["reachable"] = resp.status in (200, 301, 302, 307, 308)
+                result["http_status"] = resp.status
+                result["latency_ms"] = round((time.monotonic() - t0) * 1000)
+
+    except asyncio.TimeoutError:
+        result["error"] = "timeout (15s) — прокси не отвечает"
+    except ImportError:
+        result["error"] = "aiohttp-socks не установлен: pip install aiohttp-socks"
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
 
 
 @router.get("/api-keys", response_model=List[ApiKeyResponse])

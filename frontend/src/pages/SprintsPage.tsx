@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sprintsApi, Sprint } from '../api/sprints';
+import { parseUTC } from '../utils/dateUtils';
 import { showToast } from '../utils/toast';
 import SprintModal from '../modals/SprintModal';
 import ConfirmDeleteModal from '../modals/ConfirmDeleteModal';
@@ -134,7 +135,7 @@ export default function SprintsPage({ onOpenTask, changeStatusMutation, tasks: a
   const archivedSprints = sprints.filter(s => s.status === 'archived' && !s.is_deleted).sort((a, b) => a.position - b.position);
   const deletedSprints = sprints.filter(s => s.is_deleted).sort((a, b) => a.position - b.position);
 
-  const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString('ru', { day: 'numeric', month: 'short', year: 'numeric' });
+  const formatDate = (dateStr: string) => parseUTC(dateStr).toLocaleDateString('ru', { day: 'numeric', month: 'short', year: 'numeric' });
 
   const getStatusLabel = (status: string) => {
     const labels: Record<string, string> = { planned: 'Запланирован', active: 'Активен', completed: 'Завершён', archived: 'Архив', TODO: 'Нужно', DOING: 'В работе', DONE: 'Готово', BLOCKED: 'Заблокировано', ON_HOLD: 'Отложено' };

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { MEETING_TYPE_LABELS, MEETING_TYPE_COLORS } from '../constants/meetingTypes';
+import { parseUTC } from '../utils/dateUtils';
 
 export default function MeetingsPage({ meetings, projects, onNew, onOpen, onDelete }: {
   meetings: any[]; projects: any[];
@@ -17,7 +18,7 @@ export default function MeetingsPage({ meetings, projects, onNew, onOpen, onDele
   // Group by month
   const grouped: Record<string, any[]> = {};
   filtered.forEach(m => {
-    const key = new Date(m.meeting_date).toLocaleDateString('ru', { month: 'long', year: 'numeric' });
+    const key = parseUTC(m.meeting_date).toLocaleDateString('ru', { month: 'long', year: 'numeric' });
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push(m);
   });
@@ -68,7 +69,7 @@ export default function MeetingsPage({ meetings, projects, onNew, onOpen, onDele
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-1">
                         <span className="text-xs text-gray-400">
-                          {new Date(m.meeting_date).toLocaleDateString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          {parseUTC(m.meeting_date).toLocaleDateString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                         </span>
                         {m.meeting_type && (
                           <span className={`text-xs px-1.5 py-0.5 rounded border ${MEETING_TYPE_COLORS[m.meeting_type] || MEETING_TYPE_COLORS.other}`}>

@@ -6,6 +6,7 @@ from app.config import settings
 from app.web.routes import router as api_router
 from app.web.routes_tags import router as tags_router
 from app.web.routes_templates import router as templates_router
+from app.web.routes_webapp import router as webapp_router
 
 app = FastAPI(
     title="TeamFlow API",
@@ -39,6 +40,7 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api")
 app.include_router(tags_router, prefix="/api")
 app.include_router(templates_router, prefix="/api")
+app.include_router(webapp_router, prefix="/api")
 
 
 @app.get("/")

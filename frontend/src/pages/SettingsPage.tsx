@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Project } from '../types/dashboard';
 import { API_URL } from '../constants/taskDisplay';
 import { showToast } from '../utils/toast';
+import { parseUTC } from '../utils/dateUtils';
 
 interface ApiKey {
   id: number;
@@ -25,13 +26,91 @@ export default function SettingsPage({ projects }: SettingsPageProps) {
   const [exportProjectId, setExportProjectId] = React.useState('');
   const [exportInclude, setExportInclude] = React.useState({
     tasks: true, projects: true, meetings: true, comments: true, sprints: true,
+    tags: true, dependencies: true, templates: true,
   });
   const [importing, setImporting] = React.useState(false);
   const [importMode, setImportMode] = React.useState<'merge' | 'full'>('merge');
   const [importResult, setImportResult] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
-  
-  // Project management state
+
+  // Bot status
+  const [botStatus, setBotStatus] = React.useState<{ok: boolean, username: string|null, last_seen: string|null, uptime_sec: number|null, error: string|null} | null>(null);
+
+  React.useEffect(() => {
+    const fetchBotStatus = () => {
+      axios.get(`${API_URL}/api/bot-status`).then(r => setBotStatus(r.data)).catch(() => {
+        setBotStatus({ ok: false, username: null, last_seen: null, uptime_sec: null, error: 'API недоступен' });
+      });
+    };
+    fetchBotStatus();
+    const interval = setInterval(fetchBotStatus, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+
+  // Proxy state
+  const [proxyUrl, setProxyUrl] = React.useState('');
+  const [proxyStatus, setProxyStatus] = React.useState<'idle'|'saving'|'saved'|'error'>('idle');
+  const [proxyCheck, setProxyCheck] = React.useState<{
+    checking: boolean; reachable?: boolean; latency_ms?: number;
+    http_status?: number; proxy_type?: string; error?: string;
+  }>({ checking: false });
+
+  React.useEffect(() => {
+    axios.get(`${API_URL}/api/settings/proxy`).then(r => setProxyUrl(r.data.proxy_url || '')).catch(() => {});
+  }, []);
+
+  const handleSaveProxy = async () => {
+    setProxyStatus('saving');
+    try {
+      await axios.post(`${API_URL}/api/settings/proxy`, { proxy_url: proxyUrl || null });
+      setProxyStatus('saved');
+      setTimeout(() => setProxyStatus('idle'), 2500);
+    } catch { setProxyStatus('error'); setTimeout(() => setProxyStatus('idle'), 2500); }
+  };
+
+  const handleCheckProxy = async () => {
+    setProxyCheck({ checking: true });
+    try {
+      const r = await axios.get(`${API_URL}/api/settings/proxy/check`, { timeout: 20000 });
+      setProxyCheck({ checking: false, ...r.data });
+    } catch (e: any) {
+      const msg = e?.code === 'ECONNABORTED' ? 'timeout — прокси не ответил за 20с' : (e?.message || 'Ошибка');
+      setProxyCheck({ checking: false, reachable: false, error: msg });
+    }
+  };
+
+  // Version state
+  const [appVersion, setAppVersion] = React.useState<string>('');
+
+  React.useEffect(() => {
+    axios.get(`${API_URL}/api/settings/version`).then(res => {
+      setAppVersion(res.data.version || '');
+    }).catch(() => {});
+  }, []);
+
+  // Restart state
+  const [restartStatus, setRestartStatus] = React.useState<Record<string, 'idle'|'restarting'|'done'|'error'>>({});
+
+  const handleRestart = async (service: 'backend' | 'frontend') => {
+    setRestartStatus(s => ({ ...s, [service]: 'restarting' }));
+    try {
+      await axios.post(`${API_URL}/api/settings/restart/${service}`, {}, { timeout: 8000 });
+      setRestartStatus(s => ({ ...s, [service]: 'done' }));
+      setTimeout(() => setRestartStatus(s => ({ ...s, [service]: 'idle' })), 4000);
+    } catch (e: any) {
+      // Backend перезапускает сам себя — соединение обрывается, это нормально
+      // Network error / timeout = скорее всего успешный перезапуск
+      const isNetworkError = !e.response || e.code === 'ECONNABORTED' || e.code === 'ERR_NETWORK';
+      if (isNetworkError) {
+        setRestartStatus(s => ({ ...s, [service]: 'done' }));
+        setTimeout(() => setRestartStatus(s => ({ ...s, [service]: 'idle' })), 4000);
+      } else {
+        setRestartStatus(s => ({ ...s, [service]: 'error' }));
+        setTimeout(() => setRestartStatus(s => ({ ...s, [service]: 'idle' })), 3000);
+      }
+    }
+  };
   const [editingProjectId, setEditingProjectId] = React.useState<number | null>(null);
   const [editName, setEditName] = React.useState('');
   const [editEmoji, setEditEmoji] = React.useState('');
@@ -203,7 +282,7 @@ export default function SettingsPage({ projects }: SettingsPageProps) {
     <>
       <h2 className="text-lg sm:text-xl font-bold mb-5">⚙️ Настройки</h2>
 
-      <div className="max-w-lg space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
         {/* Projects Management */}
         <section className="bg-white border rounded-xl p-4">
           <h3 className="font-semibold text-base mb-3">📁 Управление проектами</h3>
@@ -342,9 +421,9 @@ export default function SettingsPage({ projects }: SettingsPageProps) {
                     <div className="text-xs text-gray-500 truncate mt-1">{key.description}</div>
                   )}
                   <div className="text-xs text-gray-400 mt-1">
-                    Создан: {new Date(key.created_at).toLocaleDateString('ru')}
+                    Создан: {parseUTC(key.created_at).toLocaleDateString('ru')}
                     {key.last_used_at && (
-                      <span className="ml-2">· Использован: {new Date(key.last_used_at).toLocaleDateString('ru')}</span>
+                      <span className="ml-2">· Использован: {parseUTC(key.last_used_at).toLocaleDateString('ru')}</span>
                     )}
                   </div>
                 </div>
@@ -445,6 +524,114 @@ export default function SettingsPage({ projects }: SettingsPageProps) {
             )}
           </div>
         </section>
+
+        {/* Bot status */}
+        <section className="bg-white rounded-xl border border-gray-200 p-5">
+          <h2 className="text-base font-semibold text-gray-800 mb-3">🤖 Telegram-бот</h2>
+          {botStatus === null ? (
+            <p className="text-xs text-gray-400">Загрузка...</p>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium ${
+                  botStatus.ok ? 'bg-green-100 text-green-700' :
+                  botStatus.error === 'Bot not started yet' ? 'bg-yellow-100 text-yellow-700' :
+                  'bg-red-100 text-red-600'
+                }`}>
+                  <span>{botStatus.ok ? '●' : botStatus.error === 'Bot not started yet' ? '◌' : '●'}</span>
+                  <span>{botStatus.ok ? 'Работает' : botStatus.error === 'Bot not started yet' ? 'Запускается' : 'Нет связи'}</span>
+                </span>
+                {botStatus.username && botStatus.username !== 'unknown' && (
+                  <span className="text-sm text-gray-600">@{botStatus.username}</span>
+                )}
+              </div>
+              {botStatus.ok && botStatus.uptime_sec !== null && (
+                <p className="text-xs text-gray-400">
+                  Uptime: {botStatus.uptime_sec < 3600
+                    ? `${Math.floor(botStatus.uptime_sec / 60)} мин`
+                    : `${Math.floor(botStatus.uptime_sec / 3600)} ч ${Math.floor((botStatus.uptime_sec % 3600) / 60)} мин`}
+                </p>
+              )}
+              {!botStatus.ok && botStatus.error && botStatus.error !== 'Bot not started yet' && (
+                <p className="text-xs text-red-500">{botStatus.error}</p>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* Proxy */}
+        <section className="bg-white rounded-xl border border-gray-200 p-5">
+          <h2 className="text-base font-semibold text-gray-800 mb-3">🔌 Прокси для Telegram-бота</h2>
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500">Если Telegram заблокирован — укажите SOCKS5 прокси.</p>
+            <div className="flex gap-2">
+              <input type="text" value={proxyUrl} onChange={e => setProxyUrl(e.target.value)}
+                placeholder="socks5://user:pass@host:1080"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              <button onClick={handleSaveProxy} disabled={proxyStatus === 'saving'}
+                className="px-4 py-2 rounded-lg text-sm font-medium border transition bg-white hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap">
+                {proxyStatus === 'saving' ? '...' : proxyStatus === 'saved' ? '✓ Сохранено' : proxyStatus === 'error' ? '✗ Ошибка' : 'Сохранить'}
+              </button>
+              <button onClick={handleCheckProxy} disabled={proxyCheck.checking}
+                title="Проверяет сохранённый прокси из .env (сначала сохраните)"
+                className="px-4 py-2 rounded-lg text-sm font-medium border transition bg-blue-50 hover:bg-blue-100 text-blue-700 disabled:opacity-50 whitespace-nowrap">
+                {proxyCheck.checking ? '⏳ ~15с...' : '🔍 Проверить'}
+              </button>
+            </div>
+            {!proxyCheck.checking && proxyCheck.reachable !== undefined && (
+              <div className={`rounded-lg px-3 py-2 text-xs flex items-start gap-2 ${proxyCheck.reachable ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
+                <span className="text-base leading-none mt-0.5">{proxyCheck.reachable ? '✅' : '❌'}</span>
+                <div className="space-y-0.5">
+                  <p className="font-medium">{proxyCheck.reachable ? 'Telegram доступен' : 'Telegram недоступен'}</p>
+                  {proxyCheck.proxy_type && <p className="opacity-75">Через: {proxyCheck.proxy_type}</p>}
+                  {proxyCheck.latency_ms !== undefined && <p className="opacity-75">Задержка: {proxyCheck.latency_ms} мс</p>}
+                  {proxyCheck.error && <p className="opacity-75 font-mono break-all">{proxyCheck.error}</p>}
+                </div>
+              </div>
+            )}
+            <div className="text-xs text-gray-400 space-y-0.5">
+              <p><span className="font-mono text-gray-500">socks5://user:pass@host:1080</span> — SOCKS5 прокси</p>
+              <p className="pt-0.5 text-gray-400">После сохранения нужно перезапустить Backend.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Restart services */}
+        <section className="bg-white rounded-xl border border-gray-200 p-5">
+          <h2 className="text-base font-semibold text-gray-800 mb-1">🔄 Перезапуск сервисов</h2>
+          <p className="text-xs text-gray-400 mb-4">Применить изменения конфига без SSH</p>
+          <div className="grid grid-cols-2 gap-3">
+            {(['backend', 'frontend'] as const).map(svc => {
+              const st = restartStatus[svc] || 'idle';
+              return (
+                <button
+                  key={svc}
+                  onClick={() => handleRestart(svc)}
+                  disabled={st === 'restarting'}
+                  className={`py-2.5 px-3 rounded-lg text-sm font-medium border transition flex items-center justify-center gap-2 ${
+                    st === 'done' ? 'bg-green-50 border-green-300 text-green-700' :
+                    st === 'error' ? 'bg-red-50 border-red-300 text-red-600' :
+                    st === 'restarting' ? 'opacity-60 cursor-wait bg-gray-50' :
+                    'bg-white hover:bg-gray-50'
+                  }`}
+                >
+                  <span>{st === 'restarting' ? '⏳' : st === 'done' ? '✓' : st === 'error' ? '✗' : '🔄'}</span>
+                  <span>{svc === 'backend' ? 'Backend' : 'Frontend'}</span>
+                  {st === 'restarting' && <span className="text-xs text-gray-400">~15с</span>}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-gray-400 mt-2">Backend недоступен ~15с после перезапуска</p>
+        </section>
+
+        {/* Version */}
+        {appVersion && (
+          <p className="text-xs text-gray-400 text-right pt-1">
+            TeamFlow v{appVersion}
+          </p>
+        )}
+
       </div>
     </>
   );

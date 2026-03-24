@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Modal from '../components/Modal';
 import MarkdownContent from '../components/MarkdownContent';
+import { parseUTC } from '../utils/dateUtils';
 import { showToast } from '../utils/toast';
 import { API_URL } from '../constants/taskDisplay';
 import { MEETING_TYPES, MEETING_TYPE_LABELS } from '../constants/meetingTypes';
@@ -107,7 +108,7 @@ export default function MeetingModal({ meeting, onClose, updateMeetingMutation, 
         </div>
       </div>
       <div className="text-xs text-gray-400 mb-3">
-        {new Date(meeting.meeting_date).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+        {parseUTC(meeting.meeting_date).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
       </div>
 
       {/* Tabs — те же что в NewMeetingModal */}

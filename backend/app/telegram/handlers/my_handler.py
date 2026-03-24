@@ -28,13 +28,8 @@ PRIORITY_EMOJI = {
 }
 
 
-@router.message(Command("my"))
-async def cmd_my(message: Message):
-    """Show tasks assigned to the current user."""
-    tg_id = message.from_user.id
-    username = message.from_user.username
-    display = f"@{username}" if username else message.from_user.first_name
-
+async def get_my_tasks_text(tg_id: int, username: str | None, display: str) -> str:
+    """Получить текст доски 'мои задачи' по telegram_id. Используется из обработчиков и меню."""
     try:
         async with AsyncSessionLocal() as session:
             stmt = (
@@ -55,7 +50,6 @@ async def cmd_my(message: Message):
             result = await session.execute(stmt)
             rows = result.all()
 
-        # Filter by assignee: match by telegram_id or by @username string
         at_username = f"@{username}" if username else None
         tasks = [
             r for r in rows
@@ -64,13 +58,8 @@ async def cmd_my(message: Message):
         ]
 
         if not tasks:
-            await message.answer(
-                f"👤 *Мои задачи — {display}*\n\nУ вас нет активных задач 🎉",
-                parse_mode="Markdown",
-            )
-            return
+            return f"👤 *Мои задачи — {display}*\n\nУ вас нет активных задач 🎉"
 
-        # Group by status, then sort by priority within each group
         grouped: dict[str, list] = {s: [] for s in STATUS_ORDER}
         for t in tasks:
             if t.status in grouped:
@@ -94,10 +83,20 @@ async def cmd_my(message: Message):
             total += len(bucket)
 
         lines.append(f"Всего активных: {total}")
-
-        await message.answer("\n".join(lines), parse_mode="Markdown")
-        logger.info("my_tasks_sent", tg_id=tg_id, count=total)
+        return "\n".join(lines)
 
     except Exception as e:
         logger.error("my_tasks_error", error=str(e))
-        await message.answer("❌ Ошибка при получении задач. Попробуйте позже.")
+        return "❌ Ошибка при получении задач. Попробуйте позже."
+
+
+@router.message(Command("my"))
+async def cmd_my(message: Message):
+    """Show tasks assigned to the current user."""
+    tg_id = message.from_user.id
+    username = message.from_user.username
+    display = f"@{username}" if username else message.from_user.first_name
+
+    text = await get_my_tasks_text(tg_id, username, display)
+    await message.answer(text, parse_mode="Markdown")
+    logger.info("my_tasks_sent", tg_id=tg_id)

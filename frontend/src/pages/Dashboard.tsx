@@ -4,7 +4,7 @@ import axios from 'axios';
 
 import type { Task, Project, Meeting, Stats, TelegramUser } from '../types/dashboard';
 import { API_URL, STATUS_COLOR, STATUS_BORDER, STATUS_EMOJI, STATUS_LABELS, DUE_BADGE, PRIORITY_LABELS, PRIORITY_COLOR, PRIORITY_ORDER, PRIORITY_EMOJI, cardBg } from '../constants/taskDisplay';
-import { timeAgo, getDueStatus, formatDueDate, formatDuration, formatDatetime } from '../utils/dateUtils';
+import { timeAgo, getDueStatus, formatDueDate, formatDuration, formatDatetime, parseUTC } from '../utils/dateUtils';
 import { getAncestorBlockedIds } from '../utils/taskUtils';
 import { showToast } from '../utils/toast';
 import { useTaskChangeDetector } from '../hooks/useTaskChangeDetector';
@@ -503,8 +503,8 @@ export default function Dashboard() {
     if (aDone !== bDone) return aDone - bDone;
     // DONE задачи: от выполненных недавно к выполненным давно
     if (a.status === 'DONE' && b.status === 'DONE') {
-      const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
-      const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+      const aTime = a.completed_at ? parseUTC(a.completed_at).getTime() : 0;
+      const bTime = b.completed_at ? parseUTC(b.completed_at).getTime() : 0;
       return bTime - aTime;
     }
     return (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2);

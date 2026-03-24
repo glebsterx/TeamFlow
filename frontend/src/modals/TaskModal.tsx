@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Task } from '../types/dashboard';
 import { API_URL, STATUS_EMOJI, STATUS_LABELS, STATUS_COLOR, DUE_BADGE, PRIORITY_LABELS, PRIORITY_COLOR, PRIORITY_EMOJI } from '../constants/taskDisplay';
-import { getDueStatus, toDateInputValue, formatDueDate, formatDatetime, plural } from '../utils/dateUtils';
+import { getDueStatus, toDateInputValue, formatDueDate, formatDatetime, plural, parseUTC } from '../utils/dateUtils';
 import Modal from '../components/Modal';
 import MarkdownContent from '../components/MarkdownContent';
 import { CommentsSection } from '../components/CommentsSection';
@@ -783,10 +783,10 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
                   }`}>
                     <div>⚠️ {b.text}</div>
                     <div className="text-gray-400 text-xs mt-0.5">
-                      {new Date(b.created_at).toLocaleDateString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      {parseUTC(b.created_at).toLocaleDateString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                       {b.resolved_at && (
                         <span className="text-green-600 ml-2">
-                          → разблокировано: {new Date(b.resolved_at).toLocaleDateString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          → разблокировано: {parseUTC(b.resolved_at).toLocaleDateString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                         </span>
                       )}
                     </div>

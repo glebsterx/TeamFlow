@@ -1,5 +1,14 @@
+/**
+ * Safely parse a date string from backend (SQLite stores without timezone).
+ * Treats naive datetime strings as UTC by appending 'Z' if missing.
+ */
+export function parseUTC(dateStr: string): Date {
+  if (!dateStr) return new Date(NaN);
+  return new Date(dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z');
+}
+
 export function timeAgo(dateStr: string): string {
-  const date = new Date(dateStr.includes('Z') ? dateStr : dateStr + 'Z');
+  const date = parseUTC(dateStr);
   const diffMs = Date.now() - date.getTime();
   const m = Math.floor(diffMs / 60000);
   if (m < 1) return 'только что';
@@ -29,13 +38,13 @@ export function plural(n: number, forms: [string, string, string]): string {
 }
 
 export function formatDatetime(dateStr: string): string {
-  const date = new Date(dateStr.includes('Z') ? dateStr : dateStr + 'Z');
+  const date = parseUTC(dateStr);
   return date.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 export function getDueStatus(dueDate?: string, status?: string): 'overdue' | 'today' | 'soon' | 'upcoming' | null {
   if (!dueDate || status === 'DONE' || status === 'CANCELLED') return null;
-  const due = new Date(dueDate.includes('Z') ? dueDate : dueDate + 'Z');
+  const due = parseUTC(dueDate);
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
@@ -47,7 +56,7 @@ export function getDueStatus(dueDate?: string, status?: string): 'overdue' | 'to
 }
 
 export function formatDueDate(dateStr: string): string {
-  const date = new Date(dateStr.includes('Z') ? dateStr : dateStr + 'Z');
+  const date = parseUTC(dateStr);
   const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
   if (hasTime) {
     return date.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -61,8 +70,8 @@ export function formatDueDate(dateStr: string): string {
  */
 export function formatDuration(startStr?: string, endStr?: string): string | null {
   if (!endStr || !startStr) return null;
-  const start = new Date(startStr.includes('Z') ? startStr : startStr + 'Z');
-  const end = new Date(endStr.includes('Z') ? endStr : endStr + 'Z');
+  const start = parseUTC(startStr);
+  const end = parseUTC(endStr);
   const ms = end.getTime() - start.getTime();
   if (ms <= 0) return null;
   const totalMinutes = Math.floor(ms / 60000);
@@ -77,7 +86,7 @@ export function formatDuration(startStr?: string, endStr?: string): string | nul
 
 export function toDateInputValue(dateStr?: string): string {
   if (!dateStr) return '';
-  const date = new Date(dateStr.includes('Z') ? dateStr : dateStr + 'Z');
+  const date = parseUTC(dateStr);
   // Return YYYY-MM-DDTHH:MM for datetime-local input
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;

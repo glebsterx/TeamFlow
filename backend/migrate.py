@@ -91,6 +91,21 @@ MIGRATIONS = [
         meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
         task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE
     )"""),
+
+    # bot_heartbeat — статус бота, пишется из процесса бота, читается API
+    ("bot_heartbeat", None, """CREATE TABLE IF NOT EXISTS bot_heartbeat (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        last_seen DATETIME NOT NULL,
+        username VARCHAR(100),
+        started_at DATETIME NOT NULL
+    )"""),
+]
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        threshold_hours INTEGER NOT NULL,
+        sent_at DATETIME NOT NULL,
+        user_telegram_id BIGINT NOT NULL
+    )"""),
 ]
 
 async def run():

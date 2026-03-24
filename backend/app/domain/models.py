@@ -313,3 +313,41 @@ class TaskDependency(Base):
 
     task = relationship("Task", foreign_keys=[task_id], back_populates="dependencies")
     depends_on = relationship("Task", foreign_keys=[depends_on_id], back_populates="blocking")
+
+
+class DeadlineNotification(Base):
+    """Лог отправленных уведомлений о дедлайнах — предотвращает дубли."""
+    __tablename__ = "deadline_notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    threshold_hours = Column(Integer, nullable=False)  # За сколько часов отправили (3, 24, ...)
+    sent_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    user_telegram_id = Column(BigInteger, nullable=False)
+
+    __table_args__ = (
+        # Один порог — одно уведомление на задачу
+        {"sqlite_autoincrement": True},
+    )
+
+
+class BotHeartbeat(Base):
+    """Heartbeat бота — пишется ботом, читается API. Одна запись с id=1."""
+    __tablename__ = "bot_heartbeat"
+
+    id = Column(Integer, primary_key=True, default=1)
+    last_seen = Column(DateTime, nullable=False, default=datetime.utcnow)
+    username = Column(String(100), nullable=True)
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class AppSetting(Base):
+    """Настройки приложения — key-value хранилище."""
+    __tablename__ = "app_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<AppSetting(key='{self.key}', value='{self.value[:50] if self.value else None}')>"

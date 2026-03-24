@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     
     # Application
     APP_NAME: str = "TeamFlow"
-    VERSION: str = "0.8.14"
+    VERSION: str = "0.8.15"
     DEBUG: bool = False
     
     # Server
@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str
     TELEGRAM_CHAT_ID: Optional[int] = None  # Optional - bot works in all chats
     TELEGRAM_BOT_USERNAME: str = ""
+    TELEGRAM_PROXY_URL: Optional[str] = None  # socks5://... (MTProxy не поддерживается)
+    DEADLINE_NOTIFY_HOURS: str = "24,3"
+
+    # Telegram Mini App
+    WEBAPP_URL: Optional[str] = None  # URL веб-интерфейса для кнопки Mini App в боте
     
     # Database (with async driver)
     DATABASE_URL: str = "sqlite+aiosqlite:///./data/teamflow.db"
@@ -60,6 +65,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"  # игнорировать неизвестные переменные из .env
 
 
 @lru_cache()
