@@ -1,7 +1,7 @@
 import React from 'react';
 import { Task, TaskStatus, TaskPriority } from '../../types/task';
 import { format } from 'date-fns';
-import { parseUTC } from '../../utils/dateUtils';
+import { parseUTC, formatTime } from '../../utils/dateUtils';
 
 interface TaskCardProps {
   task: Task;
@@ -38,22 +38,27 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onClick }) => {
         <p className="text-gray-600 text-sm mb-3 line-clamp-2">{task.description}</p>
       )}
       
-      <div className="flex items-center justify-between">
-        <span className={`px-2 py-1 rounded text-xs font-medium ${statusColors[task.status]}`}>
-          {task.status.replace('_', ' ').toUpperCase()}
-        </span>
-        
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          {task.assignee && (
-            <span className="bg-primary-100 text-primary-800 px-2 py-1 rounded text-xs">
-              {task.assignee.username}
-            </span>
-          )}
-          {task.due_date && (
-            <span>{format(parseUTC(task.due_date), 'MMM d')}</span>
-          )}
+        <div className="flex items-center justify-between">
+          <span className={`px-2 py-1 rounded text-xs font-medium ${statusColors[task.status]}`}>
+            {task.status.replace('_', ' ').toUpperCase()}
+          </span>
+          
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            {task.time_spent > 0 && (
+              <span className="text-xs bg-gray-100 px-1.5 py-0.5 rounded" title={`Потрачено: ${formatTime(task.time_spent)}`}>
+                ⏱ {formatTime(task.time_spent)}
+              </span>
+            )}
+            {task.assignee && (
+              <span className="bg-primary-100 text-primary-800 px-2 py-1 rounded text-xs">
+                {task.assignee.username}
+              </span>
+            )}
+            {task.due_date && (
+              <span>{format(parseUTC(task.due_date), 'MMM d')}</span>
+            )}
+          </div>
         </div>
-      </div>
     </div>
   );
 };

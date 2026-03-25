@@ -3,11 +3,12 @@ import axios from 'axios';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Task } from '../types/dashboard';
 import { API_URL, STATUS_EMOJI, STATUS_LABELS, STATUS_COLOR, DUE_BADGE, PRIORITY_LABELS, PRIORITY_COLOR, PRIORITY_EMOJI } from '../constants/taskDisplay';
-import { getDueStatus, toDateInputValue, formatDueDate, formatDatetime, plural, parseUTC } from '../utils/dateUtils';
+import { getDueStatus, toDateInputValue, formatDueDate, formatDatetime, plural, parseUTC, formatTime } from '../utils/dateUtils';
 import Modal from '../components/Modal';
 import MarkdownContent from '../components/MarkdownContent';
 import { CommentsSection } from '../components/CommentsSection';
 import { showToast } from '../utils/toast';
+import { TaskTimer } from '../components/TaskTimer';
 
 type TagType = { id: number; name: string; color: string };
 
@@ -314,6 +315,7 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
 
   // Auto-suggest DONE when last subtask is completed
   const [showDoneSuggestion, setShowDoneSuggestion] = React.useState(false);
+  const [showTimeResetConfirm, setShowTimeResetConfirm] = useState(false);
   React.useEffect(() => {
     if (task.status !== 'DONE' && directChildren.length > 0) {
       const allDone = directChildren.every((t: any) => t.status === 'DONE');
@@ -798,6 +800,81 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
         </div>
       </div>
 
+      {/* Time Tracking */}
+      <div className="mb-4">
+        <label className="text-xs text-gray-500 block mb-1">⏱ Время</label>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-medium text-gray-700">
+            {formatTime(task.time_spent || 0)}
+          </span>
+          {(task.time_spent || 0) > 0 && (
+            <button
+              onClick={() => setShowTimeResetConfirm(true)}
+              className="text-xs text-gray-400 hover:text-gray-600"
+              title="Сбросить"
+            >
+              ×
+            </button>
+          )}
+          <div className="flex gap-1">
+            {[
+              { label: '15м', value: 15 },
+              { label: '30м', value: 30 },
+              { label: '1ч', value: 60 },
+              { label: '2ч', value: 120 },
+            ].map((preset) => (
+              <button
+                key={preset.value}
+                onClick={() => {
+                  axios.patch(`${API_URL}/api/tasks/${task.id}/time`, { minutes: preset.value })
+                    .then(() => {
+                      showToast(`Добавлено ${preset.label}`, 'success');
+                      invalidate();
+                    })
+                    .catch(() => showToast('Ошибка', 'error'));
+                }}
+                className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-gray-600"
+              >
+                +{preset.label}
+              </button>
+            ))}
+            <input
+              type="number"
+              placeholder="мин"
+              className="w-14 text-xs px-2 py-1 border rounded"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const value = Number(e.currentTarget.value);
+                  if (value > 0) {
+                    axios.patch(`${API_URL}/api/tasks/${task.id}/time`, { minutes: value })
+                      .then(() => {
+                        showToast(`Добавлено ${value} мин`, 'success');
+                        invalidate();
+                        e.currentTarget.value = '';
+                      })
+                      .catch(() => showToast('Ошибка', 'error'));
+                  }
+                }
+              }}
+            />
+          </div>
+          <TaskTimer
+            taskId={task.id}
+            onStop={(seconds) => {
+              const minutes = Math.floor(seconds / 60);
+              if (minutes > 0) {
+                axios.patch(`${API_URL}/api/tasks/${task.id}/time`, { minutes })
+                  .then(() => {
+                    showToast(`Таймер: добавлено ${minutes} мин`, 'success');
+                    invalidate();
+                  })
+                  .catch(() => showToast('Ошибка', 'error'));
+              }
+            }}
+          />
+        </div>
+      </div>
+
       {/* Tags */}
       <div className="mb-4">
         <label className="text-xs text-gray-500 block mb-1.5">🏷 Теги</label>
@@ -1018,6 +1095,38 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
                 className="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600"
               >
                 Перезаписать
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Time Reset Confirmation Modal */}
+      {showTimeResetConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowTimeResetConfirm(false)}>
+          <div className="bg-white rounded-lg p-4 max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-2">Сбросить время?</h3>
+            <p className="text-sm text-gray-600 mb-4">Текущее время ({formatTime(task.time_spent || 0)}) будет удалено.</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowTimeResetConfirm(false)}
+                className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={() => {
+                  axios.patch(`${API_URL}/api/tasks/${task.id}`, { time_spent: 0 })
+                    .then(() => {
+                      showToast('Время сброшено', 'success');
+                      invalidate();
+                      setShowTimeResetConfirm(false);
+                    })
+                    .catch(() => showToast('Ошибка', 'error'));
+                }}
+                className="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600"
+              >
+                Сбросить
               </button>
             </div>
           </div>

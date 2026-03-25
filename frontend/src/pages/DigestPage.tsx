@@ -1,14 +1,58 @@
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { API_URL } from '../constants/taskDisplay';
+import { parseUTC, formatTime } from '../utils/dateUtils';
 
-export default function DigestPage() {
+interface DigestPageProps {
+  onOpenTask?: (task: any) => void;
+}
+
+export default function DigestPage({ onOpenTask }: DigestPageProps) {
+  const [timePeriod, setTimePeriod] = useState<'week' | 'month' | 'quarter'>('month');
+  const [showTimeTasks, setShowTimeTasks] = useState(false);
+  
   const { data, isLoading, dataUpdatedAt } = useQuery<any>({
     queryKey: ['digest'],
     queryFn: async () => (await axios.get(`${API_URL}/api/digest`)).data,
     refetchInterval: 30000,
     staleTime: 20000,
   });
+
+  const { data: tasks = [] } = useQuery({
+    queryKey: ['tasks', 'all'],
+    queryFn: () => axios.get(`${API_URL}/api/tasks?limit=1000`).then(r => r.data),
+  });
+
+  const { data: allProjects = [] } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => axios.get(`${API_URL}/api/projects`).then(r => r.data),
+  });
+
+  const getPeriodStart = () => {
+    const now = new Date();
+    if (timePeriod === 'week') return new Date(now.setDate(now.getDate() - 7));
+    if (timePeriod === 'month') return new Date(now.setMonth(now.getMonth() - 1));
+    return new Date(now.setMonth(now.getMonth() - 3));
+  };
+
+  const timeTasks = tasks.filter((t: any) => 
+    t.time_spent > 0
+  );
+
+  const projectStats: Record<number, { name: string; emoji: string; total: number; count: number }> = {};
+  timeTasks.forEach((t: any) => {
+    const pid = t.project_id;
+    if (!projectStats[pid]) {
+      const proj = allProjects.find((p: any) => p.id === pid);
+      projectStats[pid] = { name: proj?.name || `Проект ${pid}`, emoji: proj?.emoji || '📁', total: 0, count: 0 };
+    }
+    projectStats[pid].total += t.time_spent;
+    projectStats[pid].count += 1;
+  });
+
+  const totalTime = Object.values(projectStats).reduce((s, ps) => s + ps.total, 0);
+  const totalTimeCount = Object.values(projectStats).reduce((s, ps) => s + ps.count, 0);
 
   if (isLoading) return <div className="text-center py-12 text-gray-400">Загрузка...</div>;
   if (!data) return null;
@@ -320,9 +364,80 @@ export default function DigestPage() {
         </div>
       )}
 
-      {/* Tags & time tracking stub (#92) */}
-      <div className="bg-gray-50 border border-dashed border-gray-200 rounded-lg p-4 text-center">
-        <div className="text-sm text-gray-400">🏷 Теги и учёт времени — появится в v0.9.2+</div>
+      {/* Time tracking stats */}
+      <div className={`bg-white rounded-lg border p-4 ${totalTime === 0 ? 'opacity-50' : ''}`}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-700">⏱ Учёт времени</h3>
+          <div className="flex gap-1">
+            {(['week', 'month', 'quarter'] as const).map(p => (
+              <button
+                key={p}
+                onClick={() => setTimePeriod(p)}
+                className={`px-2 py-0.5 text-xs rounded ${timePeriod === p ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}`}
+              >
+                {p === 'week' ? 'Нед' : p === 'month' ? 'Месяц' : 'Кварт'}
+              </button>
+            ))}
+          </div>
+        </div>
+        {totalTime === 0 ? (
+          <div className="text-sm text-gray-400 text-center py-2">Нет данных за выбранный период</div>
+        ) : (
+          <>
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <div className="bg-blue-50 p-2 rounded text-center">
+                <div className="text-lg font-bold text-blue-700">{formatTime(totalTime)}</div>
+                <div className="text-xs text-gray-500">Всего</div>
+              </div>
+              <div className="bg-green-50 p-2 rounded text-center">
+                <div className="text-lg font-bold text-green-700">{totalTimeCount}</div>
+                <div className="text-xs text-gray-500">Задач</div>
+              </div>
+              <div className="bg-purple-50 p-2 rounded text-center">
+                <div className="text-lg font-bold text-purple-700">{formatTime(Math.round(totalTime / totalTimeCount) || 0)}</div>
+                <div className="text-xs text-gray-500">Среднее</div>
+              </div>
+            </div>
+            {Object.values(projectStats).length > 0 && (
+              <>
+                <div className="space-y-1">
+                  {Object.values(projectStats).sort((a, b) => b.total - a.total).slice(0, 5).map(ps => (
+                    <div key={ps.name} className="flex items-center justify-between text-xs">
+                      <span className="flex items-center gap-1">
+                        <span>{ps.emoji}</span>
+                        <span className="truncate max-w-[150px]">{ps.name}</span>
+                      </span>
+                      <span className="font-mono text-gray-600">{formatTime(ps.total)} <span className="text-gray-400">({ps.count})</span></span>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setShowTimeTasks(!showTimeTasks)}
+                  className="mt-2 text-xs text-blue-500 hover:underline"
+                >
+                  {showTimeTasks ? 'Скрыть задачи' : `Показать задачи (${timeTasks.length})`}
+                </button>
+                {showTimeTasks && (
+                  <div className="mt-2 max-h-40 overflow-y-auto border rounded text-xs">
+                    {timeTasks.sort((a: any, b: any) => b.time_spent - a.time_spent).map((t: any) => {
+                      const proj = allProjects.find((p: any) => p.id === t.project_id);
+                      return (
+                        <div 
+                          key={t.id} 
+                          className="flex items-center justify-between p-1.5 border-b hover:bg-gray-50 cursor-pointer"
+                          onClick={() => onOpenTask?.(t)}
+                        >
+                          <span className="truncate">{t.title}</span>
+                          <span className="text-gray-500 shrink-0 ml-2">{proj?.emoji} {formatTime(t.time_spent)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

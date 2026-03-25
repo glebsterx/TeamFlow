@@ -99,13 +99,46 @@ MIGRATIONS = [
         username VARCHAR(100),
         started_at DATETIME NOT NULL
     )"""),
-]
+    # deadline_notifications — лог уведомлений о дедлайнах
+    ("deadline_notifications", None, """CREATE TABLE IF NOT EXISTS deadline_notifications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
         threshold_hours INTEGER NOT NULL,
         sent_at DATETIME NOT NULL,
         user_telegram_id BIGINT NOT NULL
     )"""),
+    # webhooks — вебхуки для внешних интеграций
+    ("webhooks", None, """CREATE TABLE IF NOT EXISTS webhooks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL,
+        events TEXT NOT NULL,
+        secret VARCHAR(64),
+        is_active BOOLEAN DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_triggered_at DATETIME
+    )"""),
+    # webhook_logs — логи вызовов вебхуков
+    ("webhook_logs", None, """CREATE TABLE IF NOT EXISTS webhook_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        webhook_id INTEGER NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+        event TEXT NOT NULL,
+        status_code INTEGER,
+        response TEXT,
+        error TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )"""),
+    # api_key_logs — логи использования API-ключей
+    ("api_key_logs", None, """CREATE TABLE IF NOT EXISTS api_key_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        api_key_id INTEGER NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+        endpoint VARCHAR(200) NOT NULL,
+        method VARCHAR(10) NOT NULL,
+        ip_address VARCHAR(45),
+        user_agent VARCHAR(255),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )"""),
+    # time_spent — потраченное время на задачу (минуты)
+    ("tasks", "time_spent", "ALTER TABLE tasks ADD COLUMN time_spent INTEGER DEFAULT 0"),
 ]
 
 async def run():

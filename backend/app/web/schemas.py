@@ -93,6 +93,7 @@ class TaskResponse(BaseModel):
     tags: List[TagResponse] = []
     recurrence: Optional[str] = None
     recurrence_end_date: Optional[datetime] = None
+    time_spent: int = 0  # Потраченное время в минутах
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -139,3 +140,51 @@ class PushSubscriptionCreate(BaseModel):
 
 class UnsubscribeRequest(BaseModel):
     endpoint: str
+
+
+# Webhook schemas
+class WebhookCreate(BaseModel):
+    """Создание вебхука."""
+    url: str
+    events: List[str]  # ["task.created", "task.status_changed", "task.updated", "task.deleted"]
+    secret: Optional[str] = None
+    is_active: bool = True
+
+
+class WebhookUpdate(BaseModel):
+    """Обновление вебхука."""
+    url: Optional[str] = None
+    events: Optional[List[str]] = None
+    secret: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class WebhookResponse(BaseModel):
+    """Ответ вебхука."""
+    id: int
+    url: str
+    events: str  # JSON string
+    secret: Optional[str] = None
+    is_active: bool
+    created_at: datetime
+    last_triggered_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WebhookTestRequest(BaseModel):
+    """Запрос на тестирование вебхука."""
+    event: str = "test"
+
+
+class WebhookLogResponse(BaseModel):
+    """Лог вызова вебхука."""
+    id: int
+    webhook_id: int
+    event: str
+    status_code: Optional[int] = None
+    response: Optional[str] = None
+    error: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

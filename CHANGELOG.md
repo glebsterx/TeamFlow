@@ -2,7 +2,54 @@
 
 ---
 
-## v0.8.14 — Встречи v2: UX, фиксы, консистентность (2026-03-22)
+## v0.8.16 — API и интеграции: вебхуки, API-ключи, учёт времени (2026-03-25)
+
+### Backend
+
+#### Вебхуки (#215-219)
+- Таблица `webhooks` и `webhook_logs` в migrate.py
+- Модели Webhook, WebhookLog в models.py
+- routes_webhooks.py — полный CRUD: GET/POST/PATCH/DELETE /api/webhooks, POST /api/webhooks/{id}/test
+- webhook_service.py — trigger_webhooks с HMAC signature (X-Webhook-Signature)
+- Retry с exponential backoff: 1s, 5s, 30s (3 попытки)
+- Интеграция в POST /api/tasks/{id}/status — trigger при смене статуса
+
+#### API-ключи (#220-226)
+- Таблица `api_keys` и `api_key_logs` в migrate.py
+- Модели ApiKey, ApiKeyLog в models.py
+- routes.py — CRUD для api-keys, GET /api-keys/{id}/logs
+- app.py — middleware для валидации X-API-Key, логирование использования
+
+#### Учёт времени (#227-230, #236-241)
+- Поле `time_spent` (Integer, минуты) в tasks
+- PATCH /api/tasks/{id}/time — добавление минут
+- PATCH /api/tasks/{id} — сброс времени (поле time_spent в TaskUpdateRequest)
+
+### Frontend
+
+#### TaskModal — учёт времени
+- Пресеты: +15м, +30м, +1ч, +2ч
+- Инпут для ручного ввода (Enter для отправки)
+- TaskTimer компонент: start/stop/pause, localStorage persistence
+- Автодобавление времени при остановке таймера
+- Кнопка сброса с модалкой подтверждения
+
+#### DigestPage — статистика времени
+- Время по проектам (топ-5)
+- Общее время, количество задач, среднее
+- Список задач с time_spent (клик открывает задачу)
+- Переключатель периодов (неделя/месяц/квартал)
+
+#### TaskCard — отображение времени
+- Бейдж ⏱ с временем (если time_spent > 0)
+
+#### SettingsPage
+- Секция Webhooks: список, add/edit/delete, кнопка Test
+- Секция API Keys: Generate New Key, Revoke, View Logs
+
+---
+
+## v0.8.15 — Telegram Mini App, уведомления о дедлайнах, прокси (2026-03-14)
 
 ### Встречи v2 — UX и бэкенд
 - **MeetingModal** полностью переработан: 3 вкладки (Основное / Повестка / Участники), идентично NewMeetingModal, убран режим просмотра/редактирования

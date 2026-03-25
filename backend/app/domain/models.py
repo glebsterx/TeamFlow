@@ -120,6 +120,9 @@ class Task(Base):
     recurrence = Column(String(20), nullable=True)  # daily / weekly / monthly / None
     recurrence_end_date = Column(DateTime, nullable=True)  # до какой даты повторять
 
+    # Time tracking — потраченное время в минутах
+    time_spent = Column(Integer, default=0, nullable=False)
+
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -302,6 +305,24 @@ class ApiKey(Base):
         return f"<ApiKey(id={self.id}, name='{self.name}')>"
 
 
+class ApiKeyLog(Base):
+    """Лог использования API-ключей."""
+    __tablename__ = "api_key_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    api_key_id = Column(Integer, ForeignKey("api_keys.id", ondelete="CASCADE"), nullable=False)
+    endpoint = Column(String(200), nullable=False)
+    method = Column(String(10), nullable=False)
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    api_key = relationship("ApiKey", backref="logs")
+
+    def __repr__(self):
+        return f"<ApiKeyLog(id={self.id}, api_key_id={self.api_key_id}, endpoint='{self.endpoint}')>"
+
+
 class TaskDependency(Base):
     """Явная зависимость: task_id зависит от depends_on_id (depends_on блокирует task)."""
     __tablename__ = "task_dependencies"
@@ -351,3 +372,37 @@ class AppSetting(Base):
 
     def __repr__(self):
         return f"<AppSetting(key='{self.key}', value='{self.value[:50] if self.value else None}')>"
+
+
+class Webhook(Base):
+    """Вебхук для внешних интеграций."""
+    __tablename__ = "webhooks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    url = Column(Text, nullable=False)
+    events = Column(Text, nullable=False)  # JSON array: ["task.created", "task.status_changed"]
+    secret = Column(String(64), nullable=True)  # For HMAC signature
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_triggered_at = Column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<Webhook(id={self.id}, url='{self.url[:30]}...', events={self.events})>"
+
+
+class WebhookLog(Base):
+    """Лог вызовов вебхуков."""
+    __tablename__ = "webhook_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    webhook_id = Column(Integer, ForeignKey("webhooks.id", ondelete="CASCADE"), nullable=False)
+    event = Column(String(50), nullable=False)  # task.created, task.status_changed, etc.
+    status_code = Column(Integer, nullable=True)
+    response = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    webhook = relationship("Webhook", backref="logs")
+
+    def __repr__(self):
+        return f"<WebhookLog(id={self.id}, webhook_id={self.webhook_id}, event='{self.event}', status={self.status_code})>"

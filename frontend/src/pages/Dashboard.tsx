@@ -1049,7 +1049,7 @@ export default function Dashboard() {
 
         {/* DIGEST PAGE */}
         {currentPage === 'digest' && (
-          <DigestPage />
+          <DigestPage onOpenTask={setSelectedTask} />
         )}
 
         {/* ARCHIVE PAGE */}

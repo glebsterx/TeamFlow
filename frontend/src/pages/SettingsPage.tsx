@@ -36,6 +36,12 @@ export default function SettingsPage({ projects }: SettingsPageProps) {
   // Bot status
   const [botStatus, setBotStatus] = React.useState<{ok: boolean, username: string|null, last_seen: string|null, uptime_sec: number|null, error: string|null} | null>(null);
 
+  // Webhooks state
+  const [webhooks, setWebhooks] = React.useState<{id: number, url: string, events: string, secret: string|null, is_active: boolean, created_at: string, last_triggered_at: string|null}[]>([]);
+  const [newWebhookUrl, setNewWebhookUrl] = React.useState('');
+  const [newWebhookEvents, setNewWebhookEvents] = React.useState<string[]>([]);
+  const [newWebhookSecret, setNewWebhookSecret] = React.useState('');
+
   React.useEffect(() => {
     const fetchBotStatus = () => {
       axios.get(`${API_URL}/api/bot-status`).then(r => setBotStatus(r.data)).catch(() => {
@@ -77,6 +83,55 @@ export default function SettingsPage({ projects }: SettingsPageProps) {
     } catch (e: any) {
       const msg = e?.code === 'ECONNABORTED' ? 'timeout — прокси не ответил за 20с' : (e?.message || 'Ошибка');
       setProxyCheck({ checking: false, reachable: false, error: msg });
+    }
+  };
+
+  // Webhooks handlers
+  React.useEffect(() => {
+    axios.get(`${API_URL}/api/webhooks`).then(r => setWebhooks(r.data)).catch(() => {});
+  }, []);
+
+  const handleCreateWebhook = async () => {
+    try {
+      const r = await axios.post(`${API_URL}/api/webhooks`, {
+        url: newWebhookUrl,
+        events: newWebhookEvents,
+        secret: newWebhookSecret || undefined,
+        is_active: true,
+      });
+      setWebhooks([r.data, ...webhooks]);
+      setNewWebhookUrl('');
+      setNewWebhookEvents([]);
+      setNewWebhookSecret('');
+    } catch (e) {
+      showToast('Ошибка создания вебхука', 'error');
+    }
+  };
+
+  const deleteWebhook = async (id: number) => {
+    try {
+      await axios.delete(`${API_URL}/api/webhooks/${id}`);
+      setWebhooks(webhooks.filter(w => w.id !== id));
+    } catch (e) {
+      showToast('Ошибка удаления вебхука', 'error');
+    }
+  };
+
+  const toggleWebhook = async (id: number, isActive: boolean) => {
+    try {
+      const r = await axios.patch(`${API_URL}/api/webhooks/${id}`, { is_active: isActive });
+      setWebhooks(webhooks.map(w => w.id === id ? r.data : w));
+    } catch (e) {
+      showToast('Ошибка обновления вебхука', 'error');
+    }
+  };
+
+  const testWebhook = async (id: number) => {
+    try {
+      await axios.post(`${API_URL}/api/webhooks/${id}/test`, { event: 'test' });
+      showToast('Тестовый запрос отправлен', 'success');
+    } catch (e) {
+      showToast('Ошибка тестового запроса', 'error');
     }
   };
 
@@ -594,6 +649,102 @@ export default function SettingsPage({ projects }: SettingsPageProps) {
               <p className="pt-0.5 text-gray-400">После сохранения нужно перезапустить Backend.</p>
             </div>
           </div>
+        </section>
+
+        {/* Webhooks */}
+        <section className="bg-white rounded-xl border border-gray-200 p-5">
+          <h2 className="text-base font-semibold text-gray-800 mb-3">🌐 Webhooks</h2>
+          <p className="text-xs text-gray-400 mb-4">HTTP callbacks при событиях в TaskFlow</p>
+          
+          {/* Create webhook form */}
+          <div className="mb-4 p-3 bg-gray-50 rounded-lg space-y-3">
+            <input
+              type="url"
+              placeholder="https://example.com/webhook"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+              value={newWebhookUrl}
+              onChange={e => setNewWebhookUrl(e.target.value)}
+            />
+            <div className="flex flex-wrap gap-2">
+              {['task.created', 'task.status_changed', 'task.updated', 'task.deleted'].map(evt => (
+                <label key={evt} className="flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={newWebhookEvents.includes(evt)}
+                    onChange={e => setNewWebhookEvents(
+                      e.target.checked 
+                        ? [...newWebhookEvents, evt]
+                        : newWebhookEvents.filter(x => x !== evt)
+                    )}
+                    className="rounded"
+                  />
+                  <span className="text-gray-600">{evt}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Secret (опционально)"
+                className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg"
+                value={newWebhookSecret}
+                onChange={e => setNewWebhookSecret(e.target.value)}
+              />
+              <button
+                onClick={handleCreateWebhook}
+                disabled={!newWebhookUrl || newWebhookEvents.length === 0}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+              >
+                Добавить
+              </button>
+            </div>
+          </div>
+
+          {/* Webhooks list */}
+          {webhooks.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">Нет вебхуков</p>
+          ) : (
+            <div className="space-y-2">
+              {webhooks.map(wh => (
+                <div key={wh.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{wh.url}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={`text-xs px-2 py-0.5 rounded ${wh.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>
+                        {wh.is_active ? 'active' : 'inactive'}
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        {JSON.parse(wh.events).join(', ')}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 ml-2">
+                    <button
+                      onClick={() => testWebhook(wh.id)}
+                      className="p-2 text-gray-500 hover:text-indigo-600"
+                      title="Test"
+                    >
+                      ▶
+                    </button>
+                    <button
+                      onClick={() => toggleWebhook(wh.id, !wh.is_active)}
+                      className="p-2 text-gray-500 hover:text-gray-700"
+                      title={wh.is_active ? 'Disable' : 'Enable'}
+                    >
+                      {wh.is_active ? '⏸' : '▶'}
+                    </button>
+                    <button
+                      onClick={() => deleteWebhook(wh.id)}
+                      className="p-2 text-gray-500 hover:text-red-600"
+                      title="Delete"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* Restart services */}

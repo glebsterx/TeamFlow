@@ -30,6 +30,7 @@ export interface Task {
   updated_at: string;
   creator?: User;
   assignee?: User;
+  time_spent?: number;
 }
 
 export interface TaskCreate {

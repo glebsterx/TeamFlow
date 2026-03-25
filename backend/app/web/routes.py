@@ -104,11 +104,37 @@ async def change_task_status(
     
     service = TaskService(db)
     try:
+        # Get old status for webhook
+        from sqlalchemy import select as sa_select
+        from app.domain.models import Task as TaskModel
+        result = await db.execute(sa_select(TaskModel).where(TaskModel.id == task_id))
+        old_task = result.scalar_one_or_none()
+        old_status = old_task.status if old_task else None
+        
         if request.status == TaskStatus.BLOCKED.value and request.block_reason:
             await service.block_task(task_id, request.block_reason.strip())
         else:
             await service.change_status(task_id, TaskStatus(request.status))
         await db.commit()
+
+        # Trigger webhook for status change
+        if old_status and old_status != request.status:
+            try:
+                from app.services.webhook_service import trigger_task_status_changed
+                # Get updated task for webhook
+                result = await db.execute(sa_select(TaskModel).where(TaskModel.id == task_id))
+                task = result.scalar_one_or_none()
+                if task:
+                    task_data = {
+                        "id": task.id,
+                        "title": task.title,
+                        "status": task.status,
+                        "project_id": task.project_id,
+                        "assignee_telegram_id": task.assignee_telegram_id,
+                    }
+                    asyncio.create_task(trigger_task_status_changed(old_status, request.status, task_data))
+            except Exception as e:
+                print(f"[WEBHOOK] Error triggering status change webhook: {e}")
 
         # Повторяющаяся задача: при DONE создаём следующий экземпляр
         if request.status == TaskStatus.DONE.value:
@@ -642,6 +668,7 @@ class TaskUpdateRequest(BaseModel):
     backlog: Optional[bool] = None
     recurrence: Optional[str] = None
     recurrence_end_date: Optional[datetime] = None
+    time_spent: Optional[int] = None
     # Optimistic locking — client sends the updated_at they read
     expected_updated_at: Optional[datetime] = None
 
@@ -763,6 +790,9 @@ async def update_task_api(
     if 'recurrence_end_date' in request.model_fields_set:
         task.recurrence_end_date = request.recurrence_end_date
 
+    if 'time_spent' in request.model_fields_set:
+        task.time_spent = request.time_spent
+
     await db.commit()
     from app.repositories.task_repository import TaskRepository
     return await TaskRepository(db).get_by_id(task_id)
@@ -798,6 +828,44 @@ async def restore_deleted_task(task_id: int, db: AsyncSession = Depends(get_db))
     task.archived = False
     await db.commit()
     return {"ok": True}
+
+
+class AddTimeRequest(BaseModel):
+    """Добавление времени к задаче."""
+    minutes: int
+
+
+@router.patch("/tasks/{task_id}/time")
+async def add_time_to_task(
+    task_id: int,
+    request: AddTimeRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Добавить потраченное время к задаче."""
+    from sqlalchemy import select as sa_select
+    
+    if request.minutes <= 0:
+        raise HTTPException(status_code=400, detail="Minutes must be positive")
+    if request.minutes > 10000:
+        raise HTTPException(status_code=400, detail="Minutes cannot exceed 10000")
+    
+    result = await db.execute(sa_select(Task).where(Task.id == task_id))
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Add time
+    current_time = getattr(task, 'time_spent', 0) or 0
+    task.time_spent = current_time + request.minutes
+    
+    await db.commit()
+    
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "time_spent": task.time_spent,
+        "added_minutes": request.minutes
+    }
 
 
 @router.post("/tasks/{task_id}/subtasks", response_model=TaskResponse)
@@ -2185,6 +2253,40 @@ async def regenerate_api_key(key_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(api_key)
     return api_key
+
+
+@router.get("/api-keys/{key_id}/logs")
+async def get_api_key_logs(key_id: int, db: AsyncSession = Depends(get_db)):
+    """Get API key usage logs."""
+    from app.domain.models import ApiKey, ApiKeyLog
+    from sqlalchemy import select
+    
+    # First check key exists
+    result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
+    api_key = result.scalar_one_or_none()
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    
+    # Get logs
+    result = await db.execute(
+        select(ApiKeyLog)
+        .where(ApiKeyLog.api_key_id == key_id)
+        .order_by(ApiKeyLog.created_at.desc())
+        .limit(100)
+    )
+    logs = result.scalars().all()
+    
+    return [
+        {
+            "id": log.id,
+            "endpoint": log.endpoint,
+            "method": log.method,
+            "ip_address": log.ip_address,
+            "user_agent": log.user_agent,
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+        }
+        for log in logs
+    ]
 
 
 # ============= SPRINTS API =============

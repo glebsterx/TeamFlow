@@ -39,6 +39,7 @@ export interface Task {
   blockers?: Blocker[];
   backlog?: boolean;
   backlog_added_at?: string;
+  time_spent?: number;
 }
 
 export interface Project {

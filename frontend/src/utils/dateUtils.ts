@@ -91,3 +91,12 @@ export function toDateInputValue(dateStr?: string): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
+
+export function formatTime(minutes: number): string {
+  if (!minutes || minutes === 0) return '0 мин';
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours === 0) return `${mins} мин`;
+  if (mins === 0) return `${hours} ч`;
+  return `${hours} ч ${mins} мин`;
+}
