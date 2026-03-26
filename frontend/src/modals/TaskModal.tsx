@@ -566,15 +566,6 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
               {task.completed_at && (
                 <span className="text-xs text-green-500">✓ {formatDatetime(task.completed_at)}</span>
               )}
-              {task.due_date && (
-                dueStatusView ? (
-                  <span className={`text-xs px-1.5 py-0.5 rounded border ${DUE_BADGE[dueStatusView]}`}>
-                    📅 {dueStatusView === 'overdue' ? 'Просрочено · ' : dueStatusView === 'today' ? 'Сегодня · ' : ''}{formatDueDate(task.due_date)}
-                  </span>
-                ) : (
-                  <span className="text-xs text-gray-400">📅 {formatDueDate(task.due_date)}</span>
-                )
-              )}
             </div>
             {task.description && <MarkdownContent content={task.description} className="mt-2" />}
             {/* Дедлайн в режиме просмотра */}

@@ -25,6 +25,8 @@ import MeetingModal from '../modals/MeetingModal';
 import NewMeetingModal from '../modals/NewMeetingModal';
 import NewProjectModal from '../modals/NewProjectModal';
 import ProjectModal from '../modals/ProjectModal';
+import TimelineView from '../components/TimelineView';
+import CommandPalette from '../components/CommandPalette';
 
 export default function Dashboard() {
   const [currentPage, setCurrentPage] = useState<'tasks' | 'projects' | 'meetings' | 'sprints' | 'digest' | 'archive' | 'backlog' | 'settings'>(
@@ -83,50 +85,22 @@ export default function Dashboard() {
   const goForward = React.useCallback(() => { if (!navFwd.current.length) return; const s = navFwd.current[0]; navBack.current = [...navBack.current, snapRef.current()]; navFwd.current = navFwd.current.slice(1); applyRef.current(s); }, []);
 
   React.useEffect(() => {
-    // Sentinel на индексе -1: не даём уйти из приложения при первом back
-    history.replaceState({ tfIdx: -1 }, '');
-    history.pushState({ tfIdx: 0 }, '');
-    browserNavIndex.current = 0;
-
-    const onPopState = (e: PopStateEvent) => {
-      const next = e.state?.tfIdx ?? 0;
-      const prev = browserNavIndex.current;
-      if (next === -1) {
-        // Дошли до sentinel — возвращаемся вперёд, не выходим из приложения
-        history.pushState({ tfIdx: 0 }, '');
-        browserNavIndex.current = 0;
-        return;
-      }
-      // Если открыта модалка — закрываем её вместо навигации назад
-      if (next < prev && modalCloseRef.current) {
-        modalCloseRef.current();
-        // Восстанавливаем потреблённую запись истории
-        history.pushState({ tfIdx: prev }, '');
-        browserNavIndex.current = prev;
-        return;
-      }
-      browserNavIndex.current = next;
-      if (next < prev) goBack(); else goForward();
-    };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setShowSearch(false); return; }
+      if (e.key === 'Escape') { setShowSearch(false); setShowCommandPalette(false); return; }
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); setShowCommandPalette(true); }
       if (e.altKey && e.key === 'ArrowLeft')  { e.preventDefault(); goBack(); }
       if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); goForward(); }
     };
-    window.addEventListener('popstate', onPopState);
     window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('popstate', onPopState);
-      window.removeEventListener('keydown', onKey);
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, [goBack, goForward]);
 
-  const [taskView, setTaskView] = useState<'cards' | 'list' | 'kanban'>(
+  const [taskView, setTaskView] = useState<'cards' | 'list' | 'kanban' | 'timeline'>(
     () => (localStorage.getItem('tf_task_view') as any) || 'cards'
   );
-  const handleSetTaskView = (v: 'cards' | 'list' | 'kanban') => {
+  const handleSetTaskView = (v: 'cards' | 'list' | 'kanban' | 'timeline') => {
     setTaskView(v);
     localStorage.setItem('tf_task_view', v);
   };
@@ -138,6 +112,7 @@ export default function Dashboard() {
   const [confirmDelete, setConfirmDelete] = useState<{type: string; id: number} | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [taskStack, setTaskStack] = useState<Task[]>([]);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
 
   const openTask = (t: Task) => {
     if (selectedTask) setTaskStack(s => [...s, selectedTask]);
@@ -586,6 +561,17 @@ export default function Dashboard() {
 
         {showSearch && <SearchPanel onOpenTask={(t) => { setSelectedTask(t); setShowSearch(false); }} />}
 
+        <CommandPalette
+          isOpen={showCommandPalette}
+          onClose={() => setShowCommandPalette(false)}
+          tasks={tasks}
+          projects={projects}
+          onOpenTask={setSelectedTask}
+          onOpenProject={setSelectedProject}
+          onNewTask={() => setShowNewTask(true)}
+          onNavigate={(page) => setCurrentPage(page as any)}
+        />
+
         {/* Breadcrumbs — только в разделе Проекты */}
         {currentPage === 'projects' && (
           <nav className="sticky top-0 z-40 bg-gray-50 border-b py-1.5 mb-3 flex items-center gap-1 text-xs sm:text-sm text-gray-500 flex-wrap">
@@ -702,11 +688,11 @@ export default function Dashboard() {
               </div>
 
               <div className="flex gap-1 shrink-0">
-                {([['cards','🃏'],['list','☰'],['kanban','⬛']] as const).map(([v, icon]) => (
+                {([['cards','🃏'],['list','☰'],['kanban','⬛'],['timeline','📊']] as const).map(([v, icon]) => (
                   <button
                     key={v}
                     onClick={() => handleSetTaskView(v)}
-                    title={v === 'cards' ? 'Карточки' : v === 'list' ? 'Список' : 'Канбан'}
+                    title={v === 'cards' ? 'Карточки' : v === 'list' ? 'Список' : v === 'kanban' ? 'Канбан' : 'Таймлайн'}
                     className={`px-2 py-1.5 border rounded-lg text-sm transition ${taskView === v ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
                   >{icon}</button>
                 ))}
@@ -996,6 +982,15 @@ export default function Dashboard() {
                 );
               })}
             </div>}
+
+            {/* Tasks — timeline */}
+            {taskView === 'timeline' && (
+              <TimelineView
+                tasks={filteredTasks}
+                projects={projects}
+                onTaskClick={setSelectedTask}
+              />
+            )}
           </>
         )}
 

@@ -32,8 +32,11 @@ BASE_URL=http://tf.example.com
 ### `backend/.env` — для приложения
 ```env
 APP_NAME=TeamFlow
+VERSION=0.8.17
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_BOT_USERNAME=...
+TELEGRAM_PROXY_URL=          # socks5://user:pass@host:port  или  mtproto://host:port?secret=...
+MTG_SIDECAR_URL=socks5://mtg:2080  # адрес sidecar-контейнера (не менять)
 DATABASE_URL=sqlite+aiosqlite:///./data/teamflow.db
 BASE_URL=http://tf.example.com
 BACKEND_PORT=8180
@@ -42,7 +45,11 @@ BACKEND_CORS_ORIGINS=["http://tf.example.com:5180"]
 SECRET_KEY=...   # openssl rand -hex 32
 API_HOST=0.0.0.0
 API_PORT=8000
+DEADLINE_NOTIFY_HOURS=24,3   # уведомления о дедлайнах за N часов
+WEBAPP_URL=                  # URL для Telegram Mini App (требует HTTPS)
 ```
+
+> `config.py` использует `extra = "ignore"` — неизвестные переменные в `.env` не роняют бэкенд.
 
 ### `frontend/.env`
 ```env
@@ -66,11 +73,15 @@ VITE_API_URL=http://tf.example.com:8180
 
 ## Docker Services
 
-| Контейнер | Образ | Порт |
-|-----------|-------|------|
-| `teamflow-backend` | python | 8180 |
-| `teamflow-frontend` | node (vite dev) | 5180 |
-| `teamflow-redis` | redis:7 | — |
+| Контейнер | Образ | Порт | Назначение |
+|-----------|-------|------|-----------|
+| `teamflow-backend` | python 3.11 | 8180 | FastAPI + aiogram бот |
+| `teamflow-frontend` | node (vite) | 5180 | React UI (HMR) |
+| `teamflow-mtg` | ghcr.io/9seconds/mtg:2 | — | MTProxy sidecar (создаётся автоматически при mtproto://) |
+
+Volumes:
+- `teamflow_teamflow-data` — SQLite БД (named volume, не удалять!)
+- `/var/run/docker.sock` — Docker socket для restart API и создания mtg-контейнера
 
 ### После изменений кода
 ```bash
@@ -279,8 +290,22 @@ ufw enable
 
 ### Бот не отвечает
 ```bash
-docker-compose logs backend | grep -i error
-# Проверить токен, chat ID, privacy mode
+docker logs teamflow-backend 2>&1 | grep -E '(proxy|error|polling)'
+# Ожидаем: "proxy_applied" + "set_my_commands_ok" + "Run polling"
+# Если нет — проверить TELEGRAM_PROXY_URL в .env
+```
+
+### После пересборки (docker compose build) прокси не работает
+```bash
+# Прокси сбрасывается при пересборке — восстановить через UI настроек
+# или вручную:
+curl -X POST http://localhost:8180/api/settings/proxy \
+  -H 'Content-Type: application/json' \
+  -d '{"proxy_url":"socks5://user:pass@host:port"}'
+docker restart teamflow-backend
+
+# Проверить что подхватил:
+curl http://localhost:8180/api/settings/proxy/check
 ```
 
 ### Порты заняты
