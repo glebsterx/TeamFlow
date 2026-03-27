@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { API_URL } from '../constants/taskDisplay';
-import { parseUTC, formatTime } from '../utils/dateUtils';
+import { parseUTC, formatTime, formatDueDate } from '../utils/dateUtils';
 
 interface DigestPageProps {
   onOpenTask?: (task: any) => void;
@@ -107,51 +107,30 @@ export default function DigestPage({ onOpenTask }: DigestPageProps) {
         ))}
       </div>
 
-      {/* Дедлайны */}
-      {(stats.overdue > 0 || stats.due_soon > 0) && (
-        <div className="grid grid-cols-2 gap-2">
-          {stats.overdue > 0 && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-              <div className="text-2xl font-bold text-red-600">{stats.overdue}</div>
-              <div className="text-xs font-medium text-red-500">🔥 Просрочено</div>
-            </div>
-          )}
-          {stats.due_soon > 0 && (
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-              <div className="text-2xl font-bold text-orange-600">{stats.due_soon}</div>
-              <div className="text-xs font-medium text-orange-500">⏰ Скоро дедлайн</div>
-            </div>
-          )}
-        </div>
-      )}
-      {stats.avg_completion_days != null && (
-        <div className="text-sm text-gray-500">⏱ Среднее время выполнения: <span className="font-medium text-gray-700">{fmtDays(stats.avg_completion_days)}</span></div>
-      )}
-
-      {/* Overdue task list (#87) */}
+      {/* Overdue task list */}
       {overdue_tasks.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <h3 className="text-sm font-semibold mb-2 text-red-700">🔥 Просроченные задачи</h3>
+        <div className="w-full bg-red-50 border border-red-200 rounded-lg p-4">
+          <h3 className="text-sm font-semibold mb-2 text-red-700">🔥 Просроченные задачи ({overdue_tasks.length})</h3>
           <div className="space-y-1">
             {overdue_tasks.map((t: any) => (
               <div key={t.id} className="flex items-center justify-between text-xs">
                 <span className="flex-1 truncate text-gray-700">{t.title}</span>
-                <span className="ml-2 text-red-500 shrink-0">{t.due_date}</span>
+                <span className="ml-2 text-red-500 shrink-0">{formatDueDate(t.due_date)}</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Due soon task list (#87) */}
+      {/* Due soon task list */}
       {due_soon_tasks.length > 0 && (
         <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-          <h3 className="text-sm font-semibold mb-2 text-orange-700">⏰ Дедлайн на этой неделе</h3>
+          <h3 className="text-sm font-semibold mb-2 text-orange-700">⏰ Дедлайн на этой неделе ({due_soon_tasks.length})</h3>
           <div className="space-y-1">
             {due_soon_tasks.map((t: any) => (
               <div key={t.id} className="flex items-center justify-between text-xs">
                 <span className="flex-1 truncate text-gray-700">{t.title}</span>
-                <span className="ml-2 text-orange-500 shrink-0">{t.due_date}</span>
+                <span className="ml-2 text-orange-500 shrink-0">{formatDueDate(t.due_date)}</span>
               </div>
             ))}
           </div>

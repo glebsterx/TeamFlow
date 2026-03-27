@@ -90,8 +90,10 @@ class TaskService:
             task.backlog_added_at = None
 
         now = datetime.utcnow()
-        if new_status == TaskStatus.DOING and not task.started_at:
-            task.started_at = now
+        if new_status == TaskStatus.DOING:
+            if not task.started_at:
+                task.started_at = now
+            task.completed_at = None
         elif new_status == TaskStatus.DONE:
             task.completed_at = now
         elif new_status == TaskStatus.TODO:

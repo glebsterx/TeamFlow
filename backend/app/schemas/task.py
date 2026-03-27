@@ -34,6 +34,9 @@ class Task(TaskBase):
     creator_id: UUID
     created_at: datetime
     updated_at: datetime
+    time_spent: int = 0
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True

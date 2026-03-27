@@ -1355,7 +1355,7 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
         return {
             "id": t.id,
             "title": t.title,
-            "due_date": t.due_date.date().isoformat() if t.due_date else None,
+            "due_date": t.due_date.isoformat() if t.due_date else None,
             "priority": t.priority,
             "status": t.status,
             "project_id": t.project_id,

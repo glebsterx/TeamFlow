@@ -87,9 +87,15 @@ export function formatDuration(startStr?: string, endStr?: string): string | nul
 export function toDateInputValue(dateStr?: string): string {
   if (!dateStr) return '';
   const date = parseUTC(dateStr);
-  // Return YYYY-MM-DDTHH:MM for datetime-local input
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function toISOString(dateTimeLocalStr?: string): string | undefined {
+  if (!dateTimeLocalStr) return undefined;
+  const date = new Date(dateTimeLocalStr);
+  if (isNaN(date.getTime())) return undefined;
+  return date.toISOString();
 }
 
 export function formatTime(minutes: number): string {

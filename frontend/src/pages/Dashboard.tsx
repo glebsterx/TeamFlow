@@ -9,6 +9,7 @@ import { getAncestorBlockedIds } from '../utils/taskUtils';
 import { showToast } from '../utils/toast';
 import { useTaskChangeDetector } from '../hooks/useTaskChangeDetector';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import { useTheme } from '../hooks/useTheme';
 import { ToastContainer } from '../components/Toast';
 import { SearchPanel } from '../components/SearchPanel';
 import NewTaskModal from '../modals/NewTaskModal';
@@ -144,6 +145,7 @@ export default function Dashboard() {
   });
 
   const { subscribed, pushError, requestAndSubscribe } = usePushNotifications();
+  const { isDark, isAuto, toggleTheme } = useTheme();
 
   const queryClient = useQueryClient();
 
@@ -509,7 +511,7 @@ export default function Dashboard() {
               <button
                 key={page.id}
                 onClick={() => { pushHist(); setCurrentPage(page.id as any); setProjNavProject(null); setProjNavTaskPath([]); }}
-                className={`px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition ${
+                className={`px-1 sm:px-2 py-2 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition ${
                   currentPage === page.id
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -540,6 +542,13 @@ export default function Dashboard() {
             {subscribed && (
               <span className="text-xs text-gray-400" title="Уведомления включены">🔔✓</span>
             )}
+            <button
+              onClick={toggleTheme}
+              className="text-xs px-2 py-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition"
+              title={isAuto ? 'Авто (системная тема)' : isDark ? 'Тёмная тема (нажми для смены)' : 'Светлая тема (нажми для смены)'}
+            >
+              {isAuto ? '🔄' : isDark ? '☀️' : '🌙'}
+            </button>
             <span className="text-xs text-gray-400 hidden sm:inline">Вы:</span>
             <select
               value={myUserId ?? ''}

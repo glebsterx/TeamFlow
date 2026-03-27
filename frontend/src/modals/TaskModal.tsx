@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Task } from '../types/dashboard';
 import { API_URL, STATUS_EMOJI, STATUS_LABELS, STATUS_COLOR, DUE_BADGE, PRIORITY_LABELS, PRIORITY_COLOR, PRIORITY_EMOJI } from '../constants/taskDisplay';
-import { getDueStatus, toDateInputValue, formatDueDate, formatDatetime, plural, parseUTC, formatTime } from '../utils/dateUtils';
+import { getDueStatus, toDateInputValue, toISOString, formatDueDate, formatDatetime, plural, parseUTC, formatTime } from '../utils/dateUtils';
 import Modal from '../components/Modal';
 import MarkdownContent from '../components/MarkdownContent';
 import { CommentsSection } from '../components/CommentsSection';
@@ -399,7 +399,7 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
 
   const handleSave = () => {
     const data: any = { title, description };
-    data.due_date = dueDate || null;
+    data.due_date = toISOString(dueDate) || null;
     data.recurrence = recurrence || null;
     updateTaskMutation.mutate(
       { id: task.id, data },

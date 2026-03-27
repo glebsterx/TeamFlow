@@ -9,6 +9,7 @@ import {
   PRIORITY_LABELS, PRIORITY_COLOR,
 } from '../constants/taskDisplay';
 import { API_URL } from '../constants/taskDisplay';
+import { toISOString } from '../utils/dateUtils';
 
 function tokenize(s: string): string[] {
   return s.toLowerCase()
@@ -145,7 +146,7 @@ export default function NewTaskModal({
       createTaskMutation.mutate({
         title, description,
         project_id: projectId ? Number(projectId) : undefined,
-        due_date: dueDate || undefined,
+        due_date: toISOString(dueDate) || undefined,
         priority,
         parent_task_id: parentTaskId ? Number(parentTaskId) : undefined,
         backlog,
