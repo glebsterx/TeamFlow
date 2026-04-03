@@ -240,7 +240,7 @@ export default function MeetingModal({ meeting, onClose, updateMeetingMutation, 
               <label className="text-xs text-gray-500 block mb-1">Из команды</label>
               <div className="flex flex-wrap gap-1.5">
                 {users.map((u: any) => (
-                  <button key={u.telegram_id} onClick={() => addParticipant(u.display_name, u.telegram_id)}
+                  <button key={u.id} onClick={() => addParticipant(u.display_name, u.id)}
                     disabled={!!participants.find(p => p.display_name === u.display_name)}
                     className={`px-2 py-1 rounded-full border text-xs transition ${participants.find(p => p.display_name === u.display_name) ? 'bg-blue-600 text-white border-blue-600 opacity-60' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'}`}>
                     {u.display_name}

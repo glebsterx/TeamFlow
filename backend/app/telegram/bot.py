@@ -216,6 +216,19 @@ async def start_bot():
     except Exception as e:
         logger.warning("set_my_commands_failed", error=str(e))
 
+    # Сохраняем username бота в БД для /api/bot-info
+    try:
+        me = await asyncio.wait_for(bot.get_me(), timeout=10)
+        from app.core.db import AsyncSessionLocal
+        from app.services.settings_service import SettingsService
+        from datetime import datetime
+        async with AsyncSessionLocal() as db:
+            await SettingsService.set(db, "bot_username", me.username)
+            await db.commit()
+            logger.info("bot_username_saved", username=me.username)
+    except Exception as e:
+        logger.warning("bot_username_save_failed", error=str(e))
+
     checker_task = None
     try:
         checker_task = asyncio.create_task(run_deadline_checker(bot))

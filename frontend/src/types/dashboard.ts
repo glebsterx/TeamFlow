@@ -1,5 +1,5 @@
 export interface Assignee {
-  telegram_id: number;
+  id: number;
   display_name: string;
 }
 
@@ -70,7 +70,7 @@ export interface Stats {
 }
 
 export interface TelegramUser {
-  telegram_id: number;
+  id: number;
   display_name: string;
   first_name: string;
 }

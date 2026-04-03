@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     
     # Application
     APP_NAME: str = "TeamFlow"
-    VERSION: str = "0.8.15"
+    VERSION: str = "0.8.19"
     DEBUG: bool = False
     
     # Server
@@ -26,6 +26,9 @@ class Settings(BaseSettings):
 
     # Telegram Mini App
     WEBAPP_URL: Optional[str] = None  # URL веб-интерфейса для кнопки Mini App в боте
+
+    # Frontend Web UI (основной интерфейс)
+    FRONTEND_URL: Optional[str] = None  # URL основного веб-интерфейса
     
     # Database (with async driver)
     DATABASE_URL: str = "sqlite+aiosqlite:///./data/teamflow.db"

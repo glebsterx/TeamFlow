@@ -17,7 +17,6 @@ PRIORITY_EMOJI = {
     TaskPriority.LOW.value:    "⚪",
 }
 
-
 class DigestService:
     """Service for generating digests."""
 
@@ -76,8 +75,7 @@ class DigestService:
         overdue: List[Task],
         due_soon: List[Task],
         meetings: List[Meeting],
-        today: "date",
-    ) -> str:
+        today: "date") -> str:
         """Build formatted digest message."""
         doing = [t for t in active_tasks if t.status == TaskStatus.DOING.value]
         blocked = [t for t in active_tasks if t.status == TaskStatus.BLOCKED.value]
@@ -150,9 +148,9 @@ class DigestService:
         """Форматируем имя исполнителя без дублирования @."""
         if task.assignee:
             return task.assignee.display_name
-        elif task.assignee_name:
+        elif task:
             # Убираем @ если он уже есть
-            return task.assignee_name if task.assignee_name.startswith('@') else f"@{task.assignee_name}"
+            return task if task.startswith('@') else f"@{task}"
         return ""
     
     async def get_overdue_reminder(self) -> str:
@@ -174,7 +172,7 @@ class DigestService:
         
         for task in overdue:
             days_overdue = (now - task.due_date).days
-            assignee = f" ({self._format_assignee(task)})" if task.assignee or task.assignee_name else ""
+            assignee = f" ({self._format_assignee(task)})" if task.assignee or task else ""
             message += f"  • {task.title}{assignee}\n"
             message += f"    📅 Просрочено на {days_overdue} дн.\n"
         

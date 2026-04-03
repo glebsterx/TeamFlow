@@ -40,7 +40,7 @@ fi
 # URL
 echo ""
 echo -e "${YELLOW}🌐 URL сервера:${NC}"
-echo "  Примеры: http://192.168.0.3  /  http://tf.example.com"
+echo "  Примеры: http://192.168.1.100  /  http://teamflow.example.com"
 
 CURRENT_URL=""
 [ -f ".env" ] && CURRENT_URL=$(grep "^BASE_URL=" .env 2>/dev/null | cut -d'=' -f2)
@@ -159,7 +159,7 @@ SECRET_KEY=$(openssl rand -hex 32 2>/dev/null || echo "dev-secret-$(date +%s)")
 
 cat > backend/.env << EOF
 APP_NAME=TeamFlow
-VERSION=0.8.16
+VERSION=0.8.19
 DEBUG=False
 
 BASE_URL=${BASE_URL}
@@ -204,6 +204,39 @@ echo "Запуск..."
 docker-compose -f $COMPOSE_FILE up -d
 
 sleep 5
+
+# Генерация VAPID ключей если отсутствуют
+if ! grep -q "^VAPID_PUBLIC_KEY=." backend/.env 2>/dev/null; then
+    echo -e "${YELLOW}🔑 Генерация VAPID ключей для Web Push...${NC}"
+    sleep 3  # ждём запуск контейнера
+    VAPID_KEYS=$(docker exec teamflow-backend python3 -c "
+from py_vapid import Vapid
+from cryptography.hazmat.primitives import serialization
+import base64
+v = Vapid()
+v.generate_keys()
+pub = base64.urlsafe_b64encode(v.public_key.public_bytes(
+    encoding=serialization.Encoding.X962,
+    format=serialization.PublicFormat.UncompressedPoint
+)).rstrip(b'=').decode()
+priv = base64.urlsafe_b64encode(
+    v.private_key.private_numbers().private_value.to_bytes(32, 'big')
+).rstrip(b'=').decode()
+print(f'VAPID_PUBLIC_KEY={pub}')
+print(f'VAPID_PRIVATE_KEY={priv}')
+" 2>/dev/null)
+    if [ -n "$VAPID_KEYS" ]; then
+        echo "" >> backend/.env
+        echo "# Web Push (VAPID)" >> backend/.env
+        echo "$VAPID_KEYS" >> backend/.env
+        echo "VAPID_CLAIMS_EMAIL=admin@teamflow.local" >> backend/.env
+        docker restart teamflow-backend >/dev/null 2>&1
+        echo -e "${GREEN}✓ VAPID ключи сгенерированы${NC}"
+    else
+        echo -e "${YELLOW}⚠ Не удалось сгенерировать VAPID ключи — добавьте вручную${NC}"
+    fi
+fi
+
 echo ""
 docker-compose -f $COMPOSE_FILE ps
 

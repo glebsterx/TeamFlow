@@ -94,8 +94,21 @@ async def check_deadlines(bot):
         tasks = result.scalars().all()
 
         for task in tasks:
-            if not task.assignee or not task.assignee.telegram_id:
+            if not task.assignee_id:
                 continue
+            
+            # Find telegram_id through UserIdentity
+            identity_result = await db.execute(
+                select(UserIdentity).where(
+                    UserIdentity.local_account_id == task.assignee_id,
+                    UserIdentity.provider == "telegram",
+                )
+            )
+            identity = identity_result.scalar_one_or_none()
+            if not identity:
+                continue
+            
+            telegram_id = int(identity.provider_user_id)
 
             hours_left = (task.due_date.replace(tzinfo=timezone.utc) - now).total_seconds() / 3600
 
@@ -124,7 +137,7 @@ async def check_deadlines(bot):
 
                     try:
                         await bot.send_message(
-                            chat_id=task.assignee.telegram_id,
+                            chat_id=telegram_id,
                             text=text_msg,
                             parse_mode="Markdown",
                         )
@@ -132,12 +145,12 @@ async def check_deadlines(bot):
                             task_id=task.id,
                             threshold_hours=threshold,
                             sent_at=now.replace(tzinfo=None),
-                            user_telegram_id=task.assignee.telegram_id,
+                            user_telegram_id=telegram_id,
                         ))
                         await db.commit()
                         logger.info("deadline_notification_sent",
                                     task_id=task.id, threshold=threshold,
-                                    user=task.assignee.telegram_id)
+                                    user=telegram_id)
                     except Exception as e:
                         logger.warning("deadline_notification_failed",
                                        task_id=task.id, error=str(e))

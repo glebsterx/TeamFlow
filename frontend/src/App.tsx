@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Dashboard from './pages/Dashboard';
 import MiniAppPage from './pages/MiniAppPage';
+import { Login } from './pages/Login/Login';
+import { Welcome } from './pages/Welcome';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -12,16 +14,37 @@ const queryClient = new QueryClient({
   },
 });
 
+function isAuthenticated(): boolean {
+  const token = localStorage.getItem('access_token');
+  const accountId = localStorage.getItem('teamflow_account_id') || localStorage.getItem('teamflow_my_user_id');
+  return !!(token && accountId);
+}
+
 /**
  * Роутинг без react-router — определяем по pathname.
- * /app  → MiniAppPage (Telegram Mini App, открывается через WebApp-кнопку в боте)
- * *     → Dashboard (основной веб-интерфейс)
+ * /login → Login (авторизация через Telegram / логин/пароль)
+ * /app   → MiniAppPage (Telegram Mini App)
+ * /welcome → Welcome (страница приветствия)
+ * *      → Dashboard (основной веб-интерфейс, только для авторизованных)
  */
 function AppRouter() {
   const path = window.location.pathname;
+
+  if (path === '/login') {
+    return <Login />;
+  }
   if (path === '/app' || path.startsWith('/app/')) {
     return <MiniAppPage />;
   }
+  if (path === '/welcome') {
+    return <Welcome />;
+  }
+
+  // Если не авторизован — показываем welcome
+  if (!isAuthenticated()) {
+    return <Welcome />;
+  }
+
   return <Dashboard />;
 }
 

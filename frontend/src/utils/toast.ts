@@ -6,5 +6,10 @@ export function registerToastSink(fn: ToastFn) {
 }
 
 export function showToast(msg: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration?: number) {
-  _sink?.(msg, type, duration);
+  if (_sink) {
+    _sink(msg, type, duration);
+  } else {
+    // Fallback: console if toast component not mounted
+    console.warn(`[Toast ${type}] ${msg}`);
+  }
 }

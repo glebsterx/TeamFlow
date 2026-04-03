@@ -21,16 +21,18 @@ import MeetingsPage from './MeetingsPage';
 import ArchivePage from './ArchivePage';
 import DigestPage from './DigestPage';
 import ProjectNavPage from './ProjectNavPage';
+import AccountPage from './AccountPage';
 import TaskModal from '../modals/TaskModal';
 import MeetingModal from '../modals/MeetingModal';
 import NewMeetingModal from '../modals/NewMeetingModal';
 import NewProjectModal from '../modals/NewProjectModal';
 import ProjectModal from '../modals/ProjectModal';
 import TimelineView from '../components/TimelineView';
+import CalendarView from '../components/CalendarView';
 import CommandPalette from '../components/CommandPalette';
 
 export default function Dashboard() {
-  const [currentPage, setCurrentPage] = useState<'tasks' | 'projects' | 'meetings' | 'sprints' | 'digest' | 'archive' | 'backlog' | 'settings'>(
+  const [currentPage, setCurrentPage] = useState<'tasks' | 'projects' | 'meetings' | 'sprints' | 'digest' | 'archive' | 'backlog' | 'settings' | 'account'>(
     () => (sessionStorage.getItem('tf_page') as any) || 'tasks'
   );
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
@@ -98,10 +100,10 @@ export default function Dashboard() {
     return () => window.removeEventListener('keydown', onKey);
   }, [goBack, goForward]);
 
-  const [taskView, setTaskView] = useState<'cards' | 'list' | 'kanban' | 'timeline'>(
+  const [taskView, setTaskView] = useState<'cards' | 'list' | 'kanban' | 'timeline' | 'calendar'>(
     () => (localStorage.getItem('tf_task_view') as any) || 'cards'
   );
-  const handleSetTaskView = (v: 'cards' | 'list' | 'kanban' | 'timeline') => {
+  const handleSetTaskView = (v: 'cards' | 'list' | 'kanban' | 'timeline' | 'calendar') => {
     setTaskView(v);
     localStorage.setItem('tf_task_view', v);
   };
@@ -144,7 +146,29 @@ export default function Dashboard() {
     return saved ? Number(saved) : null;
   });
 
-  const { subscribed, pushError, requestAndSubscribe } = usePushNotifications();
+  const myAccountId = React.useMemo(() => {
+    const saved = localStorage.getItem('teamflow_account_id');
+    return saved ? Number(saved) : null;
+  }, []);
+
+  const { data: myAccount } = useQuery<any | null>({
+    queryKey: ['my-account', myAccountId],
+    queryFn: async () => {
+      if (!myAccountId) return null;
+      try {
+        const res = await axios.get(`${API_URL}/api/auth/account/me`, { params: { account_id: myAccountId } });
+        return res.data;
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!myAccountId,
+  });
+
+  const mySystemRole = myAccount?.system_role || null;
+  const myDisplayName = myAccount?.display_name || null;
+
+  const { subscribed, pushError, requestAndSubscribe, unsubscribe } = usePushNotifications();
   const { isDark, isAuto, toggleTheme } = useTheme();
 
   const queryClient = useQueryClient();
@@ -269,7 +293,7 @@ export default function Dashboard() {
       await axios.post(`${API_URL}/api/tasks/${taskId}/assign`, { user_id: userId });
     },
     onSuccess: (_, vars) => {
-      const assignedUser = vars.userId ? (users || []).find((u: any) => u.telegram_id === vars.userId) ?? null : null;
+      const assignedUser = vars.userId ? (users || []).find((u: any) => u.id === vars.userId) ?? null : null;
       setSelectedTask(prev => prev?.id === vars.taskId ? { ...prev, assignee: assignedUser || undefined } : prev);
       invalidate();
     },
@@ -443,7 +467,7 @@ export default function Dashboard() {
   }
   if (assigneeFilter !== null) {
     filteredTasks = filteredTasks.filter(t =>
-      assigneeFilter === 0 ? !t.assignee : t.assignee?.telegram_id === assigneeFilter
+      assigneeFilter === 0 ? !t.assignee : t.assignee?.id === assigneeFilter
     );
   }
   if (priorityFilter !== null) {
@@ -464,7 +488,7 @@ export default function Dashboard() {
   }
   if (assigneeFilter !== null) {
     kanbanTasks = kanbanTasks.filter(t =>
-      assigneeFilter === 0 ? !t.assignee : t.assignee?.telegram_id === assigneeFilter
+      assigneeFilter === 0 ? !t.assignee : t.assignee?.id === assigneeFilter
     );
   }
   if (priorityFilter !== null) {
@@ -506,8 +530,8 @@ export default function Dashboard() {
               { id: 'backlog', label: 'Бэклог', icon: '📦' },
               { id: 'digest', label: 'Дайджест', icon: '📊' },
               { id: 'archive', label: 'Архив', icon: '🗄️' },
-              { id: 'settings', label: 'Настройки', icon: '⚙️' },
-            ].map(page => (
+              ...(mySystemRole === 'admin' ? [{ id: 'settings', label: 'Настройки', icon: '⚙️' }] : []),
+            ].filter(Boolean).map(page => (
               <button
                 key={page.id}
                 onClick={() => { pushHist(); setCurrentPage(page.id as any); setProjNavProject(null); setProjNavTaskPath([]); }}
@@ -540,7 +564,13 @@ export default function Dashboard() {
               </button>
             )}
             {subscribed && (
-              <span className="text-xs text-gray-400" title="Уведомления включены">🔔✓</span>
+              <button
+                onClick={unsubscribe}
+                className="text-xs px-2 py-1 rounded border border-green-300 text-green-600 hover:bg-red-50 hover:border-red-300 hover:text-red-500 transition"
+                title="Отключить уведомления"
+              >
+                🔔✓
+              </button>
             )}
             <button
               onClick={toggleTheme}
@@ -549,22 +579,17 @@ export default function Dashboard() {
             >
               {isAuto ? '🔄' : isDark ? '☀️' : '🌙'}
             </button>
-            <span className="text-xs text-gray-400 hidden sm:inline">Вы:</span>
-            <select
-              value={myUserId ?? ''}
-              onChange={(e) => {
-                const val = e.target.value ? Number(e.target.value) : null;
-                setMyUserId(val);
-                if (val) localStorage.setItem('teamflow_my_user_id', String(val));
-                else localStorage.removeItem('teamflow_my_user_id');
-              }}
-              className="text-xs border rounded px-1.5 py-0.5 text-gray-700 bg-white"
+            <button
+              onClick={() => { pushHist(); setCurrentPage('account'); }}
+              className="text-xs px-3 py-1 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition flex items-center gap-1"
+              title="Мой аккаунт"
             >
-              <option value="">—</option>
-              {users.map(u => (
-                <option key={u.telegram_id} value={u.telegram_id}>{u.display_name}</option>
-              ))}
-            </select>
+              👤 {myDisplayName || myUserId ? (() => {
+                if (myDisplayName) return myDisplayName.split(' ')[0];
+                const u = users.find(user => user.id === myUserId);
+                return u ? u.display_name?.split(' ')[0] || u.first_name : 'Профиль';
+              })() : 'Войти'}
+            </button>
           </div>
         </header>
 
@@ -669,7 +694,7 @@ export default function Dashboard() {
                   <option value="">Все</option>
                   <option value="0">👤 Не назначено</option>
                   {users.map(u => (
-                    <option key={u.telegram_id} value={u.telegram_id}>👤 {u.display_name}</option>
+                    <option key={u.id} value={u.id}>👤 {u.display_name}</option>
                   ))}
                 </select>
                 <select
@@ -697,11 +722,11 @@ export default function Dashboard() {
               </div>
 
               <div className="flex gap-1 shrink-0">
-                {([['cards','🃏'],['list','☰'],['kanban','⬛'],['timeline','📊']] as const).map(([v, icon]) => (
+                {([['cards','🃏'],['list','☰'],['kanban','⬛'],['timeline','📊'],['calendar','📅']] as const).map(([v, icon]) => (
                   <button
                     key={v}
                     onClick={() => handleSetTaskView(v)}
-                    title={v === 'cards' ? 'Карточки' : v === 'list' ? 'Список' : v === 'kanban' ? 'Канбан' : 'Таймлайн'}
+                    title={v === 'cards' ? 'Карточки' : v === 'list' ? 'Список' : v === 'kanban' ? 'Канбан' : v === 'timeline' ? 'Таймлайн' : 'Календарь'}
                     className={`px-2 py-1.5 border rounded-lg text-sm transition ${taskView === v ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
                   >{icon}</button>
                 ))}
@@ -725,7 +750,7 @@ export default function Dashboard() {
                   ))}
                   <span className="w-px bg-blue-200 mx-0.5" />
                   {users.map((u: any) => (
-                    <button key={u.telegram_id} onClick={() => bulkAssignMutation.mutate({ ids: [...bulkSelected], userId: u.telegram_id })}
+                    <button key={u.id} onClick={() => bulkAssignMutation.mutate({ ids: [...bulkSelected], userId: u.id })}
                       className="px-2 py-1 text-xs rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50 transition">
                       👤 {u.display_name}
                     </button>
@@ -1000,6 +1025,11 @@ export default function Dashboard() {
                 onTaskClick={setSelectedTask}
               />
             )}
+
+            {/* Tasks — calendar */}
+            {taskView === 'calendar' && (
+              <CalendarView projects={projects} onOpenTask={setSelectedTask} />
+            )}
           </>
         )}
 
@@ -1064,6 +1094,11 @@ export default function Dashboard() {
         {/* SETTINGS PAGE */}
         {currentPage === 'settings' && (
           <SettingsPage projects={projects} />
+        )}
+
+        {/* ACCOUNT PAGE */}
+        {currentPage === 'account' && (
+          <AccountPage />
         )}
       </div>
 

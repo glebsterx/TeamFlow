@@ -6,7 +6,6 @@ from app.domain.models import Task
 from app.domain.enums import TaskStatus
 from app.repositories.task_repository import TaskRepository
 
-
 class BoardService:
     """Service for board operations."""
     
@@ -39,7 +38,7 @@ class BoardService:
     
     async def get_user_tasks(self, telegram_id: int) -> Dict[str, List[Task]]:
         """Get tasks for specific user grouped by status."""
-        tasks = await self.task_repository.get_all(assignee_telegram_id=telegram_id)
+        tasks = await self.task_repository.get_all(assignee_id = assignee_id)
         
         board = {
             TaskStatus.TODO.value: [],
@@ -106,9 +105,9 @@ class BoardService:
                     # Исправляем двойной @
                     if task.assignee:
                         assignee = f" 👤 {task.assignee.display_name}"
-                    elif task.assignee_name:
+                    elif task:
                         # Убираем @ если он уже есть
-                        name = task.assignee_name if task.assignee_name.startswith('@') else f"@{task.assignee_name}"
+                        name = task if task.startswith('@') else f"@{task}"
                         assignee = f" 👤 {name}"
                     else:
                         assignee = ""

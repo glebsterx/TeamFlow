@@ -615,9 +615,9 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
             placeholder="Не назначен"
             options={[
               { value: '', label: '— Не назначен' },
-              ...users.map((u:any) => ({ value: String(u.telegram_id), label: u.display_name }))
+              ...users.map((u:any) => ({ value: String(u.id), label: u.display_name }))
             ]}
-            current={String(task.assignee?.telegram_id || '')}
+            current={String(task.assignee?.id || '')}
             onChange={(v) => assignMutation.mutate({ taskId: task.id, userId: v ? Number(v) : null })}
           />
         </div>

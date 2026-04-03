@@ -23,7 +23,7 @@ export function CommentsSection({ taskId, myUserId, users }: CommentsSectionProp
   });
 
   const addComment = useMutation({
-    mutationFn: async (body: { text: string; author_name?: string; author_telegram_id?: number }) =>
+    mutationFn: async (body: { text: string; author_name?: string; author_id?: number }) =>
       (await axios.post(`${API_URL}/api/tasks/${taskId}/comments`, body)).data,
     onSuccess: () => {
       setText('');
@@ -49,11 +49,11 @@ export function CommentsSection({ taskId, myUserId, users }: CommentsSectionProp
     },
   });
 
-  const authorName = myUserId ? (users.find((u: any) => u.telegram_id === myUserId)?.display_name ?? null) : null;
+  const authorName = myUserId ? (users.find((u: any) => u.id === myUserId)?.display_name ?? null) : null;
 
   const handleSubmit = () => {
     if (!text.trim()) return;
-    addComment.mutate({ text: text.trim(), author_name: authorName ?? undefined, author_telegram_id: myUserId ?? undefined });
+    addComment.mutate({ text: text.trim(), author_name: authorName ?? undefined, author_id: myUserId ?? undefined });
   };
 
   const handleStartEdit = (c: any) => {
@@ -71,7 +71,7 @@ export function CommentsSection({ taskId, myUserId, users }: CommentsSectionProp
     setEditingText('');
   };
 
-  const canEditComment = (c: any) => myUserId === null || c.author_telegram_id === myUserId;
+  const canEditComment = (c: any) => myUserId === null || c.author_id === myUserId;
 
   return (
     <div className="mb-4">

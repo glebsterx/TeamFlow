@@ -27,7 +27,6 @@ PRIORITY_EMOJI = {
     "LOW":    "",
 }
 
-
 async def get_my_tasks_text(tg_id: int, username: str | None, display: str) -> str:
     """Получить текст доски 'мои задачи' по telegram_id. Используется из обработчиков и меню."""
     try:
@@ -38,14 +37,12 @@ async def get_my_tasks_text(tg_id: int, username: str | None, display: str) -> s
                     Task.title,
                     Task.status,
                     Task.priority,
-                    Task.assignee_telegram_id,
-                    Task.assignee_name,
-                )
+                    Task,
+                    Task)
                 .where(
                     Task.deleted.is_(False),
                     Task.archived.is_(False),
-                    Task.status.in_(list(ACTIVE_STATUSES)),
-                )
+                    Task.status.in_(list(ACTIVE_STATUSES)))
             )
             result = await session.execute(stmt)
             rows = result.all()
@@ -53,8 +50,8 @@ async def get_my_tasks_text(tg_id: int, username: str | None, display: str) -> s
         at_username = f"@{username}" if username else None
         tasks = [
             r for r in rows
-            if r.assignee_telegram_id == tg_id
-            or (at_username and r.assignee_name == at_username)
+            if r == tg_id
+            or (at_username and r == at_username)
         ]
 
         if not tasks:
@@ -88,7 +85,6 @@ async def get_my_tasks_text(tg_id: int, username: str | None, display: str) -> s
     except Exception as e:
         logger.error("my_tasks_error", error=str(e))
         return "❌ Ошибка при получении задач. Попробуйте позже."
-
 
 @router.message(Command("my"))
 async def cmd_my(message: Message):

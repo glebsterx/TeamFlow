@@ -112,10 +112,10 @@ async def cmd_task(message: Message, state: FSMContext):
             service = TaskService(db)
             user_repo = UserRepository(db)
             
-            # Get or create user
-            user = await user_repo.get_by_telegram_id(message.from_user.id)
+            # Get or create LocalAccount
+            user = await user_repo.get_local_account_by_telegram_id(message.from_user.id)
             if not user:
-                user = await user_repo.create(
+                user = await user_repo.create_local_account_from_telegram(
                     telegram_id=message.from_user.id,
                     username=message.from_user.username or "",
                     first_name=message.from_user.first_name or "",

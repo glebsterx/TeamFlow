@@ -73,7 +73,7 @@ export default function TimelineView({ tasks, projects, onTaskClick }: TimelineV
       });
     } else {
       tasksWithDueDate.forEach(task => {
-        const assigneeId = task.assignee?.telegram_id?.toString() || 'unassigned';
+        const assigneeId = task.assignee?.id?.toString() || 'unassigned';
         const label = task.assignee?.display_name || '👤 Не назначено';
         
         if (!groups.has(assigneeId)) {

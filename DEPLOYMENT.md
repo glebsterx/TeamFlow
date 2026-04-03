@@ -17,6 +17,7 @@ cd TeamFlow
 - Docker & Docker Compose
 - Telegram Bot Token (получить у @BotFather)
 - VPS: 1 vCPU, 1GB RAM, 10GB диск, Ubuntu 20.04+
+- HTTPS (для авторизации через Telegram Login Widget — см. [TELEGRAM.md](TELEGRAM.md#telegram-login-widget-авторизация-в-веб-интерфейсе))
 
 ---
 
@@ -32,7 +33,7 @@ BASE_URL=http://tf.example.com
 ### `backend/.env` — для приложения
 ```env
 APP_NAME=TeamFlow
-VERSION=0.8.17
+VERSION=0.8.19
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_BOT_USERNAME=...
 TELEGRAM_PROXY_URL=          # socks5://user:pass@host:port  или  mtproto://host:port?secret=...

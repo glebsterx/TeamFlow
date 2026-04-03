@@ -5,6 +5,7 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 from app.core.logging import get_logger
+from app.config import settings
 
 router = Router()
 logger = get_logger(__name__)
@@ -116,7 +117,7 @@ async def cmd_remind(message: Message):
                 text=(
                     f"⏰ *Напоминание!*\n\n"
                     f"📋 *#{task_id} {task_title}*\n"
-                    f"[Открыть задачу](http://tf.glebsterx.ru:5180/?task={task_id})"
+                    f"[Открыть задачу]({settings.web_url}/?task={task_id})"
                 ),
                 parse_mode="Markdown",
             )

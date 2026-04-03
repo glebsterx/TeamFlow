@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { showToast } from '../utils/toast';
 
 const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
 
@@ -23,11 +24,39 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Response interceptor to handle token refresh
+// Track connection state
+let isOffline = false;
+let offlineToastShown = false;
+
+// Response interceptor to handle errors
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Connection restored
+    if (isOffline) {
+      isOffline = false;
+      offlineToastShown = false;
+      showToast('Соединение восстановлено', 'success');
+    }
+    return response;
+  },
   async (error) => {
     const originalRequest = error.config;
+
+    // Network error or 502 (server restarting)
+    if (!error.response || error.response?.status === 502) {
+      if (!offlineToastShown) {
+        isOffline = true;
+        offlineToastShown = true;
+        showToast('Нет соединения с сервером', 'error');
+        
+        // Auto-retry after 3 seconds
+        setTimeout(() => {
+          isOffline = false;
+          offlineToastShown = false;
+        }, 3000);
+      }
+      return Promise.reject(error);
+    }
 
     // If error is 401 and we haven't tried to refresh yet
     if (error.response?.status === 401 && !originalRequest._retry) {

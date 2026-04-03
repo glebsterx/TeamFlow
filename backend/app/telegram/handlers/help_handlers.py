@@ -82,6 +82,104 @@ HELP_TEXT = (
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
+    # Обработка deep link для авторизации через веб
+    args = message.text.split() if message.text else []
+    if len(args) > 1 and (args[1].startswith("weblogin") or args[1].startswith("bind")):
+        import hashlib
+        import jwt
+        from app.domain.models import LocalAccount, UserIdentity
+        from app.core.db import AsyncSessionLocal
+        from sqlalchemy import select
+
+        user = message.from_user
+        if not user:
+            return
+
+        # Определяем тип: weblogin или bind
+        is_bind = args[1].startswith("bind")
+        prefix = "bind" if is_bind else "weblogin"
+        
+        # Извлекаем токен сессии
+        session_token = args[1].split("_", 1)[1] if "_" in args[1] else str(user.id)
+        print(f"DEBUG: prefix={prefix}, args[1]={args[1]}, session_token={session_token}")
+
+        # Ищем или создаём LocalAccount через UserIdentity
+        async with AsyncSessionLocal() as db:
+            # Сначала ищем через UserIdentity (привязанный Telegram)
+            identity_result = await db.execute(
+                select(UserIdentity).where(
+                    UserIdentity.provider == "telegram",
+                    UserIdentity.provider_user_id == str(user.id),
+                )
+            )
+            identity = identity_result.scalar_one_or_none()
+            
+            if identity:
+                account_result = await db.execute(
+                    select(LocalAccount).where(LocalAccount.id == identity.local_account_id)
+                )
+                account = account_result.scalar_one_or_none()
+            
+            if not account:
+                account = LocalAccount(
+                    username=user.username,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    display_name=user.username or user.first_name,
+                    is_active=True,
+                )
+                db.add(account)
+                await db.flush()
+                
+                # Создаём UserIdentity для telegram
+                identity = UserIdentity(
+                    local_account_id=account.id,
+                    provider="telegram",
+                    provider_user_id=str(user.id),
+                )
+                db.add(identity)
+                await db.flush()
+            
+            await db.commit()
+
+        # Создаём JWT токены
+        from datetime import datetime, timedelta
+        token_data = {"sub": str(account.id), "type": "telegram"}
+
+        access_token = jwt.encode(
+            {**token_data, "exp": datetime.utcnow() + timedelta(days=30)},
+            settings.SECRET_KEY,
+            algorithm="HS256"
+        )
+        refresh_token = jwt.encode(
+            {**token_data, "exp": datetime.utcnow() + timedelta(days=90), "type": "refresh"},
+            settings.SECRET_KEY,
+            algorithm="HS256"
+        )
+
+        # Сохраняем токены в pending-login чтобы веб мог забрать
+        from app.services.settings_service import SettingsService
+        import json
+        async with AsyncSessionLocal() as db2:
+            await SettingsService.set(db2, f"pending_login_{session_token}", json.dumps({
+                "account_id": account.id,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "telegram_id": user.id,
+            }))
+            await db2.commit()
+
+        # Разные сообщения для weblogin и bind
+        if is_bind:
+            await message.answer(
+                f"✅ Telegram привязан к аккаунту!"
+            )
+        else:
+            await message.answer(
+                f"✅ Вход выполнен! Вернитесь в браузер."
+            )
+        return
+
     await message.answer(
         f"👋 *Привет!* Я TeamFlow — бот для управления задачами команды.\n\n"
         f"• /task — создать задачу\n"

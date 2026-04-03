@@ -23,8 +23,8 @@ class TaskService:
         self,
         title: str,
         description: Optional[str] = None,
-        assignee_name: Optional[str] = None,
-        assignee_telegram_id: Optional[int] = None,
+        
+        
         due_date: Optional[datetime] = None,
         definition_of_done: Optional[str] = None,
         source: TaskSource = TaskSource.MANUAL_COMMAND,
@@ -36,8 +36,8 @@ class TaskService:
         task = Task(
             title=title,
             description=description,
-            assignee_name=assignee_name,
-            assignee_telegram_id=assignee_telegram_id,
+            
+            
             status=TaskStatus.TODO.value,
             due_date=due_date,
             definition_of_done=definition_of_done,
@@ -61,7 +61,7 @@ class TaskService:
     ) -> Task:
         """Change task status."""
 
-        task = await self.repository.get_by_id(task_id)
+        task = await self.repository.get_by_id_light(task_id)
         if not task:
             raise ValueError(f"Task {task_id} not found")
 
@@ -153,8 +153,6 @@ class TaskService:
             raise ValueError(f"Task {task_id} not found")
 
         task.assignee_id = user.id
-        task.assignee_telegram_id = user.telegram_id
-        task.assignee_name = user.display_name
 
         task = await self.repository.update(task)
         logger.info("task_assigned", task_id=task_id, assignee=user.display_name)
@@ -173,10 +171,10 @@ class TaskService:
     async def get_all_tasks(
         self,
         status: Optional[TaskStatus] = None,
-        assignee_telegram_id: Optional[int] = None
+        assignee_id: Optional[int] = None
     ) -> List[Task]:
         """Get all tasks with filters."""
-        return await self.repository.get_all(status, assignee_telegram_id)
+        return await self.repository.get_all(status, assignee_id)
     
     async def get_week_tasks(self) -> List[Task]:
         """Get tasks for current week."""
@@ -187,8 +185,8 @@ class TaskService:
         task_id: int,
         title: Optional[str] = None,
         description: Optional[str] = None,
-        assignee_name: Optional[str] = None,
-        assignee_telegram_id: Optional[int] = None,
+        
+        
         due_date: Optional[datetime] = None,
         definition_of_done: Optional[str] = None,
     ) -> Task:
@@ -202,10 +200,6 @@ class TaskService:
             task.title = title
         if description is not None:
             task.description = description
-        if assignee_name is not None:
-            task.assignee_name = assignee_name
-        if assignee_telegram_id is not None:
-            task.assignee_telegram_id = assignee_telegram_id
         if due_date is not None:
             task.due_date = due_date
         if definition_of_done is not None:

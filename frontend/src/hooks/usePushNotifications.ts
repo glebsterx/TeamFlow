@@ -67,5 +67,21 @@ export function usePushNotifications() {
     }).catch(() => {});
   }, []);
 
-  return { permission, subscribed, pushError, requestAndSubscribe };
+  const unsubscribe = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        const json = sub.toJSON();
+        await axios.delete(`${API_URL}/api/push/unsubscribe`, { data: { endpoint: json.endpoint } });
+        await sub.unsubscribe();
+      }
+      setSubscribed(false);
+      showToast('Уведомления отключены', 'success');
+    } catch (e: any) {
+      showToast(e?.message || 'Ошибка отключения', 'error');
+    }
+  };
+
+  return { permission, subscribed, pushError, requestAndSubscribe, unsubscribe };
 }

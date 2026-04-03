@@ -108,7 +108,7 @@ def make_assign_keyboard(task_id: int, users: list) -> InlineKeyboardMarkup:
         buttons.append([
             InlineKeyboardButton(
                 text=f"👤 {user.display_name}",
-                callback_data=f"assign_new:{task_id}:{user.telegram_id}"
+                callback_data=f"assign_new:{task_id}:{user.id}"
             )
         ])
     
@@ -197,8 +197,12 @@ async def handle_confirm_task(callback: CallbackQuery, tg_user_id: int = 0):
                 project_name_hint = f"\n🏷 Проект: {project.emoji or '📁'} {project.name}"
 
         # Получаем список пользователей для назначения
-        user_repo = UserRepository(session)
-        users = await user_repo.get_all()
+        from app.domain.models import LocalAccount
+        from sqlalchemy import select
+        result = await session.execute(
+            select(LocalAccount).where(LocalAccount.is_active == True).order_by(LocalAccount.first_name)
+        )
+        users = result.scalars().all()
 
         await session.commit()
 
@@ -232,7 +236,7 @@ async def handle_self_assign(callback: CallbackQuery, tg_user_id: int = 0):
     async with AsyncSessionLocal() as session:
         service = TaskService(session)
         user_repo = UserRepository(session)
-        user = await user_repo.get_by_telegram_id(tg_user_id)
+        user = await user_repo.get_local_account_by_telegram_id(tg_user_id)
         
         if user:
             await service.take_task(task_id, user)
@@ -249,12 +253,14 @@ async def handle_assign_new(callback: CallbackQuery):
     """Назначить задачу конкретному пользователю."""
     parts = callback.data.split(":")
     task_id = int(parts[1])
-    user_telegram_id = int(parts[2])
+    user_id = int(parts[2])
     
     async with AsyncSessionLocal() as session:
         service = TaskService(session)
-        user_repo = UserRepository(session)
-        user = await user_repo.get_by_telegram_id(user_telegram_id)
+        from app.domain.models import LocalAccount
+        from sqlalchemy import select
+        result = await session.execute(select(LocalAccount).where(LocalAccount.id == user_id))
+        user = result.scalar_one_or_none()
         
         if user:
             await service.assign_task(task_id, user)

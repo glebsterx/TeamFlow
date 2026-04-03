@@ -15,7 +15,6 @@ router = Router()
 
 STATUS_EMOJI = {"TODO": "📝", "DOING": "🔄", "DONE": "✅", "BLOCKED": "🚫"}
 
-
 def tasks_list_keyboard(filter_status: str = "all", show_mine: bool = False, show_projects: bool = False) -> InlineKeyboardMarkup:
     """Фильтры для списка."""
     def btn(text, data):
@@ -40,7 +39,6 @@ def tasks_list_keyboard(filter_status: str = "all", show_mine: bool = False, sho
         ],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
-
 
 def task_buttons_keyboard(tasks: list, page: int = 0, per_page: int = 8) -> InlineKeyboardMarkup:
     """Список задач кнопками (до 8 на странице)."""
@@ -67,18 +65,17 @@ def task_buttons_keyboard(tasks: list, page: int = 0, per_page: int = 8) -> Inli
     buttons.append([InlineKeyboardButton(text="🔍 Фильтры", callback_data="show_filters")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-
-def task_detail_keyboard(task_id: int, status: str, assignee_telegram_id: int = None, current_user_tg_id: int = None) -> InlineKeyboardMarkup:
+def task_detail_keyboard(task_id: int, status: str, assignee_id: int = None, current_user_tg_id: int = None) -> InlineKeyboardMarkup:
     """Действия с задачей."""
     buttons = []
 
     # Взять / Назначить / Снять
-    if not assignee_telegram_id:
+    if not assignee_id:
         buttons.append([
             InlineKeyboardButton(text="👤 Взять себе", callback_data=f"take_task:{task_id}"),
             InlineKeyboardButton(text="👥 Назначить...", callback_data=f"assign_menu:{task_id}"),
         ])
-    elif assignee_telegram_id == current_user_tg_id:
+    elif assignee_id == current_user_tg_id:
         buttons.append([
             InlineKeyboardButton(text="❌ Снять с себя", callback_data=f"unassign:{task_id}"),
             InlineKeyboardButton(text="👥 Переназначить", callback_data=f"assign_menu:{task_id}"),
@@ -105,22 +102,19 @@ def task_detail_keyboard(task_id: int, status: str, assignee_telegram_id: int = 
     buttons.append([InlineKeyboardButton(text="↩️ К списку", callback_data="tasks:all")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-
-def assign_keyboard(task_id: int, users: list[TelegramUser]) -> InlineKeyboardMarkup:
+def assign_keyboard(task_id: int, users: list) -> InlineKeyboardMarkup:
     """Выбор исполнителя."""
     buttons = []
     for user in users[:10]:
         buttons.append([InlineKeyboardButton(
             text=f"👤 {user.display_name}",
-            callback_data=f"assign:{task_id}:{user.telegram_id}"
+            callback_data=f"assign:{task_id}:{user.id}"
         )])
     buttons.append([InlineKeyboardButton(text="↩️ Назад к задаче", callback_data=f"task_detail:{task_id}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-
 # Кеш текущих задач в памяти (для пагинации)
 _task_cache = {}
-
 
 @router.message(Command("tasks"))
 async def cmd_tasks(message: Message):
@@ -131,7 +125,6 @@ async def cmd_tasks(message: Message):
         parse_mode="Markdown"
     )
 
-
 @router.callback_query(F.data == "show_filters")
 async def show_filters(callback: CallbackQuery):
     """Вернуться к фильтрам."""
@@ -141,7 +134,6 @@ async def show_filters(callback: CallbackQuery):
         parse_mode="Markdown"
     )
     await callback.answer()
-
 
 @router.callback_query(F.data.startswith("tasks:"))
 async def handle_tasks_filter(callback: CallbackQuery, tg_user_id: int = 0):
@@ -187,7 +179,7 @@ async def handle_tasks_filter(callback: CallbackQuery, tg_user_id: int = 0):
 
             if action == "mine":
                 tasks = await service.get_all_tasks()
-                tasks = [t for t in tasks if t.assignee_telegram_id == tg_user_id]
+                tasks = [t for t in tasks if t == tg_user_id]
                 header = "👤 Мои задачи"
             elif action in ("TODO", "DOING", "DONE", "BLOCKED"):
                 status = TaskStatus(action)
@@ -214,7 +206,6 @@ async def handle_tasks_filter(callback: CallbackQuery, tg_user_id: int = 0):
         logger.error("tasks_filter_error", error=str(e))
         await callback.answer("❌ Ошибка")
 
-
 @router.callback_query(F.data.startswith("tasks_page:"))
 async def handle_tasks_page(callback: CallbackQuery):
     """Пагинация списка задач."""
@@ -226,7 +217,6 @@ async def handle_tasks_page(callback: CallbackQuery):
         reply_markup=task_buttons_keyboard(tasks, page=page)
     )
     await callback.answer()
-
 
 @router.callback_query(F.data.startswith("task_detail:"))
 async def handle_task_detail(callback: CallbackQuery, tg_user_id: int = 0):
@@ -258,7 +248,7 @@ async def handle_task_detail(callback: CallbackQuery, tg_user_id: int = 0):
             text,
             reply_markup=task_detail_keyboard(
                 task.id, task.status,
-                task.assignee_telegram_id,
+                task,
                 tg_user_id
             ),
             parse_mode="Markdown"
@@ -268,7 +258,6 @@ async def handle_task_detail(callback: CallbackQuery, tg_user_id: int = 0):
     except Exception as e:
         logger.error("task_detail_error", error=str(e))
         await callback.answer("❌ Ошибка")
-
 
 @router.callback_query(F.data.startswith("take_task:"))
 async def handle_take_task(callback: CallbackQuery, tg_user_id: int = 0):
@@ -280,7 +269,7 @@ async def handle_take_task(callback: CallbackQuery, tg_user_id: int = 0):
             service = TaskService(session)
             user_repo = UserRepository(session)
             
-            user = await user_repo.get_by_telegram_id(tg_user_id)
+            user = await user_repo.get_local_account_by_telegram_id(tg_user_id)
             if not user:
                 await callback.answer("❌ Пользователь не найден")
                 return
@@ -295,7 +284,6 @@ async def handle_take_task(callback: CallbackQuery, tg_user_id: int = 0):
     except Exception as e:
         logger.error("take_task_error", error=str(e))
         await callback.answer("❌ Ошибка")
-
 
 @router.callback_query(F.data.startswith("task_status:"))
 async def handle_task_status_change(callback: CallbackQuery):
@@ -318,15 +306,18 @@ async def handle_task_status_change(callback: CallbackQuery):
         logger.error("status_change_error", error=str(e))
         await callback.answer("❌ Ошибка")
 
-
 @router.callback_query(F.data.startswith("assign_menu:"))
 async def handle_assign_menu(callback: CallbackQuery):
     """Меню выбора исполнителя."""
     task_id = int(callback.data.split(":")[1])
     
     async with AsyncSessionLocal() as session:
-        user_repo = UserRepository(session)
-        users = await user_repo.get_all()
+        from app.domain.models import LocalAccount
+        from sqlalchemy import select
+        result = await session.execute(
+            select(LocalAccount).where(LocalAccount.is_active == True).order_by(LocalAccount.first_name)
+        )
+        users = result.scalars().all()
     
     if not users:
         await callback.answer("❌ Нет пользователей")
@@ -339,20 +330,21 @@ async def handle_assign_menu(callback: CallbackQuery):
     )
     await callback.answer()
 
-
 @router.callback_query(F.data.startswith("assign:"))
 async def handle_assign(callback: CallbackQuery):
     """Назначить задачу."""
     parts = callback.data.split(":")
     task_id = int(parts[1])
-    assignee_telegram_id = int(parts[2])
+    assignee_id = int(parts[2])
     
     try:
         async with AsyncSessionLocal() as session:
             service = TaskService(session)
-            user_repo = UserRepository(session)
             
-            user = await user_repo.get_by_telegram_id(assignee_telegram_id)
+            from app.domain.models import LocalAccount
+            from sqlalchemy import select
+            result = await session.execute(select(LocalAccount).where(LocalAccount.id == assignee_id))
+            user = result.scalar_one_or_none()
             if not user:
                 await callback.answer("❌ Пользователь не найден")
                 return
@@ -367,7 +359,6 @@ async def handle_assign(callback: CallbackQuery):
     except Exception as e:
         logger.error("assign_error", error=str(e))
         await callback.answer("❌ Ошибка назначения")
-
 
 @router.callback_query(F.data.startswith("tasks_project:"))
 async def handle_tasks_by_project(callback: CallbackQuery):
@@ -416,7 +407,6 @@ async def handle_tasks_by_project(callback: CallbackQuery):
         logger.error("tasks_by_project_error", error=str(e))
         await callback.answer("❌ Ошибка")
 
-
 @router.callback_query(F.data.startswith("unassign:"))
 async def handle_unassign(callback: CallbackQuery):
     """Снять исполнителя с задачи."""
@@ -428,8 +418,8 @@ async def handle_unassign(callback: CallbackQuery):
             task = await service.get_task(task_id)
             if task:
                 task.assignee_id = None
-                task.assignee_telegram_id = None
-                task.assignee_name = None
+                task = None
+                task = None
                 await session.commit()
 
         await callback.answer("✅ Исполнитель снят")

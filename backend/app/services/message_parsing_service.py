@@ -7,7 +7,6 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-
 @dataclass
 class MessageCandidate:
     """Temporary model for detected task from message."""
@@ -17,7 +16,6 @@ class MessageCandidate:
     detected_due_date: Optional[datetime]
     confidence: float
     original_message: str
-
 
 class MessageParsingService:
     """Service for parsing chat messages to detect tasks."""
@@ -75,23 +73,23 @@ class MessageParsingService:
             return None
         
         # Extract assignee from @mentions
-        assignee_name, assignee_id = self._extract_assignee(text, entities)
+        detected_assignee, assignee_id = self._extract_assignee(text, entities)
         
         # Extract due date
         due_date = self._extract_due_date(text_lower)
         
         # Calculate confidence
-        confidence = self._calculate_confidence(text_lower, assignee_name, due_date)
+        confidence = self._calculate_confidence(text_lower, detected_assignee, due_date)
         
         if confidence < 0.5:
             return None
         
         # Clean text for task title
-        task_text = self._clean_text_for_task(text, assignee_name)
+        task_text = self._clean_text_for_task(text, detected_assignee)
         
         candidate = MessageCandidate(
             text=task_text,
-            detected_assignee=assignee_name,
+            detected_assignee=detected_assignee,
             detected_assignee_id=assignee_id,
             detected_due_date=due_date,
             confidence=confidence,
@@ -101,7 +99,7 @@ class MessageParsingService:
         logger.info(
             "task_candidate_detected",
             text=task_text,
-            assignee=assignee_name,
+            assignee=detected_assignee,
             confidence=confidence
         )
         

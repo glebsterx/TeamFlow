@@ -24,4 +24,12 @@ export interface TokenResponse {
   access_token: string;
   refresh_token: string;
   token_type: string;
+  user: {
+    id: number;
+    id: number;
+    username?: string;
+    first_name: string;
+    last_name?: string;
+    display_name: string;
+  };
 }

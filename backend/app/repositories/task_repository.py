@@ -6,7 +6,6 @@ from sqlalchemy.orm import selectinload
 from app.domain.models import Task, TaskDependency
 from app.domain.enums import TaskStatus, TaskSource
 
-
 class TaskRepository:
     """Repository for Task entity."""
     
@@ -30,8 +29,18 @@ class TaskRepository:
                 selectinload(Task.subtasks).selectinload(Task.assignee),
                 selectinload(Task.tags),
                 selectinload(Task.dependencies).selectinload(TaskDependency.depends_on),
-                selectinload(Task.blocking).selectinload(TaskDependency.task),
-            )
+                selectinload(Task.blocking).selectinload(TaskDependency.task))
+            .where(Task.id == task_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_id_light(self, task_id: int) -> Optional[Task]:
+        """Get task by ID with minimal relations (for status change)."""
+        result = await self.session.execute(
+            select(Task)
+            .options(
+                selectinload(Task.subtasks),
+                selectinload(Task.blockers))
             .where(Task.id == task_id)
         )
         return result.scalar_one_or_none()
@@ -39,7 +48,7 @@ class TaskRepository:
     async def get_all(
         self,
         status: Optional[TaskStatus] = None,
-        assignee_telegram_id: Optional[int] = None
+        assignee_id: Optional[int] = None
     ) -> List[Task]:
         """Get all non-archived, non-deleted, non-backlog tasks (top-level and subtasks)."""
         priority_order = case(
@@ -47,24 +56,22 @@ class TaskRepository:
             (Task.priority == 'HIGH', 2),
             (Task.priority == 'NORMAL', 3),
             (Task.priority == 'LOW', 4),
-            else_=5,
-        )
+            else_=5)
         query = (
             select(Task)
             .options(
                 selectinload(Task.blockers),
                 selectinload(Task.assignee),
                 selectinload(Task.subtasks).selectinload(Task.assignee),
-                selectinload(Task.tags),
-            )
+                selectinload(Task.tags))
             .where(Task.archived == False)  # noqa: E712
             .where(Task.deleted == False)   # noqa: E712
             .where(Task.backlog == False)   # noqa: E712 - exclude backlog tasks
         )
         if status:
             query = query.where(Task.status == status.value)
-        if assignee_telegram_id:
-            query = query.where(Task.assignee_telegram_id == assignee_telegram_id)
+        if assignee_id:
+            query = query.where(Task.assignee_id == assignee_id)
 
         result = await self.session.execute(
             query.order_by(priority_order, Task.created_at.desc())
@@ -79,8 +86,7 @@ class TaskRepository:
                 selectinload(Task.blockers),
                 selectinload(Task.assignee),
                 selectinload(Task.subtasks).selectinload(Task.assignee),
-                selectinload(Task.tags),
-            )
+                selectinload(Task.tags))
             .where(Task.archived == True)  # noqa: E712
             .where(Task.deleted == False)  # noqa: E712
             .order_by(Task.updated_at.desc())
@@ -95,8 +101,7 @@ class TaskRepository:
                 selectinload(Task.blockers),
                 selectinload(Task.assignee),
                 selectinload(Task.subtasks).selectinload(Task.assignee),
-                selectinload(Task.tags),
-            )
+                selectinload(Task.tags))
             .where(Task.deleted == True)  # noqa: E712
             .order_by(Task.updated_at.desc())
         )
@@ -130,8 +135,7 @@ class TaskRepository:
                 selectinload(Task.blockers),
                 selectinload(Task.assignee),
                 selectinload(Task.subtasks).selectinload(Task.assignee),
-                selectinload(Task.tags),
-            )
+                selectinload(Task.tags))
             .where(Task.created_at >= week_start)
             .order_by(Task.status, Task.created_at.desc())
         )

@@ -7,11 +7,11 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: teamflow-backend
-    env_file:
-      - ./backend/.env
     volumes:
-      - ./backend/app:/app/app    # Hot reload для кода
-      - teamflow-data:/app/data   # Данные
+      - ./backend/.env:/app/.env:ro  # Подхват изменений при restart
+      - ./backend/app:/app/app       # Hot reload для кода
+      - ./backend/migrate.py:/app/migrate.py:ro  # Hot reload для миграций
+      - teamflow-data:/app/data      # Данные
       - /var/run/docker.sock:/var/run/docker.sock  # Docker socket для restart API
     ports:
       - "${BACKEND_PORT:-8180}:8000"

@@ -51,6 +51,62 @@ class Project(Base):
         return f"<Project(id={self.id}, name='{self.name}')>"
 
 
+class TeamMember(Base):
+    """Команда (team) — пользователи и их роли."""
+    __tablename__ = "team_members"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # Maps to local_accounts.id (column name kept for backward compatibility)
+    telegram_user_id = Column(Integer, ForeignKey("local_accounts.id", ondelete="CASCADE"), nullable=False, unique=True)
+    role = Column(String(20), nullable=False)  # owner / admin / member / viewer
+    joined_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    invited_by_id = Column(Integer, ForeignKey("team_members.id"), nullable=True)
+
+    user = relationship("LocalAccount", foreign_keys=[telegram_user_id])
+    invited_by = relationship("TeamMember", remote_side=[id])
+
+    def __repr__(self):
+        return f"<TeamMember(id={self.id}, telegram_user_id={self.telegram_user_id}, role='{self.role}')>"
+
+
+class TeamInvite(Base):
+    """Приглашение в команду."""
+    __tablename__ = "team_invites"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    invite_token = Column(String(64), nullable=False, unique=True, index=True)
+    telegram_username = Column(String(100), nullable=True)
+    email = Column(String(255), nullable=True)
+    role = Column(String(20), nullable=False, default="member")
+    created_by_id = Column(Integer, ForeignKey("team_members.id"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    is_active = Column(Boolean, default=True)
+    used_at = Column(DateTime, nullable=True)
+    used_by_telegram_id = Column(Integer, nullable=True)
+
+    def __repr__(self):
+        return f"<TeamInvite(token='{self.invite_token[:8]}...', role='{self.role}')>"
+
+
+class ProjectMember(Base):
+    """Член проекта — M2M пользователь ↔ проект."""
+    __tablename__ = "project_members"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    # Maps to local_accounts.id (column name kept for backward compatibility)
+    telegram_user_id = Column(Integer, ForeignKey("local_accounts.id", ondelete="CASCADE"), nullable=False)
+    role = Column(String(20), nullable=False, default="viewer")  # admin / editor / viewer
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    project = relationship("Project")
+    user = relationship("LocalAccount", foreign_keys=[telegram_user_id])
+
+    def __repr__(self):
+        return f"<ProjectMember(project_id={self.project_id}, telegram_user_id={self.telegram_user_id}, role='{self.role}')>"
+
+
 class TelegramUser(Base):
     """Telegram user."""
     __tablename__ = "telegram_users"
@@ -64,8 +120,6 @@ class TelegramUser(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    assigned_tasks = relationship("Task", back_populates="assignee", foreign_keys="Task.assignee_id")
-
     @property
     def display_name(self) -> str:
         if self.username:
@@ -76,6 +130,69 @@ class TelegramUser(Base):
 
     def __repr__(self):
         return f"<TelegramUser(id={self.telegram_id}, name='{self.display_name}')>"
+
+
+class LocalAccount(Base):
+    """Единый аккаунт пользователя."""
+    __tablename__ = "local_accounts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    display_name = Column(String(100), nullable=True)
+    first_name = Column(String(100), nullable=False, default="")
+    last_name = Column(String(100), nullable=True)
+    username = Column(String(100), nullable=True, index=True)
+    email = Column(String(255), nullable=True)
+    is_active = Column(Boolean, default=True)
+    system_role = Column(String(20), nullable=False, default="user")  # admin / user
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    local_identity = relationship("LocalIdentity", back_populates="account", uselist=False)
+    oauth_identities = relationship("UserIdentity", back_populates="account")
+    # assigned_tasks = relationship("Task", back_populates="assignee", foreign_keys="Task.assignee_id")
+
+    @property
+    def display(self) -> str:
+        if self.display_name:
+            return self.display_name
+        if self.username:
+            return f"@{self.username}"
+        if self.last_name:
+            return f"{self.first_name} {self.last_name}"
+        return self.first_name or f"User #{self.id}"
+
+    def __repr__(self):
+        return f"<LocalAccount(id={self.id}, display='{self.display}')>"
+
+
+class LocalIdentity(Base):
+    """Логин/пароль."""
+    __tablename__ = "local_identities"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    local_account_id = Column(Integer, ForeignKey("local_accounts.id", ondelete="CASCADE"), nullable=False, unique=True)
+    login = Column(String(100), nullable=False, unique=True, index=True)
+    password_hash = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    account = relationship("LocalAccount", back_populates="local_identity")
+
+
+class UserIdentity(Base):
+    """OAuth: telegram / google / yandex."""
+    __tablename__ = "user_identities"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    local_account_id = Column(Integer, ForeignKey("local_accounts.id", ondelete="CASCADE"), nullable=False)
+    provider = Column(String(20), nullable=False)
+    provider_user_id = Column(String(255), nullable=False)
+    telegram_id = Column(Integer, nullable=True)
+    email = Column(String(255), nullable=True)
+    access_token = Column(Text, nullable=True)
+    refresh_token = Column(Text, nullable=True)
+    linked_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    account = relationship("LocalAccount", back_populates="oauth_identities")
 
 
 class Task(Base):
@@ -90,9 +207,8 @@ class Task(Base):
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
 
     # Assignee
-    assignee_id = Column(Integer, ForeignKey("telegram_users.id"), nullable=True)
-    assignee_name = Column(String(100), nullable=True)
-    assignee_telegram_id = Column(BigInteger, nullable=True)
+    assignee_id = Column(Integer, ForeignKey("local_accounts.id"), nullable=True)
+    assignee = relationship("LocalAccount", foreign_keys=[assignee_id])
 
     # Subtasks
     parent_task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True)
@@ -131,7 +247,7 @@ class Task(Base):
 
     # Relationships
     project = relationship("Project", back_populates="tasks")
-    assignee = relationship("TelegramUser", back_populates="assigned_tasks", foreign_keys=[assignee_id])
+    assignee = relationship("LocalAccount", foreign_keys=[assignee_id])
     blockers = relationship("Blocker", back_populates="task", cascade="all, delete-orphan")
     comments = relationship("Comment", back_populates="task", cascade="all, delete-orphan", order_by="Comment.created_at")
     subtasks = relationship(

@@ -15,7 +15,7 @@ from app.core.db import get_db
 from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskStatus
-from app.domain.models import Task, Project, Meeting, Comment, Blocker
+from app.domain.models import Task, Project, Meeting, Comment, Blocker, LocalAccount
 from app.web import schemas
 from app.web.schemas import TaskResponse, TaskDetailResponse, StatsResponse, BotInfoResponse, TelegramUserResponse
 from app.config import settings
@@ -24,14 +24,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-
 @router.get("/bot-info", response_model=BotInfoResponse)
-async def get_bot_info():
+async def get_bot_info(db: AsyncSession = Depends(get_db)):
+    from app.services.settings_service import SettingsService
+    username = await SettingsService.get(db, "bot_username") or ""
     return BotInfoResponse(
-        username=settings.TELEGRAM_BOT_USERNAME,
+        username=username,
         bot_name=settings.APP_NAME
     )
-
 
 @router.get("/tasks", response_model=List[TaskResponse])
 async def get_tasks(
@@ -42,7 +42,6 @@ async def get_tasks(
     tasks = await service.get_all_tasks(status)
     return tasks
 
-
 @router.get("/tasks/{task_id}", response_model=TaskDetailResponse)
 async def get_task(task_id: int, db: AsyncSession = Depends(get_db)):
     service = TaskService(db)
@@ -50,7 +49,6 @@ async def get_task(task_id: int, db: AsyncSession = Depends(get_db)):
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
-
 
 @router.get("/stats", response_model=StatsResponse)
 async def get_stats(db: AsyncSession = Depends(get_db)):
@@ -71,25 +69,21 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         "deleted": len(deleted),
     }
 
-
-@router.get("/users", response_model=List[TelegramUserResponse])
+@router.get("/users", response_model=List[schemas.LocalAccountResponse])
 async def get_users(db: AsyncSession = Depends(get_db)):
-    """Get all known telegram users."""
+    """Get all active users."""
     repo = UserRepository(db)
-    users = await repo.get_all()
+    users = await repo.get_all_accounts()
     return users
-
 
 class AssignRequest(BaseModel):
     """Request body для назначения задачи."""
     user_id: Optional[int] = None
 
-
 class StatusChangeRequest(BaseModel):
     """Request body для смены статуса."""
     status: str
     block_reason: Optional[str] = None
-
 
 @router.post("/tasks/{task_id}/status")
 async def change_task_status(
@@ -130,7 +124,7 @@ async def change_task_status(
                         "title": task.title,
                         "status": task.status,
                         "project_id": task.project_id,
-                        "assignee_telegram_id": task.assignee_telegram_id,
+                        "assignee_id": task.assignee_id,
                     }
                     asyncio.create_task(trigger_task_status_changed(old_status, request.status, task_data))
             except Exception as e:
@@ -159,27 +153,22 @@ async def change_task_status(
                             description=task.description,
                             project_id=task.project_id,
                             assignee_id=task.assignee_id,
-                            assignee_name=task.assignee_name,
-                            assignee_telegram_id=task.assignee_telegram_id,
                             priority=task.priority,
                             due_date=next_due,
                             recurrence=task.recurrence,
                             recurrence_end_date=task.recurrence_end_date,
                             source=TaskSource.MANUAL_COMMAND.value,
-                            status="TODO",
-                        )
+                            status="TODO")
                         db.add(next_task)
                         await db.commit()
 
         background_tasks.add_task(send_push,
             title=f"Задача обновлена: #{task_id}",
             body=f"Новый статус: {request.status}",
-            url=f"/?task={task_id}",
-        )
+            url=f"/?task={task_id}")
         return {"ok": True}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 
 @router.post("/tasks/{task_id}/assign")
 async def assign_task_api(
@@ -195,26 +184,19 @@ async def assign_task_api(
         raise HTTPException(status_code=404, detail="Task not found")
 
     if request.user_id:
-        user_repo = UserRepository(db)
-        user = await user_repo.get_by_telegram_id(request.user_id)
+        result = await db.execute(select(LocalAccount).where(LocalAccount.id == request.user_id))
+        user = result.scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         await service.assign_task(task_id, user)
         await db.commit()
-        background_tasks.add_task(send_push,
-            title=f"Задача назначена: #{task_id}",
-            body=task.title,
-            url=f"/?task={task_id}",
-        )
     else:
         # Снять исполнителя
         task.assignee_id = None
-        task.assignee_telegram_id = None
-        task.assignee_name = None
+
         await db.commit()
 
     return {"ok": True}
-
 
 # ============= PROJECTS API =============
 
@@ -225,7 +207,6 @@ class ProjectCreateRequest(BaseModel):
     emoji: Optional[str] = "📁"
     parent_project_id: Optional[int] = None
 
-
 class ProjectUpdateRequest(BaseModel):
     """Обновление проекта."""
     name: Optional[str] = None
@@ -233,7 +214,6 @@ class ProjectUpdateRequest(BaseModel):
     emoji: Optional[str] = None
     is_active: Optional[bool] = None
     parent_project_id: Optional[int] = None
-
 
 class ProjectResponse(BaseModel):
     """Проект."""
@@ -246,7 +226,6 @@ class ProjectResponse(BaseModel):
     parent_project_id: Optional[int] = None
     model_config = ConfigDict(from_attributes=True)
 
-
 @router.get("/projects", response_model=List[ProjectResponse])
 async def get_projects(db: AsyncSession = Depends(get_db)):
     """Получить все проекты."""
@@ -254,7 +233,6 @@ async def get_projects(db: AsyncSession = Depends(get_db)):
     repo = ProjectRepository(db)
     projects = await repo.get_all_active()
     return projects
-
 
 @router.post("/projects", response_model=ProjectResponse)
 async def create_project(request: ProjectCreateRequest, db: AsyncSession = Depends(get_db)):
@@ -279,7 +257,6 @@ async def create_project(request: ProjectCreateRequest, db: AsyncSession = Depen
     )
     await db.commit()
     return project
-
 
 @router.patch("/projects/{project_id}", response_model=ProjectResponse)
 async def update_project(
@@ -316,7 +293,6 @@ async def update_project(
     await db.refresh(project)
     return project
 
-
 @router.get("/projects/archived", response_model=List[ProjectResponse])
 async def get_archived_projects(db: AsyncSession = Depends(get_db)):
     """Получить архивные проекты."""
@@ -324,7 +300,6 @@ async def get_archived_projects(db: AsyncSession = Depends(get_db)):
     repo = ProjectRepository(db)
     projects = await repo.get_archived()
     return projects
-
 
 @router.post("/projects/{project_id}/archive", response_model=ProjectResponse)
 async def archive_project(project_id: int, db: AsyncSession = Depends(get_db)):
@@ -335,7 +310,6 @@ async def archive_project(project_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return await repo.get_by_id(project_id)
 
-
 @router.post("/projects/{project_id}/restore", response_model=ProjectResponse)
 async def restore_project(project_id: int, db: AsyncSession = Depends(get_db)):
     """Восстановить проект из архива."""
@@ -345,7 +319,6 @@ async def restore_project(project_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return await repo.get_by_id(project_id)
 
-
 @router.get("/projects/{project_id}/can-delete")
 async def check_can_delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
     """Проверить можно ли удалить проект."""
@@ -353,7 +326,6 @@ async def check_can_delete_project(project_id: int, db: AsyncSession = Depends(g
     repo = ProjectRepository(db)
     result = await repo.can_delete(project_id)
     return result
-
 
 @router.delete("/projects/{project_id}")
 async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
@@ -380,11 +352,9 @@ async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"ok": True}
 
-
 class ProjectAssignRequest(BaseModel):
     """Назначение задачи в проект."""
     project_id: Optional[int] = None
-
 
 @router.post("/tasks/{task_id}/project")
 async def assign_task_to_project(
@@ -403,7 +373,6 @@ async def assign_task_to_project(
     await db.refresh(task)
     
     return {"ok": True, "project_id": task.project_id}
-
 
 # ============= MEETINGS API =============
 
@@ -464,7 +433,6 @@ class MeetingUpdateRequest(BaseModel):
     participant_names: Optional[List[str]] = None   # legacy: просто имена
     participants: Optional[List[ParticipantInput]] = None  # v2: имя + telegram_user_id
 
-
 def _meeting_to_response(m) -> dict:
     """Convert Meeting ORM to MeetingResponse dict."""
     return {
@@ -507,7 +475,6 @@ async def get_meetings(
         meetings = [m for m in meetings if any(mp.project_id == project_id for mp in m.projects)]
     return [_meeting_to_response(m) for m in meetings]
 
-
 @router.post("/meetings", response_model=MeetingResponse)
 async def create_meeting(request: MeetingCreateRequest, db: AsyncSession = Depends(get_db)):
     """Создать встречу v2."""
@@ -519,8 +486,7 @@ async def create_meeting(request: MeetingCreateRequest, db: AsyncSession = Depen
         title=request.title,
         meeting_type=request.meeting_type,
         duration_min=request.duration_min,
-        agenda=request.agenda,
-    )
+        agenda=request.agenda)
     db.add(meeting)
     await db.flush()
     for pid in (request.project_ids or []):
@@ -532,8 +498,7 @@ async def create_meeting(request: MeetingCreateRequest, db: AsyncSession = Depen
                 db.add(MeetingParticipant(
                     meeting_id=meeting.id,
                     display_name=p.display_name.strip(),
-                    telegram_user_id=p.telegram_user_id,
-                ))
+                    telegram_user_id=p.telegram_user_id))
     else:
         for name in (request.participant_names or []):
             if name.strip():
@@ -541,7 +506,6 @@ async def create_meeting(request: MeetingCreateRequest, db: AsyncSession = Depen
     await db.commit()
     result = await db.execute(select(Meeting).options(*_meeting_opts()).where(Meeting.id == meeting.id))
     return _meeting_to_response(result.scalar_one())
-
 
 @router.patch("/meetings/{meeting_id}", response_model=MeetingResponse)
 async def update_meeting(meeting_id: int, request: MeetingUpdateRequest, db: AsyncSession = Depends(get_db)):
@@ -569,8 +533,7 @@ async def update_meeting(meeting_id: int, request: MeetingUpdateRequest, db: Asy
                 db.add(MeetingParticipant(
                     meeting_id=meeting_id,
                     display_name=p.display_name.strip(),
-                    telegram_user_id=p.telegram_user_id,
-                ))
+                    telegram_user_id=p.telegram_user_id))
     elif request.participant_names is not None:
         for p in list(meeting.participants): await db.delete(p)
         for name in request.participant_names:
@@ -579,7 +542,6 @@ async def update_meeting(meeting_id: int, request: MeetingUpdateRequest, db: Asy
     await db.commit()
     result2 = await db.execute(select(Meeting).options(*_meeting_opts()).where(Meeting.id == meeting_id))
     return _meeting_to_response(result2.scalar_one())
-
 
 @router.post("/meetings/{meeting_id}/tasks/{task_id}")
 async def add_task_to_meeting(meeting_id: int, task_id: int, db: AsyncSession = Depends(get_db)):
@@ -591,7 +553,6 @@ async def add_task_to_meeting(meeting_id: int, task_id: int, db: AsyncSession = 
         await db.commit()
     return {"ok": True}
 
-
 @router.delete("/meetings/{meeting_id}/tasks/{task_id}")
 async def remove_task_from_meeting(meeting_id: int, task_id: int, db: AsyncSession = Depends(get_db)):
     from app.domain.models import MeetingTask
@@ -601,7 +562,6 @@ async def remove_task_from_meeting(meeting_id: int, task_id: int, db: AsyncSessi
         await db.delete(mt)
         await db.commit()
     return {"ok": True}
-
 
 @router.post("/meetings/{meeting_id}/parse-action-items")
 async def parse_action_items(meeting_id: int, db: AsyncSession = Depends(get_db)):
@@ -627,7 +587,6 @@ async def parse_action_items(meeting_id: int, db: AsyncSession = Depends(get_db)
                 items.append(item)
     return {"action_items": items[:10]}
 
-
 @router.delete("/meetings/{meeting_id}")
 async def delete_meeting(meeting_id: int, db: AsyncSession = Depends(get_db)):
     """Удалить встречу."""
@@ -640,7 +599,6 @@ async def delete_meeting(meeting_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"ok": True}
 
-
 # ============= TASKS API EXTENSIONS =============
 
 class TaskCreateRequest(BaseModel):
@@ -649,14 +607,13 @@ class TaskCreateRequest(BaseModel):
     description: Optional[str] = None
     project_id: Optional[int] = None
     parent_task_id: Optional[int] = None
-    assignee_telegram_id: Optional[int] = None
+    assignee_id: Optional[int] = None
     due_date: Optional[datetime] = None
     priority: Optional[str] = "NORMAL"
     backlog: bool = False
     recurrence: Optional[str] = None
     recurrence_end_date: Optional[datetime] = None
     source: Optional[str] = None  # overrides default TaskSource if provided
-
 
 class TaskUpdateRequest(BaseModel):
     """Обновление задачи."""
@@ -672,15 +629,13 @@ class TaskUpdateRequest(BaseModel):
     # Optimistic locking — client sends the updated_at they read
     expected_updated_at: Optional[datetime] = None
 
-
 class SubtaskCreateRequest(BaseModel):
     """Создание подзадачи."""
     title: str
     description: Optional[str] = None
-    assignee_telegram_id: Optional[int] = None
+    assignee_id: Optional[int] = None
     due_date: Optional[datetime] = None
     priority: Optional[str] = "NORMAL"
-
 
 @router.post("/tasks", response_model=TaskResponse)
 async def create_task_api(request: TaskCreateRequest, db: AsyncSession = Depends(get_db)):
@@ -721,18 +676,15 @@ async def create_task_api(request: TaskCreateRequest, db: AsyncSession = Depends
     if request.recurrence_end_date:
         task.recurrence_end_date = request.recurrence_end_date
 
-    if request.assignee_telegram_id:
+    if request:
         user_repo = UserRepository(db)
-        user = await user_repo.get_by_telegram_id(request.assignee_telegram_id)
+        user = await user_repo.get_by_telegram_id(request)
         if user:
             task.assignee_id = user.id
-            task.assignee_telegram_id = user.telegram_id
-            task.assignee_name = user.display_name
-    
+
     await db.commit()
     from app.repositories.task_repository import TaskRepository
     return await TaskRepository(db).get_by_id(task.id)
-
 
 @router.patch("/tasks/{task_id}", response_model=TaskResponse)
 async def update_task_api(
@@ -797,7 +749,6 @@ async def update_task_api(
     from app.repositories.task_repository import TaskRepository
     return await TaskRepository(db).get_by_id(task_id)
 
-
 @router.delete("/tasks/{task_id}")
 async def delete_task_api(task_id: int, db: AsyncSession = Depends(get_db)):
     """Мягкое удаление задачи (помечает как deleted)."""
@@ -809,12 +760,10 @@ async def delete_task_api(task_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"ok": True}
 
-
 @router.delete("/tasks/{task_id}/permanent")
 async def permanent_delete_task_api(task_id: int):
     """Безвозвратное удаление отключено — задачи хранятся навсегда."""
     raise HTTPException(status_code=403, detail="Permanent deletion is disabled. Tasks are kept for audit.")
-
 
 @router.post("/tasks/{task_id}/restore")
 async def restore_deleted_task(task_id: int, db: AsyncSession = Depends(get_db)):
@@ -829,11 +778,9 @@ async def restore_deleted_task(task_id: int, db: AsyncSession = Depends(get_db))
     await db.commit()
     return {"ok": True}
 
-
 class AddTimeRequest(BaseModel):
     """Добавление времени к задаче."""
     minutes: int
-
 
 @router.patch("/tasks/{task_id}/time")
 async def add_time_to_task(
@@ -867,7 +814,6 @@ async def add_time_to_task(
         "added_minutes": request.minutes
     }
 
-
 @router.post("/tasks/{task_id}/subtasks", response_model=TaskResponse)
 async def create_subtask(
     task_id: int,
@@ -885,27 +831,23 @@ async def create_subtask(
     subtask = await service.create_task(
         title=request.title,
         description=request.description,
-        source=TaskSource.MANUAL_COMMAND,
-    )
+        source=TaskSource.MANUAL_COMMAND)
     subtask.parent_task_id = task_id
     subtask.priority = request.priority or "NORMAL"
 
     if request.due_date:
         subtask.due_date = request.due_date
 
-    if request.assignee_telegram_id:
+    if request:
         user_repo = UserRepository(db)
-        user = await user_repo.get_by_telegram_id(request.assignee_telegram_id)
+        user = await user_repo.get_by_telegram_id(request)
         if user:
             subtask.assignee_id = user.id
-            subtask.assignee_telegram_id = user.telegram_id
-            subtask.assignee_name = user.display_name
 
     await db.commit()
     from app.repositories.task_repository import TaskRepository
     repo = TaskRepository(db)
     return await repo.get_by_id(subtask.id)
-
 
 # ============= BACKLOG API =============
 
@@ -933,11 +875,9 @@ async def get_backlog_tasks(
         selectinload(Task.blockers),
         selectinload(Task.assignee),
         selectinload(Task.subtasks).selectinload(Task.assignee),
-        selectinload(Task.tags),
-    )
+        selectinload(Task.tags))
     result = await db.execute(query)
     return result.scalars().all()
-
 
 # ============= ARCHIVE API =============
 
@@ -948,14 +888,12 @@ async def get_archived_tasks(db: AsyncSession = Depends(get_db)):
     repo = TaskRepository(db)
     return await repo.get_archived()
 
-
 @router.get("/deleted", response_model=List[TaskResponse])
 async def get_deleted_tasks(db: AsyncSession = Depends(get_db)):
     """Получить удалённые задачи."""
     from app.repositories.task_repository import TaskRepository
     repo = TaskRepository(db)
     return await repo.get_deleted()
-
 
 @router.post("/tasks/{task_id}/archive")
 async def archive_task(task_id: int, db: AsyncSession = Depends(get_db)):
@@ -968,7 +906,6 @@ async def archive_task(task_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"ok": True}
 
-
 @router.post("/tasks/{task_id}/unarchive")
 async def unarchive_task(task_id: int, db: AsyncSession = Depends(get_db)):
     """Разархивировать задачу."""
@@ -980,14 +917,12 @@ async def unarchive_task(task_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"ok": True}
 
-
 # ============= COMMENTS API =============
 
 class CommentCreateRequest(BaseModel):
     text: str
     author_name: Optional[str] = None
     author_telegram_id: Optional[int] = None
-
 
 @router.get("/tasks/{task_id}/comments", response_model=List[schemas.CommentResponse])
 async def get_comments(task_id: int, db: AsyncSession = Depends(get_db)):
@@ -997,7 +932,6 @@ async def get_comments(task_id: int, db: AsyncSession = Depends(get_db)):
     )
     return result.scalars().all()
 
-
 @router.post("/tasks/{task_id}/comments", response_model=schemas.CommentResponse)
 async def add_comment(task_id: int, request: CommentCreateRequest, db: AsyncSession = Depends(get_db)):
     from app.domain.models import Comment
@@ -1005,21 +939,18 @@ async def add_comment(task_id: int, request: CommentCreateRequest, db: AsyncSess
         task_id=task_id,
         text=request.text.strip(),
         author_name=request.author_name,
-        author_telegram_id=request.author_telegram_id,
-    )
+        author_telegram_id=request.author_telegram_id)
     db.add(comment)
     await db.commit()
     await db.refresh(comment)
     return comment
-
 
 @router.put("/tasks/{task_id}/comments/{comment_id}", response_model=schemas.CommentResponse)
 async def update_comment(
     task_id: int,
     comment_id: int,
     request: schemas.CommentUpdate,
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Update comment text."""
     from app.domain.models import Comment
     result = await db.execute(
@@ -1033,13 +964,11 @@ async def update_comment(
     await db.refresh(comment)
     return comment
 
-
 @router.delete("/tasks/{task_id}/comments/{comment_id}")
 async def delete_comment(
     task_id: int,
     comment_id: int,
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Delete a comment."""
     from app.domain.models import Comment
     result = await db.execute(
@@ -1051,7 +980,6 @@ async def delete_comment(
     await db.delete(comment)
     await db.commit()
     return {"ok": True}
-
 
 @router.post("/tasks/auto-archive")
 async def auto_archive_done_tasks(db: AsyncSession = Depends(get_db)):
@@ -1071,7 +999,6 @@ async def auto_archive_done_tasks(db: AsyncSession = Depends(get_db)):
     )
     await db.commit()
     return {"archived": result.rowcount}
-
 
 # ============= WEB PUSH API =============
 
@@ -1104,23 +1031,19 @@ async def send_push(title: str, body: str, url: str = "/") -> None:
                 },
                 data=payload,
                 vapid_private_key=private_key,
-                vapid_claims={"sub": f"mailto:{settings.VAPID_CLAIMS_EMAIL}"},
-            )
+                vapid_claims={"sub": f"mailto:{settings.VAPID_CLAIMS_EMAIL}"})
         except Exception as exc:  # noqa: BLE001
             logger.debug("Push delivery failed for endpoint %s: %s", sub.endpoint[:40], exc)
-
 
 @router.get("/push/vapid-public-key")
 async def get_vapid_public_key():
     """Return VAPID public key for client-side subscription."""
     return {"public_key": settings.VAPID_PUBLIC_KEY}
 
-
 @router.post("/push/subscribe")
 async def push_subscribe(
     request: schemas.PushSubscriptionCreate,
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Save or update a Web Push subscription (upsert by endpoint)."""
     from app.domain.models import PushSubscription as PushSubscriptionModel
 
@@ -1138,19 +1061,16 @@ async def push_subscribe(
             endpoint=request.endpoint,
             p256dh=request.keys["p256dh"],
             auth=request.keys["auth"],
-            user_telegram_id=request.user_telegram_id,
-        )
+            user_telegram_id=request.user_telegram_id)
         db.add(sub)
 
     await db.commit()
     return {"ok": True}
 
-
 @router.delete("/push/unsubscribe")
 async def push_unsubscribe(
     request: schemas.UnsubscribeRequest,
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Remove a Web Push subscription by endpoint."""
     from app.domain.models import PushSubscription as PushSubscriptionModel
 
@@ -1162,7 +1082,6 @@ async def push_unsubscribe(
         await db.delete(sub)
         await db.commit()
     return {"ok": True}
-
 
 # ============= SEARCH API =============
 
@@ -1195,8 +1114,7 @@ async def search_tasks(q: str = Query(default=""), limit: int = 20, db: AsyncSes
             Task.title.like(f"%{q_title}%"),
             Task.description.like(f"%{q_lower}%"),
             Task.description.like(f"%{q_upper}%"),
-            Task.description.like(f"%{q_title}%"),
-        ))
+            Task.description.like(f"%{q_title}%")))
         .order_by(Task.updated_at.desc())
         .limit(limit)
     )
@@ -1210,8 +1128,7 @@ async def search_tasks(q: str = Query(default=""), limit: int = 20, db: AsyncSes
             "priority": t.priority,
             "project_id": t.project_id,
             "parent_task_id": t.parent_task_id,
-            "assignee_name": t.assignee_name,
-            "assignee_telegram_id": t.assignee_telegram_id,
+
             "due_date": t.due_date.isoformat() if t.due_date else None,
             "archived": t.archived,
             "deleted": t.deleted,
@@ -1219,8 +1136,6 @@ async def search_tasks(q: str = Query(default=""), limit: int = 20, db: AsyncSes
         }
         for t in tasks
     ]
-
-
 
 # ============= SPRINT STATUS & REORDER =============
 
@@ -1246,7 +1161,6 @@ async def update_sprint_status(sprint_id: int, req: dict, db: AsyncSession = Dep
     # Return simple response
     return {"ok": True, "status": status, "id": sprint_id}
 
-
 @router.patch("/sprints/reorder")
 async def reorder_sprints(req: dict, db: AsyncSession = Depends(get_db)):
     """Изменить порядок спринтов."""
@@ -1259,7 +1173,6 @@ async def reorder_sprints(req: dict, db: AsyncSession = Depends(get_db)):
     
     await db.commit()
     return {"ok": True}
-
 
 @router.patch("/sprints/{sprint_id}/tasks/reorder")
 async def reorder_sprint_tasks(sprint_id: int, req: dict, db: AsyncSession = Depends(get_db)):
@@ -1278,7 +1191,6 @@ async def reorder_sprint_tasks(sprint_id: int, req: dict, db: AsyncSession = Dep
     
     await db.commit()
     return {"ok": True}
-
 
 # ============= DIGEST API =============
 
@@ -1425,8 +1337,8 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
     for task in all_tasks:
         if task.assignee:
             name = task.assignee.display_name
-        elif task.assignee_name:
-            name = task.assignee_name
+        elif task:
+            name = task
         else:
             continue
         if name not in performers:
@@ -1514,19 +1426,16 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
         "sprint_progress": sprint_progress,
     }
 
-
 # ============= EXPORT / IMPORT =============
 
 def _dt(v) -> str | None:
     return v.isoformat() if v else None
 
-
 @router.get("/export")
 async def export_data(
     project_id: Optional[int] = None,
     include: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Export all data as JSON."""
     parts = set(include.split(",")) if include else {
         "tasks", "projects", "meetings", "comments", "sprints",
@@ -1565,8 +1474,8 @@ async def export_data(
             {"id": r.id, "title": r.title, "description": r.description,
              "status": r.status, "priority": r.priority,
              "project_id": r.project_id, "parent_task_id": r.parent_task_id,
-             "assignee_id": r.assignee_id, "assignee_name": r.assignee_name,
-             "assignee_telegram_id": r.assignee_telegram_id,
+             "assignee_id": r.assignee_id, 
+             
              "source": r.source, "source_message_id": r.source_message_id,
              "source_chat_id": r.source_chat_id,
              "due_date": _dt(r.due_date), "definition_of_done": r.definition_of_done,
@@ -1685,14 +1594,11 @@ async def export_data(
 
     return JSONResponse(
         content=payload,
-        headers={"Content-Disposition": f"attachment; filename=teamflow-export-{today}.json"},
-    )
-
+        headers={"Content-Disposition": f"attachment; filename=teamflow-export-{today}.json"})
 
 class ImportRequest(BaseModel):
     mode: str  # "full" | "merge"
     data: dict
-
 
 @router.post("/import")
 async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
@@ -1733,8 +1639,7 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
             id=p["id"], name=p["name"], description=p.get("description"),
             emoji=p.get("emoji", "📁"), is_active=p.get("is_active", True),
             parent_project_id=p.get("parent_project_id"),
-            created_at=_parse_dt(p.get("created_at")) or datetime.utcnow(),
-        ))
+            created_at=_parse_dt(p.get("created_at")) or datetime.utcnow()))
         counts["projects"] += 1
     await db.flush()
 
@@ -1751,8 +1656,7 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
                 id=t["id"], title=t["title"], description=t.get("description"),
                 status=t.get("status", "TODO"), priority=t.get("priority", "NORMAL"),
                 project_id=t.get("project_id"), parent_task_id=t.get("parent_task_id"),
-                assignee_id=t.get("assignee_id"), assignee_name=t.get("assignee_name"),
-                assignee_telegram_id=t.get("assignee_telegram_id"),
+                assignee_id=t.get("assignee_id"),  
                 source=t.get("source", "IMPORT"),
                 source_message_id=t.get("source_message_id"),
                 source_chat_id=t.get("source_chat_id"),
@@ -1766,8 +1670,7 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
                 created_at=_parse_dt(t.get("created_at")) or datetime.utcnow(),
                 updated_at=_parse_dt(t.get("updated_at")) or datetime.utcnow(),
                 started_at=_parse_dt(t.get("started_at")),
-                completed_at=_parse_dt(t.get("completed_at")),
-            ))
+                completed_at=_parse_dt(t.get("completed_at"))))
             counts["tasks"] += 1
     await db.flush()
 
@@ -1803,8 +1706,7 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
                 continue
         db.add(TaskDependency(
             task_id=dep["task_id"], depends_on_id=dep["depends_on_id"],
-            created_at=_parse_dt(dep.get("created_at")) or datetime.utcnow(),
-        ))
+            created_at=_parse_dt(dep.get("created_at")) or datetime.utcnow()))
         counts["dependencies"] += 1
 
     # Templates
@@ -1814,8 +1716,7 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
                 continue
         db.add(TaskTemplate(
             id=tmpl["id"], name=tmpl["name"], fields_json=tmpl.get("fields_json"),
-            created_at=_parse_dt(tmpl.get("created_at")) or datetime.utcnow(),
-        ))
+            created_at=_parse_dt(tmpl.get("created_at")) or datetime.utcnow()))
         counts["templates"] += 1
 
     # Meetings v2
@@ -1829,15 +1730,13 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
             meeting_type=m.get("meeting_type"), duration_min=m.get("duration_min"),
             agenda=m.get("agenda"),
             meeting_date=_parse_dt(m.get("meeting_date")) or datetime.utcnow(),
-            created_at=_parse_dt(m.get("created_at")) or datetime.utcnow(),
-        ))
+            created_at=_parse_dt(m.get("created_at")) or datetime.utcnow()))
         counts["meetings"] += 1
         for p in m.get("participants", []):
             db.add(MeetingParticipant(
                 meeting_id=m["id"],
                 display_name=p.get("display_name", ""),
-                telegram_user_id=p.get("telegram_user_id"),
-            ))
+                telegram_user_id=p.get("telegram_user_id")))
     await db.flush()
 
     # Comments
@@ -1848,8 +1747,7 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
         db.add(Comment(
             id=c["id"], task_id=c["task_id"], text=c["text"],
             author_name=c.get("author_name"), author_telegram_id=c.get("author_telegram_id"),
-            created_at=_parse_dt(c.get("created_at")) or datetime.utcnow(),
-        ))
+            created_at=_parse_dt(c.get("created_at")) or datetime.utcnow()))
         counts["comments"] += 1
 
     # Sprints
@@ -1864,8 +1762,7 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
             status=s.get("status", "planned"), position=s.get("position", 0),
             start_date=_parse_dt(s.get("start_date")),
             end_date=_parse_dt(s.get("end_date")),
-            created_at=_parse_dt(s.get("created_at")) or datetime.utcnow(),
-        ))
+            created_at=_parse_dt(s.get("created_at")) or datetime.utcnow()))
         counts["sprints"] += 1
     await db.flush()
 
@@ -1880,12 +1777,10 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
                 continue
         db.add(SprintTask(
             sprint_id=st["sprint_id"], task_id=st["task_id"],
-            position=st.get("position", 0),
-        ))
+            position=st.get("position", 0)))
 
     await db.commit()
     return {"imported": counts}
-
 
 # ============= API KEYS =============
 
@@ -1908,7 +1803,6 @@ class ApiKeyUpdateRequest(BaseModel):
     description: Optional[str] = None
     is_active: Optional[bool] = None
 
-
 # ============= SETTINGS: PROXY =============
 
 @router.get("/settings/version")
@@ -1916,13 +1810,11 @@ async def get_version():
     """Получить версию приложения."""
     return {"version": settings.VERSION, "app_name": settings.APP_NAME}
 
-
 @router.get("/bot-status")
 async def get_bot_status_endpoint():
     """Статус Telegram-бота — живой ли, когда последний раз видели."""
     from app.telegram.deadline_notifier import get_bot_status_from_db
     return await get_bot_status_from_db()
-
 
 @router.post("/settings/restart/{service}")
 async def restart_service(service: str):
@@ -1972,7 +1864,6 @@ async def restart_service(service: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @router.get("/settings/proxy")
 async def get_proxy_settings():
     """Получить текущий URL прокси — из БД."""
@@ -2005,7 +1896,6 @@ async def get_proxy_settings():
     except Exception:
         pass
     return {"proxy_url": None}
-
 
 @router.post("/settings/proxy")
 async def set_proxy_settings(req: dict):
@@ -2087,7 +1977,6 @@ async def set_proxy_settings(req: dict):
         "proxy_url": proxy_url,
         "normalized": proxy_url != raw if raw else False,
     }
-
 
 @router.get("/settings/proxy/check")
 async def check_proxy_connectivity():
@@ -2179,7 +2068,6 @@ async def check_proxy_connectivity():
 
     return result
 
-
 @router.get("/api-keys", response_model=List[ApiKeyResponse])
 async def get_api_keys(db: AsyncSession = Depends(get_db)):
     """Get all API keys."""
@@ -2187,7 +2075,6 @@ async def get_api_keys(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ApiKey).order_by(ApiKey.created_at.desc()))
     keys = list(result.scalars().all())
     return keys
-
 
 @router.post("/api-keys", response_model=ApiKeyResponse)
 async def create_api_key(req: ApiKeyCreateRequest, db: AsyncSession = Depends(get_db)):
@@ -2197,13 +2084,11 @@ async def create_api_key(req: ApiKeyCreateRequest, db: AsyncSession = Depends(ge
     api_key = ApiKey(
         key=key,
         name=req.name,
-        description=req.description,
-    )
+        description=req.description)
     db.add(api_key)
     await db.commit()
     await db.refresh(api_key)
     return api_key
-
 
 @router.patch("/api-keys/{key_id}", response_model=ApiKeyResponse)
 async def update_api_key(key_id: int, req: ApiKeyUpdateRequest, db: AsyncSession = Depends(get_db)):
@@ -2225,7 +2110,6 @@ async def update_api_key(key_id: int, req: ApiKeyUpdateRequest, db: AsyncSession
     await db.refresh(api_key)
     return api_key
 
-
 @router.delete("/api-keys/{key_id}")
 async def delete_api_key(key_id: int, db: AsyncSession = Depends(get_db)):
     """Delete API key."""
@@ -2238,7 +2122,6 @@ async def delete_api_key(key_id: int, db: AsyncSession = Depends(get_db)):
     await db.delete(api_key)
     await db.commit()
     return {"ok": True}
-
 
 @router.get("/api-keys/{key_id}/regenerate", response_model=ApiKeyResponse)
 async def regenerate_api_key(key_id: int, db: AsyncSession = Depends(get_db)):
@@ -2253,7 +2136,6 @@ async def regenerate_api_key(key_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(api_key)
     return api_key
-
 
 @router.get("/api-keys/{key_id}/logs")
 async def get_api_key_logs(key_id: int, db: AsyncSession = Depends(get_db)):
@@ -2287,7 +2169,6 @@ async def get_api_key_logs(key_id: int, db: AsyncSession = Depends(get_db)):
         }
         for log in logs
     ]
-
 
 # ============= SPRINTS API =============
 
@@ -2341,7 +2222,6 @@ class SprintResponse(BaseModel):
     created_at: datetime
     tasks: List[SprintTaskResponse] = []
     model_config = ConfigDict(from_attributes=True)
-
 
 @router.get("/sprints", response_model=List[SprintResponse])
 async def get_sprints(db: AsyncSession = Depends(get_db)):
@@ -2397,7 +2277,6 @@ async def get_sprints(db: AsyncSession = Depends(get_db)):
         })
     return response
 
-
 @router.post("/sprints", response_model=SprintResponse)
 async def create_sprint(request: SprintCreateRequest, db: AsyncSession = Depends(get_db)):
     """Создать спринт."""
@@ -2410,8 +2289,7 @@ async def create_sprint(request: SprintCreateRequest, db: AsyncSession = Depends
         project_id=request.project_id,
         start_date=request.start_date,
         end_date=request.end_date,
-        position=max_pos + 1,
-    )
+        position=max_pos + 1)
     db.add(sprint)
     await db.commit()
     await db.refresh(sprint)
@@ -2428,7 +2306,6 @@ async def create_sprint(request: SprintCreateRequest, db: AsyncSession = Depends
         "created_at": sprint.created_at,
         "tasks": []
     }
-
 
 @router.get("/sprints/{sprint_id}", response_model=SprintResponse)
 async def get_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
@@ -2480,7 +2357,6 @@ async def get_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
         "created_at": sprint.created_at,
         "tasks": task_list
     }
-
 
 @router.patch("/sprints/{sprint_id}", response_model=SprintResponse)
 async def update_sprint(sprint_id: int, request: SprintUpdateRequest, db: AsyncSession = Depends(get_db)):
@@ -2551,7 +2427,6 @@ async def update_sprint(sprint_id: int, request: SprintUpdateRequest, db: AsyncS
         "tasks": task_list
     }
 
-
 @router.delete("/sprints/{sprint_id}")
 async def delete_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
     """Удалить спринт."""
@@ -2566,7 +2441,6 @@ async def delete_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"ok": True}
 
-
 @router.post("/sprints/{sprint_id}/restore")
 async def restore_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
     """Восстановить удалённый спринт."""
@@ -2579,7 +2453,6 @@ async def restore_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
     await db.execute(sa_update(Sprint).where(Sprint.id == sprint_id).values(is_deleted=False))
     await db.commit()
     return {"ok": True}
-
 
 @router.post("/sprints/{sprint_id}/tasks", response_model=SprintTaskResponse)
 async def add_task_to_sprint(sprint_id: int, request: SprintTaskAddRequest, db: AsyncSession = Depends(get_db)):
@@ -2623,7 +2496,6 @@ async def add_task_to_sprint(sprint_id: int, request: SprintTaskAddRequest, db: 
         "task_priority": task.priority,
     }
 
-
 @router.delete("/sprints/{sprint_id}/tasks/{task_id}")
 async def remove_task_from_sprint(sprint_id: int, task_id: int, db: AsyncSession = Depends(get_db)):
     """Удалить задачу из спринта."""
@@ -2640,7 +2512,6 @@ async def remove_task_from_sprint(sprint_id: int, task_id: int, db: AsyncSession
     await db.delete(sprint_task)
     await db.commit()
     return {"ok": True}
-
 
 @router.get("/sprints/{sprint_id}/tasks", response_model=List[SprintTaskResponse])
 async def get_sprint_tasks(sprint_id: int, db: AsyncSession = Depends(get_db)):

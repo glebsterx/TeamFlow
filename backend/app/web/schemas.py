@@ -6,10 +6,10 @@ from pydantic import BaseModel, ConfigDict
 
 class AssigneeResponse(BaseModel):
     """Assignee info."""
-    telegram_id: int
-    username: Optional[str]
-    first_name: str
-    display_name: str
+    id: int
+    username: Optional[str] = None
+    first_name: str = ""
+    display_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -85,9 +85,6 @@ class TaskResponse(BaseModel):
 
     # Assignee — из связанного объекта
     assignee: Optional[AssigneeResponse] = None
-    # Для обратной совместимости
-    assignee_name: Optional[str]
-    assignee_telegram_id: Optional[int]
 
     blockers: List[BlockerResponse] = []
     tags: List[TagResponse] = []
@@ -186,5 +183,18 @@ class WebhookLogResponse(BaseModel):
     response: Optional[str] = None
     error: Optional[str] = None
     created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LocalAccountResponse(BaseModel):
+    """LocalAccount user response."""
+    id: int
+    username: Optional[str] = None
+    first_name: str
+    last_name: Optional[str] = None
+    display_name: Optional[str] = None
+    email: Optional[str] = None
+    is_active: bool
 
     model_config = ConfigDict(from_attributes=True)

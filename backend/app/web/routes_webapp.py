@@ -18,7 +18,6 @@ from app.config import settings
 
 router = APIRouter(prefix="/webapp", tags=["webapp"])
 
-
 # ---------------------------------------------------------------------------
 # Конфиг Mini App (что показывать в боте)
 # ---------------------------------------------------------------------------
@@ -33,7 +32,6 @@ async def get_webapp_config():
         "enabled": bool(settings.WEBAPP_URL or settings.BASE_URL),
     }
 
-
 # ---------------------------------------------------------------------------
 # Персональная доска пользователя
 # ---------------------------------------------------------------------------
@@ -42,8 +40,7 @@ async def get_webapp_config():
 async def get_my_tasks(
     telegram_id: int = Query(..., description="Telegram user ID"),
     status: Optional[str] = Query(None, description="Фильтр по статусу"),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Задачи, назначенные пользователю (по telegram_id).
 
     Используется Mini App для показа персональной доски прямо в Telegram.
@@ -56,13 +53,11 @@ async def get_my_tasks(
         .options(
             selectinload(Task.project),
             selectinload(Task.tags),
-            selectinload(Task.assignee),
-        )
+            selectinload(Task.assignee))
         .where(
-            Task.assignee_telegram_id == telegram_id,
+            Task == telegram_id,
             Task.deleted.is_(False),
-            Task.archived.is_(False),
-        )
+            Task.archived.is_(False))
     )
 
     if status:
@@ -80,11 +75,9 @@ async def get_my_tasks(
     # Сортировка: приоритет → дедлайн
     tasks.sort(key=lambda t: (
         priority_order.get(t.priority if isinstance(t.priority, str) else (t.priority.value if t.priority else "NORMAL"), 2),
-        t.due_date or "9999-12-31",
-    ))
+        t.due_date or "9999-12-31"))
 
     return [_task_to_dict(t) for t in tasks]
-
 
 # ---------------------------------------------------------------------------
 # Текущий спринт (сводка для Mini App)
@@ -134,7 +127,6 @@ async def get_active_sprint_summary(db: AsyncSession = Depends(get_db)):
         }
     }
 
-
 # ---------------------------------------------------------------------------
 # Быстрые действия (смена статуса)
 # ---------------------------------------------------------------------------
@@ -143,8 +135,7 @@ async def get_active_sprint_summary(db: AsyncSession = Depends(get_db)):
 async def update_task_status_webapp(
     task_id: int,
     body: dict,
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Сменить статус задачи из Mini App.
 
     Body: {"status": "IN_PROGRESS", "telegram_id": 123456}
@@ -168,7 +159,7 @@ async def update_task_status_webapp(
         raise HTTPException(status_code=404, detail="Task not found")
 
     # Разрешаем только исполнителю или любому (если telegram_id не указан — только чтение)
-    if telegram_id and task.assignee_telegram_id and task.assignee_telegram_id != telegram_id:
+    if telegram_id and task and task != telegram_id:
         raise HTTPException(status_code=403, detail="Not your task")
 
     from datetime import datetime, timezone
@@ -181,7 +172,6 @@ async def update_task_status_webapp(
 
     await db.commit()
     return {"ok": True, "task_id": task_id, "status": new_status.value}
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -198,5 +188,5 @@ def _task_to_dict(task: Task) -> dict:
         "project_emoji": task.project.emoji if task.project else None,
         "tags": [{"name": t.name, "color": t.color} for t in (task.tags or [])],
         "description": task.description,
-        "assignee_name": task.assignee_name,
+        
     }

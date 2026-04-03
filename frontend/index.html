@@ -3,11 +3,69 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="manifest" href="/manifest.json" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="TeamFlow" />
+    <meta name="theme-color" content="#2563eb" />
     <title>TeamFlow - Team Task Management</title>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Перехват 502 ошибок до загрузки React
+      (function() {
+        let isDown = false;
+        let overlay = null;
+        
+        function showOverlay() {
+          if (overlay) return;
+          isDown = true;
+          overlay = document.createElement('div');
+          overlay.id = 'server-restart-overlay';
+          overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(17,24,39,0.9);display:flex;align-items:center;justify-content:center;';
+          overlay.innerHTML = '<div style="background:#fff;border-radius:16px;padding:32px;max-width:340px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,0.25)"><div style="font-size:48px;margin-bottom:16px">🔧</div><h2 style="font-size:20px;font-weight:700;color:#1f2937;margin:0 0 8px">Сервер перезапускается</h2><p style="color:#6b7280;font-size:14px;margin:0 0 24px">Подождите, страница обновится автоматически...</p><div style="display:flex;justify-content:center;gap:8px"><div style="width:8px;height:8px;background:#3b82f6;border-radius:50%;animation:bounce 1s infinite;animation-delay:0ms"></div><div style="width:8px;height:8px;background:#3b82f6;border-radius:50%;animation:bounce 1s infinite;animation-delay:0.15s"></div><div style="width:8px;height:8px;background:#3b82f6;border-radius:50%;animation:bounce 1s infinite;animation-delay:0.3s"></div></div></div><style>@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}</style>';
+          document.body.appendChild(overlay);
+        }
+        
+        function hideOverlay() {
+          if (overlay) {
+            overlay.remove();
+            overlay = null;
+          }
+          isDown = false;
+        }
+        
+        // Перехват fetch
+        const origFetch = window.fetch;
+        window.fetch = function() {
+          return origFetch.apply(this, arguments).then(function(resp) {
+            if (resp.status === 502) {
+              showOverlay();
+            } else if (resp.ok && isDown) {
+              hideOverlay();
+              window.location.reload();
+            }
+            return resp;
+          }).catch(function() {
+            showOverlay();
+            throw arguments[0];
+          });
+        };
+        
+        // Периодическая проверка
+        setInterval(function() {
+          if (!isDown) return;
+          origFetch('/api/health', { method: 'HEAD', cache: 'no-store' }).then(function(resp) {
+            if (resp.ok) {
+              hideOverlay();
+              window.location.reload();
+            }
+          }).catch(function() {});
+        }, 2000);
+      })();
+    </script>
   </body>
 </html>
