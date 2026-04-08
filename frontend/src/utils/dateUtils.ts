@@ -1,10 +1,37 @@
 /**
+ * Get user's timezone. Falls back to browser detection, then UTC.
+ */
+export function getUserTimezone(): string {
+  return localStorage.getItem('teamflow_timezone')
+    || Intl.DateTimeFormat().resolvedOptions().timeZone
+    || 'UTC';
+}
+
+/**
  * Safely parse a date string from backend (SQLite stores without timezone).
  * Treats naive datetime strings as UTC by appending 'Z' if missing.
  */
 export function parseUTC(dateStr: string): Date {
   if (!dateStr) return new Date(NaN);
   return new Date(dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z');
+}
+
+/**
+ * Parse backend UTC date and format for display in user's timezone.
+ */
+export function formatDateInUserTZ(dateStr: string, options?: Intl.DateTimeFormatOptions): string {
+  const date = parseUTC(dateStr);
+  if (isNaN(date.getTime())) return '—';
+  const tz = getUserTimezone();
+  const fmt = options || { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' };
+  return date.toLocaleString('ru', { ...fmt, timeZone: tz });
+}
+
+/**
+ * Format datetime for date-only display in user's timezone.
+ */
+export function formatDateOnlyInUserTZ(dateStr: string): string {
+  return formatDateInUserTZ(dateStr, { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 export function timeAgo(dateStr: string): string {

@@ -4,6 +4,7 @@ from typing import Optional
 import jwt
 import bcrypt
 from app.config import settings
+from app.core.clock import Clock
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -18,7 +19,7 @@ def get_password_hash(password: str) -> str:
 
 def create_simple_access_token(username: str) -> str:
     """Create JWT token for simple auth."""
-    expire = datetime.utcnow() + timedelta(days=30)  # 30 days
+    expire = Clock.now() + timedelta(days=30)  # 30 days
     to_encode = {
         "sub": username,
         "exp": expire,

@@ -1,11 +1,14 @@
 """Deadline notification scheduler — runs alongside bot polling."""
 import asyncio
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 from app.core.db import AsyncSessionLocal
+from app.core.clock import Clock
 from app.core.logging import get_logger
 from app.config import settings
+from app.domain.models import LocalAccount
 
 logger = get_logger(__name__)
 
@@ -31,21 +34,17 @@ async def _get_notify_hours() -> list[int]:
     return DEFAULT_NOTIFY_HOURS
 
 
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 def record_heartbeat_sync():
     """Маркер времени старта — вызывается синхронно до event loop."""
     global _started_at
     if _started_at is None:
-        _started_at = _now_utc().replace(tzinfo=None)
+        _started_at = Clock.now()
 
 
 async def record_heartbeat(username: str = ""):
     """Записать heartbeat в БД — видно из любого процесса."""
     global _started_at
-    now = _now_utc().replace(tzinfo=None)
+    now = Clock.now()
     if _started_at is None:
         _started_at = now
 
@@ -75,7 +74,7 @@ async def get_bot_status_from_db() -> dict:
     if isinstance(started_at, str):
         started_at = datetime.fromisoformat(started_at)
 
-    now = _now_utc().replace(tzinfo=None)
+    now = Clock.now()
     seconds_ago = (now - last_seen).total_seconds()
     uptime = int((now - started_at).total_seconds()) if started_at else None
 
@@ -94,7 +93,7 @@ async def check_deadlines(bot):
     if not notify_hours:
         return
 
-    now = _now_utc()
+    now = Clock.now()
 
     async with AsyncSessionLocal() as db:
         window_end = now + timedelta(hours=max(notify_hours) + 1)
@@ -130,7 +129,32 @@ async def check_deadlines(bot):
             
             telegram_id = int(identity.provider_user_id)
 
-            hours_left = (task.due_date.replace(tzinfo=timezone.utc) - now).total_seconds() / 3600
+            # Get user's timezone for displaying deadline
+            account_result = await db.execute(
+                select(LocalAccount).where(LocalAccount.id == task.assignee_id)
+            )
+            account = account_result.scalar_one_or_none()
+            user_tz_str = account.timezone if account and account.timezone else None
+
+            # Fallback: system default from AppSettings
+            if not user_tz_str:
+                try:
+                    sys_result = await db.execute(
+                        select(AppSetting.value).where(AppSetting.key == "default_timezone")
+                    )
+                    user_tz_str = sys_result.scalar_one_or_none()
+                except Exception:
+                    pass
+                user_tz_str = user_tz_str or "UTC"
+
+            try:
+                user_tz = ZoneInfo(user_tz_str)
+            except Exception:
+                user_tz = ZoneInfo("UTC")
+
+            due_utc = task.due_date.replace(tzinfo=timezone.utc)
+            due_user_tz = due_utc.astimezone(user_tz)
+            hours_left = (due_utc - now.replace(tzinfo=timezone.utc)).total_seconds() / 3600
 
             for threshold in notify_hours:
                 if hours_left <= threshold:
@@ -143,7 +167,8 @@ async def check_deadlines(bot):
                     if notif_result.scalar_one_or_none():
                         continue
 
-                    due_str = task.due_date.replace(tzinfo=timezone.utc).strftime("%d.%m в %H:%M UTC")
+                    tz_label = due_user_tz.strftime("%H:%M")
+                    due_str = due_user_tz.strftime(f"%d.%m в {tz_label}")
                     urgency = "🔴 Через несколько часов!" if threshold <= 3 else "⚠️ Завтра дедлайн"
 
                     text_msg = (

@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.models import Task
 from app.domain.enums import TaskStatus
 from app.repositories.task_repository import TaskRepository
+from app.core.clock import Clock
 
 class BoardService:
     """Service for board operations."""
@@ -56,7 +57,7 @@ class BoardService:
     async def get_overdue_tasks(self) -> List[Task]:
         """Get all overdue tasks."""
         all_tasks = await self.task_repository.get_all()
-        now = datetime.utcnow()
+        now = Clock.now()
         
         overdue = []
         for task in all_tasks:
@@ -67,8 +68,7 @@ class BoardService:
     
     def format_board_message(self, board: Dict[str, List[Task]]) -> str:
         """Format board as text message."""
-        from app.core.clock import Clock
-        
+
         status_emoji = {
             TaskStatus.TODO.value: "📝",
             TaskStatus.DOING.value: "🔄",

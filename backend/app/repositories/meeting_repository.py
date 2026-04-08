@@ -1,9 +1,10 @@
 """Meeting repository for data access."""
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.models import Meeting
+from app.core.clock import Clock
 
 
 class MeetingRepository:
@@ -42,7 +43,7 @@ class MeetingRepository:
     
     async def get_recent(self, days: int = 30) -> List[Meeting]:
         """Get recent meetings."""
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = Clock.now() - timedelta(days=days)
         result = await self.session.execute(
             select(Meeting)
             .where(Meeting.meeting_date >= cutoff_date)
@@ -58,5 +59,3 @@ class MeetingRepository:
             return True
         return False
 
-
-from datetime import timedelta

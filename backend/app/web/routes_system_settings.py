@@ -78,6 +78,7 @@ class SystemSettings(BaseModel):
     cors_origins: str = ""
     bot_username: str = ""
     telegram_bot_token: Optional[str] = None
+    default_timezone: str = "UTC"
 
 
 @router.get("/system", response_model=SystemSettings)
@@ -86,6 +87,7 @@ async def get_system_settings(db: AsyncSession = Depends(get_db)):
     keys = [
         "deadline_notify_hours", "webapp_url", "frontend_url",
         "telegram_chat_id", "cors_origins", "bot_username",
+        "default_timezone",
     ]
     vals = await SettingsService.get_many(db, keys)
     bot_token = vals.get("telegram_bot_token")
@@ -97,6 +99,7 @@ async def get_system_settings(db: AsyncSession = Depends(get_db)):
         cors_origins=vals.get("cors_origins") or "",
         bot_username=vals.get("bot_username") or "",
         telegram_bot_token=bot_token[:4] + "•" * (len(bot_token) - 8) + bot_token[-4:] if bot_token and len(bot_token) > 8 else None,
+        default_timezone=vals.get("default_timezone") or "UTC",
     )
 
 
@@ -109,6 +112,7 @@ async def save_system_settings(data: SystemSettings, db: AsyncSession = Depends(
         "telegram_chat_id": data.telegram_chat_id or "",
         "cors_origins": data.cors_origins,
         "bot_username": data.bot_username,
+        "default_timezone": data.default_timezone,
     }
     for key, val in mapping.items():
         await SettingsService.set(db, key, val or "")

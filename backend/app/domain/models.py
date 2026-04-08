@@ -1,5 +1,6 @@
 """Domain models."""
 from datetime import datetime
+from app.core.clock import Clock
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, BigInteger, Boolean, Table
 from sqlalchemy.orm import relationship, backref, Mapped, mapped_column
 from app.core.db import Base
@@ -21,7 +22,7 @@ class Tag(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(50), nullable=False, unique=True)
     color = Column(String(7), nullable=False, default="#6366f1")  # hex color
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
 
     tasks = relationship("Task", secondary=task_tags, back_populates="tags")
 
@@ -39,7 +40,7 @@ class Project(Base):
     emoji = Column(String(10), nullable=True, default="📁")
     is_active = Column(Boolean, default=True)
     deleted = Column(Boolean, default=False, nullable=False)  # Soft delete
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
 
     # Nested projects (subprojects)
     parent_project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
@@ -59,7 +60,7 @@ class TeamMember(Base):
     # Maps to local_accounts.id (column name kept for backward compatibility)
     telegram_user_id = Column(Integer, ForeignKey("local_accounts.id", ondelete="CASCADE"), nullable=False, unique=True)
     role = Column(String(20), nullable=False)  # owner / admin / member / viewer
-    joined_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    joined_at = Column(DateTime, nullable=False, default=Clock.now)
     invited_by_id = Column(Integer, ForeignKey("team_members.id"), nullable=True)
 
     user = relationship("LocalAccount", foreign_keys=[telegram_user_id])
@@ -79,7 +80,7 @@ class TeamInvite(Base):
     email = Column(String(255), nullable=True)
     role = Column(String(20), nullable=False, default="member")
     created_by_id = Column(Integer, ForeignKey("team_members.id"), nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
     expires_at = Column(DateTime, nullable=False)
     is_active = Column(Boolean, default=True)
     used_at = Column(DateTime, nullable=True)
@@ -98,7 +99,7 @@ class ProjectMember(Base):
     # Maps to local_accounts.id (column name kept for backward compatibility)
     telegram_user_id = Column(Integer, ForeignKey("local_accounts.id", ondelete="CASCADE"), nullable=False)
     role = Column(String(20), nullable=False, default="viewer")  # admin / editor / viewer
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
 
     project = relationship("Project")
     user = relationship("LocalAccount", foreign_keys=[telegram_user_id])
@@ -119,8 +120,9 @@ class LocalAccount(Base):
     email = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True)
     system_role = Column(String(20), nullable=False, default="user")  # admin / user
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    timezone = Column(String(64), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
+    updated_at = Column(DateTime, nullable=False, default=Clock.now, onupdate=Clock.now)
 
     local_identity = relationship("LocalIdentity", back_populates="account", uselist=False)
     oauth_identities = relationship("UserIdentity", back_populates="account")
@@ -150,7 +152,7 @@ class LocalIdentity(Base):
     password_hash = Column(String(255), nullable=False)
     email = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
     account = relationship("LocalAccount", back_populates="local_identity")
 
 
@@ -165,7 +167,7 @@ class UserIdentity(Base):
     email = Column(String(255), nullable=True)
     access_token = Column(Text, nullable=True)
     refresh_token = Column(Text, nullable=True)
-    linked_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    linked_at = Column(DateTime, nullable=False, default=Clock.now)
     account = relationship("LocalAccount", back_populates="oauth_identities")
 
 
@@ -214,8 +216,8 @@ class Task(Base):
     time_spent = Column(Integer, default=0, nullable=False)
 
     # Timestamps
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
+    updated_at = Column(DateTime, nullable=False, default=Clock.now, onupdate=Clock.now)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
@@ -245,7 +247,7 @@ class Blocker(Base):
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
     text = Column(Text, nullable=False)
     created_by = Column(BigInteger, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
     resolved_at = Column(DateTime, nullable=True)  # When the blocker was resolved (status changed from BLOCKED)
 
     task = relationship("Task", back_populates="blockers")
@@ -260,7 +262,7 @@ class Comment(Base):
     text = Column(Text, nullable=False)
     author_name = Column(String(100), nullable=True)
     author_telegram_id = Column(BigInteger, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
 
     task = relationship("Task", back_populates="comments")
 
@@ -272,7 +274,7 @@ class Meeting(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     meeting_date = Column(DateTime, nullable=False)
     summary = Column(Text, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
 
     # v2 fields
     title = Column(String(255), nullable=True)
@@ -332,7 +334,8 @@ class PushSubscription(Base):
     p256dh = Column(Text, nullable=False)
     auth = Column(Text, nullable=False)
     user_telegram_id = Column(BigInteger, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    account_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
 
 
 class Sprint(Base):
@@ -348,7 +351,7 @@ class Sprint(Base):
     is_deleted = Column(Boolean, default=False)  # Soft delete
     start_date = Column(DateTime, nullable=False)
     end_date = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
 
     tasks = relationship("SprintTask", back_populates="sprint", cascade="all, delete-orphan")
     project = relationship("Project")
@@ -370,7 +373,7 @@ class SprintTask(Base):
     sprint_id = Column(Integer, ForeignKey("sprints.id"), nullable=False)
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
     position = Column(Integer, default=0)  # Order in sprint queue
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
 
     sprint = relationship("Sprint", back_populates="tasks")
     task = relationship("Task")
@@ -388,7 +391,7 @@ class ApiKey(Base):
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
     last_used_at = Column(DateTime, nullable=True)
 
     def __repr__(self):
@@ -405,7 +408,7 @@ class ApiKeyLog(Base):
     method = Column(String(10), nullable=False)
     ip_address = Column(String(45), nullable=True)
     user_agent = Column(String(255), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
 
     api_key = relationship("ApiKey", backref="logs")
 
@@ -420,7 +423,7 @@ class TaskDependency(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
     depends_on_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
 
     task = relationship("Task", foreign_keys=[task_id], back_populates="dependencies")
     depends_on = relationship("Task", foreign_keys=[depends_on_id], back_populates="blocking")
@@ -433,7 +436,7 @@ class DeadlineNotification(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
     threshold_hours = Column(Integer, nullable=False)  # За сколько часов отправили (3, 24, ...)
-    sent_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    sent_at = Column(DateTime, nullable=False, default=Clock.now)
     user_telegram_id = Column(BigInteger, nullable=False)
 
     __table_args__ = (
@@ -447,9 +450,9 @@ class BotHeartbeat(Base):
     __tablename__ = "bot_heartbeat"
 
     id = Column(Integer, primary_key=True, default=1)
-    last_seen = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_seen = Column(DateTime, nullable=False, default=Clock.now)
     username = Column(String(100), nullable=True)
-    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=False, default=Clock.now)
 
 
 class AppSetting(Base):
@@ -458,7 +461,7 @@ class AppSetting(Base):
 
     key = Column(String(100), primary_key=True)
     value = Column(Text, nullable=True)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=Clock.now, onupdate=Clock.now)
 
     def __repr__(self):
         return f"<AppSetting(key='{self.key}', value='{self.value[:50] if self.value else None}')>"
@@ -473,7 +476,7 @@ class Webhook(Base):
     events = Column(Text, nullable=False)  # JSON array: ["task.created", "task.status_changed"]
     secret = Column(String(64), nullable=True)  # For HMAC signature
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
     last_triggered_at = Column(DateTime, nullable=True)
 
     def __repr__(self):
@@ -490,7 +493,7 @@ class WebhookLog(Base):
     status_code = Column(Integer, nullable=True)
     response = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
 
     webhook = relationship("Webhook", backref="logs")
 

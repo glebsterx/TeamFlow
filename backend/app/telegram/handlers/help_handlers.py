@@ -6,6 +6,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from app.config import settings
 from app.core.logging import get_logger
+from app.core.clock import Clock
+from datetime import timedelta
 
 router = Router()
 logger = get_logger(__name__)
@@ -143,16 +145,16 @@ async def cmd_start(message: Message):
             await db.commit()
 
         # Создаём JWT токены
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         token_data = {"sub": str(account.id), "type": "telegram"}
 
         access_token = jwt.encode(
-            {**token_data, "exp": datetime.utcnow() + timedelta(days=30)},
+            {**token_data, "exp": Clock.now() + timedelta(days=30)},
             settings.SECRET_KEY,
             algorithm="HS256"
         )
         refresh_token = jwt.encode(
-            {**token_data, "exp": datetime.utcnow() + timedelta(days=90), "type": "refresh"},
+            {**token_data, "exp": Clock.now() + timedelta(days=90), "type": "refresh"},
             settings.SECRET_KEY,
             algorithm="HS256"
         )

@@ -110,12 +110,15 @@ export default function CalendarView({ projects, onOpenTask }: CalendarViewProps
     }
   }, [currentDate, viewMode]);
 
-  // Задачи для каждого дня
+  // Задачи для каждого дня — группируем по ЛОКАЛЬНОЙ дате (не UTC)
   const tasksByDate = useMemo(() => {
     const map: Record<string, Task[]> = {};
     tasks.forEach(task => {
       if (!task.due_date) return;
-      const dateKey = parseUTC(task.due_date).toISOString().split('T')[0];
+      const d = parseUTC(task.due_date);
+      // Ключ на основе локальной даты — чтобы совпадало с ячейками календаря
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const dateKey = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
       if (!map[dateKey]) map[dateKey] = [];
       map[dateKey].push(task);
     });
@@ -247,7 +250,9 @@ export default function CalendarView({ projects, onOpenTask }: CalendarViewProps
 
         {/* Calendar days */}
         {calendarDays.map((day, index) => {
-          const dateKey = day.date.toISOString().split('T')[0];
+          // Ключ ячейки — локальная дата (не toISOString, который сдвигает через UTC)
+          const pad = (n: number) => String(n).padStart(2, '0');
+          const dateKey = `${day.date.getFullYear()}-${pad(day.date.getMonth() + 1)}-${pad(day.date.getDate())}`;
           const dayTasks = tasksByDate[dateKey] || [];
           const isTodayDate = isToday(day.date);
 

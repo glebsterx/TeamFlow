@@ -123,6 +123,7 @@ class PushSubscriptionCreate(BaseModel):
     endpoint: str
     keys: dict  # {"p256dh": "...", "auth": "..."}
     user_telegram_id: Optional[int] = None
+    account_id: Optional[int] = None
 
 
 class UnsubscribeRequest(BaseModel):

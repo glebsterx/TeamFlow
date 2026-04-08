@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.core.db import get_db
+from app.core.clock import Clock
 from app.domain.models import Task, Sprint, SprintTask
 from app.domain.enums import TaskStatus
 from app.web.schemas import TaskResponse
@@ -185,9 +186,9 @@ async def update_task_status_webapp(
         if account_id and task.assignee_id and task.assignee_id != account_id:
             raise HTTPException(status_code=403, detail="Not your task")
 
-    from datetime import datetime, timezone
+    from app.core.clock import Clock
     task.status = new_status
-    task.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    task.updated_at = Clock.now()
     if new_status == TaskStatus.DONE:
         task.completed_at = task.updated_at
     elif new_status == TaskStatus.DOING and not task.started_at:

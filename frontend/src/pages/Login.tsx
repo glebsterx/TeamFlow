@@ -8,6 +8,16 @@ import { ToastContainer } from '../components/Toast';
 export const Login: React.FC = () => {
   const setUser = useAuthStore((state) => state.setUser);
   const { theme, toggleTheme } = useTheme();
+
+  // Redirect to main if already authenticated
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    const accountId = localStorage.getItem('teamflow_account_id');
+    if (token && accountId) {
+      window.location.href = '/';
+    }
+  }, []);
+
   const [myUserId, setMyUserId] = React.useState<number | null>(() => {
     const saved = localStorage.getItem('teamflow_my_user_id');
     return saved ? Number(saved) : null;

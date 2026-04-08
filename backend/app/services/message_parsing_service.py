@@ -3,6 +3,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional, List
 from dataclasses import dataclass
+from app.core.clock import Clock
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -30,11 +31,11 @@ class MessageParsingService:
     
     # Date patterns
     DATE_PATTERNS = {
-        r'завтра': lambda: datetime.now() + timedelta(days=1),
-        r'послезавтра': lambda: datetime.now() + timedelta(days=2),
-        r'через (\d+) дн[ея]': lambda m: datetime.now() + timedelta(days=int(m.group(1))),
-        r'через неделю': lambda: datetime.now() + timedelta(weeks=1),
-        r'через месяц': lambda: datetime.now() + timedelta(days=30),
+        r'завтра': lambda: Clock.now() + timedelta(days=1),
+        r'послезавтра': lambda: Clock.now() + timedelta(days=2),
+        r'через (\d+) дн[ея]': lambda m: Clock.now() + timedelta(days=int(m.group(1))),
+        r'через неделю': lambda: Clock.now() + timedelta(weeks=1),
+        r'через месяц': lambda: Clock.now() + timedelta(days=30),
         r'в понедельник': lambda: MessageParsingService._next_weekday(0),
         r'во вторник': lambda: MessageParsingService._next_weekday(1),
         r'в среду': lambda: MessageParsingService._next_weekday(2),
@@ -47,7 +48,7 @@ class MessageParsingService:
     @staticmethod
     def _next_weekday(weekday: int) -> datetime:
         """Get next occurrence of weekday (0=Monday, 6=Sunday)."""
-        today = datetime.now()
+        today = Clock.now()
         days_ahead = weekday - today.weekday()
         if days_ahead <= 0:
             days_ahead += 7

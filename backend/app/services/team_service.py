@@ -8,6 +8,7 @@ import secrets
 
 from app.domain.models import TeamMember, TeamInvite, LocalAccount
 from app.domain.enums import TeamRole
+from app.core.clock import Clock
 
 
 class TeamService:
@@ -104,7 +105,7 @@ class TeamService:
     ) -> TeamInvite:
         """Create team invite."""
         invite_token = secrets.token_urlsafe(32)
-        expires_at = datetime.utcnow() + timedelta(days=expires_days)
+        expires_at = Clock.now() + timedelta(days=expires_days)
 
         invite = TeamInvite(
             invite_token=invite_token,
@@ -152,7 +153,7 @@ class TeamService:
 
         # Mark invite as used
         invite.is_active = False
-        invite.used_at = datetime.utcnow()
+        invite.used_at = Clock.now()
         invite.used_by_telegram_id = telegram_user_id
 
         return member

@@ -67,10 +67,12 @@ export function usePushNotifications() {
   const subscribe = async () => {
     if (!isSecureContext) {
       setPushError('Web Push работает только по HTTPS');
+      showToast('Web Push работает только по HTTPS', 'error');
       return;
     }
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       setPushError('Браузер не поддерживает Web Push');
+      showToast('Браузер не поддерживает Web Push', 'error');
       return;
     }
     try {
@@ -84,13 +86,18 @@ export function usePushNotifications() {
         applicationServerKey: urlBase64ToUint8Array(data.public_key) as any,
       });
       const json = sub.toJSON();
-      await axios.post(`${API_URL}/api/push/subscribe`, { endpoint: json.endpoint, keys: json.keys as any });
+      const accountId = localStorage.getItem('teamflow_account_id');
+      await axios.post(`${API_URL}/api/push/subscribe`, {
+        endpoint: json.endpoint,
+        keys: json.keys as any,
+        account_id: accountId ? Number(accountId) : null,
+      });
       setSubscribed(true);
       setPermission('granted');
       setPushError(null);
       showToast('🔔 Push-уведомления включены!', 'success');
     } catch (e: any) {
-      const msg = e?.message || 'Ошибка подписки';
+      const msg = e?.response?.data?.detail || e?.message || 'Ошибка подписки';
       setPushError(msg);
       showToast(msg, 'error');
     }
@@ -119,9 +126,12 @@ export function usePushNotifications() {
       setPermission(result);
       if (result === 'granted') {
         await subscribe();
-      } else {
-        setPushError('Заблокировано');
+      } else if (result === 'denied') {
+        setPushError('Уведомления заблокированы в настройках браузера');
         showToast('Разрешите уведомления в настройках браузера', 'error');
+      } else {
+        setPushError('Разрешение не получено');
+        showToast('Разрешение на уведомления не получено', 'error');
       }
     } catch (e: any) {
       const msg = e?.message || 'Ошибка запроса разрешения';

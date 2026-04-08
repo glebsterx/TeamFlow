@@ -27,6 +27,7 @@ services:
     container_name: teamflow-frontend
     volumes:
       - ./frontend/src:/app/src           # Hot reload для кода
+      - ./frontend/public:/app/public     # Hot reload для sw.js и favicon
       - ./frontend/.env:/app/.env         # Переменные окружения
       - /app/node_modules                 # node_modules из контейнера
     ports:

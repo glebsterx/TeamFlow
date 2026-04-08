@@ -5,6 +5,7 @@ import shutil
 import logging
 from datetime import datetime
 from pathlib import Path
+from app.core.clock import Clock
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ def backup_database():
 
     try:
         os.makedirs(BACKUP_DIR, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        timestamp = Clock.now().strftime("%Y%m%d-%H%M%S")
         backup_file = os.path.join(BACKUP_DIR, f"teamflow-{timestamp}.db")
         shutil.copy2(DB_FILE, backup_file)
         logger.info(f"[bootstrap] Database backed up to {backup_file}")

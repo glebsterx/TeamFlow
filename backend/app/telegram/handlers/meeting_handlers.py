@@ -5,6 +5,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from datetime import datetime
+from app.core.clock import Clock
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.core.db import AsyncSessionLocal
@@ -100,7 +101,7 @@ async def process_meeting_summary(message: Message, state: FSMContext):
 
     async with AsyncSessionLocal() as session:
         meeting = Meeting(
-            meeting_date=datetime.utcnow(),
+            meeting_date=Clock.now(),
             summary=summary,
             meeting_type=meeting_type,
         )
@@ -206,7 +207,7 @@ async def cmd_meetings_list(message: Message):
                 selectinload(Meeting.participants),
                 selectinload(Meeting.meeting_tasks),
             )
-            .where(Meeting.meeting_date >= datetime(datetime.utcnow().year, datetime.utcnow().month, 1))
+            .where(Meeting.meeting_date >= datetime(Clock.now().year, Clock.now().month, 1))
             .order_by(Meeting.meeting_date.desc())
             .limit(15)
         )

@@ -79,7 +79,7 @@ class TaskService:
 
         # If transitioning from BLOCKED to any other status, mark blockers as resolved
         if old_status == TaskStatus.BLOCKED and new_status != TaskStatus.BLOCKED:
-            now = datetime.utcnow()
+            now = Clock.now()
             for blocker in task.blockers:
                 if blocker.resolved_at is None:
                     blocker.resolved_at = now
@@ -89,7 +89,7 @@ class TaskService:
             task.backlog = False
             task.backlog_added_at = None
 
-        now = datetime.utcnow()
+        now = Clock.now()
         if new_status == TaskStatus.DOING:
             if not task.started_at:
                 task.started_at = now
@@ -164,7 +164,7 @@ class TaskService:
         if task.status == TaskStatus.TODO.value:
             task.status = TaskStatus.DOING.value
             if not task.started_at:
-                task.started_at = datetime.utcnow()
+                task.started_at = Clock.now()
             task = await self.repository.update(task)
         return task
 

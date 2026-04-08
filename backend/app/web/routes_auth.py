@@ -7,10 +7,12 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from app.core.db import get_db
+from app.core.clock import Clock
 from app.config import settings
 from app.domain.models import LocalAccount, LocalIdentity, UserIdentity, AppSetting, TeamMember
 from sqlalchemy import select
 from app.services.account_service import AccountService
+from app.services.settings_service import SettingsService
 
 router = APIRouter()
 
@@ -32,6 +34,7 @@ def _account_to_dict(account: LocalAccount, identity: Optional[LocalIdentity] = 
         "first_name": account.first_name or "",
         "last_name": account.last_name,
         "email": account.email,
+        "timezone": account.timezone,
         "system_role": account.system_role,
         "login": identity.login if identity else None,
         "has_password": bool(identity and identity.password_hash),
@@ -39,6 +42,18 @@ def _account_to_dict(account: LocalAccount, identity: Optional[LocalIdentity] = 
         "created_at": account.created_at.isoformat() if account.created_at else None,
         "updated_at": account.updated_at.isoformat() if account.updated_at else None,
     }
+
+
+async def _get_system_default_timezone(db: AsyncSession) -> str:
+    """Read system default timezone from AppSettings, fallback to UTC."""
+    try:
+        result = await db.execute(
+            select(AppSetting.value).where(AppSetting.key == "default_timezone")
+        )
+        val = result.scalar_one_or_none()
+        return val or "UTC"
+    except Exception:
+        return "UTC"
 
 
 # ============= ACCOUNT ME =============
@@ -86,7 +101,7 @@ async def local_register(request: RegisterRequest, db: AsyncSession = Depends(ge
     # Rate limit: 3 registrations per IP per 5 minutes
     from app.domain.models import ApiKeyLog
     from datetime import datetime, timedelta
-    five_min_ago = datetime.utcnow() - timedelta(minutes=5)
+    five_min_ago = Clock.now() - timedelta(minutes=5)
     
     # Проверяем нужно ли приглашение
     invite_only = await SettingsService.get(db, "registration_by_invite_only")
@@ -102,32 +117,33 @@ async def local_register(request: RegisterRequest, db: AsyncSession = Depends(ge
                     TeamInvite.invite_token == request.invite_code,
                     TeamInvite.is_active == True,
                     TeamInvite.used_at == None,
-                    (TeamInvite.expires_at == None) | (TeamInvite.expires_at > datetime.utcnow()),
+                    (TeamInvite.expires_at == None) | (TeamInvite.expires_at > Clock.now()),
                 )
             )
             invite_obj = invite.scalar_one_or_none()
-        
+
         if not invite_obj and request.email:
             invite = await db.execute(
                 select(TeamInvite).where(
                     TeamInvite.email == request.email,
                     TeamInvite.is_active == True,
                     TeamInvite.used_at == None,
-                    (TeamInvite.expires_at == None) | (TeamInvite.expires_at > datetime.utcnow()),
+                    (TeamInvite.expires_at == None) | (TeamInvite.expires_at > Clock.now()),
                 )
             )
             invite_obj = invite.scalar_one_or_none()
         
         if not invite_obj:
             raise HTTPException(status_code=403, detail="Регистрация только по приглашениям. Введите код приглашения.")
-        invite_obj.used_at = datetime.utcnow()
-    
+        invite_obj.used_at = Clock.now()
+
     login = request.login.strip().lower()
     existing = await AccountService.get_identity_by_login(db, login)
     if existing:
         raise HTTPException(status_code=400, detail="Логин уже занят")
 
-    account = await AccountService.create_account(db, first_name=login, display_name=login, email=request.email)
+    account = await AccountService.create_account(db, first_name=login, display_name=login, email=request.email,
+        timezone=await _get_system_default_timezone(db))
     await AccountService.create_local_identity(db, account, login, request.password, email=request.email)
     await db.flush()
     await db.commit()
@@ -158,7 +174,7 @@ async def local_login(request: LoginRequest, db: AsyncSession = Depends(get_db))
         raise HTTPException(status_code=404, detail="Аккаунт не найден")
 
     # Update last login timestamp
-    account.updated_at = datetime.utcnow()
+    account.updated_at = Clock.now()
     await db.flush()
     await db.commit()
 
@@ -269,6 +285,7 @@ class UpdateProfileRequest(BaseModel):
     last_name: Optional[str] = None
     display_name: Optional[str] = None
     email: Optional[str] = None
+    timezone: Optional[str] = None
 
 
 @router.patch("/account/profile")
@@ -280,6 +297,46 @@ async def update_profile(request: UpdateProfileRequest, account_id: int = Query(
     await AccountService.update_profile(db, account, first_name=request.first_name, last_name=request.last_name, display_name=request.display_name, email=request.email)
     await db.commit()
     return _account_to_dict(account, account.local_identity)
+
+
+# ============= NOTIFICATION SETTINGS =============
+
+@router.get("/notification-settings")
+async def get_notification_settings(account_id: int = Query(...), db: AsyncSession = Depends(get_db)):
+    """Get user's push notification preferences."""
+    result = await db.execute(
+        select(AppSetting.value).where(AppSetting.key == f"notif_prefs_{account_id}")
+    )
+    val = result.scalar_one_or_none()
+    if val:
+        import json
+        return json.loads(val)
+    # Defaults
+    return {
+        "assigned": True,
+        "status_changed": True,
+        "comments": False,
+        "deadlines": True,
+        "all_tasks": False,
+    }
+
+
+@router.put("/notification-settings")
+async def save_notification_settings(
+    body: dict, account_id: int = Query(...), db: AsyncSession = Depends(get_db)
+):
+    """Save user's push notification preferences."""
+    import json
+    prefs = {
+        "assigned": body.get("assigned", True),
+        "status_changed": body.get("status_changed", True),
+        "comments": body.get("comments", False),
+        "deadlines": body.get("deadlines", True),
+        "all_tasks": body.get("all_tasks", False),
+    }
+    await SettingsService.set(db, f"notif_prefs_{account_id}", json.dumps(prefs))
+    await db.commit()
+    return {"status": "ok", "settings": prefs}
 
 
 # ============= TELEGRAM AUTH =============
@@ -303,7 +360,7 @@ async def telegram_auth(data: TelegramAuthData, db: AsyncSession = Depends(get_d
     if computed_hash != data.hash:
         raise HTTPException(status_code=401, detail="Invalid Telegram signature")
 
-    if (datetime.utcnow().timestamp() - data.auth_date) > 86400:
+    if (Clock.now().timestamp() - data.auth_date) > 86400:
         raise HTTPException(status_code=401, detail="Telegram data is too old")
 
     account = await AccountService.find_account_by_telegram(db, data.id)
@@ -312,11 +369,12 @@ async def telegram_auth(data: TelegramAuthData, db: AsyncSession = Depends(get_d
         account = await AccountService.create_account(
             db, first_name=data.first_name, last_name=data.last_name,
             username=data.username, display_name=data.username or data.first_name,
+            timezone=await _get_system_default_timezone(db),
         )
         await AccountService.link_telegram(db, account, data.id, username=data.username, first_name=data.first_name, last_name=data.last_name)
 
     # Update last login timestamp
-    account.updated_at = datetime.utcnow()
+    account.updated_at = Clock.now()
     await db.flush()
     await db.commit()
 
@@ -469,7 +527,7 @@ async def create_invitation(data: InviteRequest, db: AsyncSession = Depends(get_
         role=data.role,
         created_by_id=owner_obj.id if owner_obj else 1,
         is_active=True,
-        expires_at=datetime.utcnow() + timedelta(days=data.expires_days),
+        expires_at=Clock.now() + timedelta(days=data.expires_days),
     )
     db.add(invite)
     await db.commit()
@@ -735,14 +793,14 @@ async def google_callback(
                     TeamInvite.email == email,
                     TeamInvite.is_active == True,
                     TeamInvite.used_at == None,
-                    (TeamInvite.expires_at == None) | (TeamInvite.expires_at > datetime.utcnow()),
+                    (TeamInvite.expires_at == None) | (TeamInvite.expires_at > Clock.now()),
                 )
             )
             invite_obj = invite.scalar_one_or_none()
             if not invite_obj:
                 return RedirectResponse(url=f"{settings.web_url}/login?error=invite_required")
             # Помечаем приглашение как использованное
-            invite_obj.used_at = datetime.utcnow()
+            invite_obj.used_at = Clock.now()
         
         # Создаём новый аккаунт
         account = await AccountService.create_account(
@@ -750,6 +808,7 @@ async def google_callback(
             display_name=user_info.get("name") or email,
             first_name=user_info.get("given_name", ""),
             last_name=user_info.get("family_name"),
+            timezone=await _get_system_default_timezone(db),
         )
         await AccountService.link_oauth(
             db, account, "google", provider_user_id,
@@ -888,19 +947,20 @@ async def yandex_callback(
                     TeamInvite.email == email,
                     TeamInvite.is_active == True,
                     TeamInvite.used_at == None,
-                    (TeamInvite.expires_at == None) | (TeamInvite.expires_at > datetime.utcnow()),
+                    (TeamInvite.expires_at == None) | (TeamInvite.expires_at > Clock.now()),
                 )
             )
             invite_obj = invite.scalar_one_or_none()
             if not invite_obj:
                 return RedirectResponse(url=f"{settings.web_url}/login?error=invite_required")
-            invite_obj.used_at = datetime.utcnow()
+            invite_obj.used_at = Clock.now()
         
         account = await AccountService.create_account(
             db, email=email,
             display_name=user_info.get("display_name") or user_info.get("real_name") or email,
             first_name=user_info.get("first_name", ""),
             last_name=user_info.get("last_name"),
+            timezone=await _get_system_default_timezone(db),
         )
         await AccountService.link_oauth(
             db, account, "yandex", provider_user_id,

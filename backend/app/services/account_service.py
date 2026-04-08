@@ -9,6 +9,7 @@ import jwt
 
 from app.domain.models import LocalAccount, LocalIdentity, UserIdentity
 from app.config import settings
+from app.core.clock import Clock
 
 
 class AccountService:
@@ -30,10 +31,12 @@ class AccountService:
         display_name: Optional[str] = None,
         username: Optional[str] = None,
         email: Optional[str] = None,
+        timezone: Optional[str] = None,
     ) -> LocalAccount:
         account = LocalAccount(
             first_name=first_name, last_name=last_name,
             display_name=display_name, username=username, email=email,
+            timezone=timezone,
         )
         db.add(account)
         await db.flush()
@@ -174,11 +177,11 @@ class AccountService:
     def generate_jwt(account_id: int, provider: str = "local") -> dict:
         token_data = {"sub": str(account_id), "type": provider}
         access_token = jwt.encode(
-            {**token_data, "exp": datetime.utcnow().timestamp() + 30 * 86400},
+            {**token_data, "exp": Clock.now().timestamp() + 30 * 86400},
             settings.SECRET_KEY, algorithm="HS256",
         )
         refresh_token = jwt.encode(
-            {**token_data, "exp": datetime.utcnow().timestamp() + 90 * 86400, "type": "refresh"},
+            {**token_data, "exp": Clock.now().timestamp() + 90 * 86400, "type": "refresh"},
             settings.SECRET_KEY, algorithm="HS256",
         )
         return {"access_token": access_token, "refresh_token": refresh_token}
@@ -188,6 +191,7 @@ class AccountService:
         db: AsyncSession, account: LocalAccount,
         *, first_name: Optional[str] = None, last_name: Optional[str] = None,
         display_name: Optional[str] = None, email: Optional[str] = None,
+        timezone: Optional[str] = None,
     ) -> LocalAccount:
         if first_name is not None:
             account.first_name = first_name
@@ -197,6 +201,8 @@ class AccountService:
             account.display_name = display_name
         if email is not None:
             account.email = email
-        account.updated_at = datetime.utcnow()
+        if timezone is not None:
+            account.timezone = timezone
+        account.updated_at = Clock.now()
         await db.flush()
         return account

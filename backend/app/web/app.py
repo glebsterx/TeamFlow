@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import time
 from app.config import settings
+from app.core.clock import Clock
 from app.web.routes import router as api_router
 from app.web.routes_tags import router as tags_router
 from app.web.routes_templates import router as templates_router
@@ -32,6 +33,10 @@ AUTH_PATHS = [
     "/api/auth/has-users",
     "/api/auth/oauth-providers",
     "/api/auth/registration-settings",
+    "/api/auth/notification-settings",
+    "/api/push/config",
+    "/api/push/subscribe",
+    "/api/push/unsubscribe",
     "/api/settings/startup-check",
     "/api/bot-info",
     "/health",
@@ -93,7 +98,7 @@ async def log_requests(request: Request, call_next):
                 
                 # Update last_used_at
                 from datetime import datetime
-                api_key.last_used_at = datetime.utcnow()
+                api_key.last_used_at = Clock.now()
                 
                 # Log the request
                 log = ApiKeyLog(

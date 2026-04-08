@@ -6,6 +6,31 @@ import { API_URL } from '../constants/taskDisplay';
 import { showToast } from '../utils/toast';
 import { parseUTC } from '../utils/dateUtils';
 
+const TIMEZONES = [
+  { value: 'Europe/Moscow', label: 'Москва (UTC+3)' },
+  { value: 'Europe/Kaliningrad', label: 'Калининград (UTC+2)' },
+  { value: 'Europe/Samara', label: 'Самара (UTC+4)' },
+  { value: 'Asia/Yekaterinburg', label: 'Екатеринбург (UTC+5)' },
+  { value: 'Asia/Omsk', label: 'Омск (UTC+6)' },
+  { value: 'Asia/Krasnoyarsk', label: 'Красноярск (UTC+7)' },
+  { value: 'Asia/Irkutsk', label: 'Иркутск (UTC+8)' },
+  { value: 'Asia/Yakutsk', label: 'Якутск (UTC+9)' },
+  { value: 'Asia/Vladivostok', label: 'Владивосток (UTC+10)' },
+  { value: 'Asia/Magadan', label: 'Магадан (UTC+11)' },
+  { value: 'Asia/Kamchatka', label: 'Камчатка (UTC+12)' },
+  { value: 'UTC', label: 'UTC' },
+  { value: 'Europe/London', label: 'London (UTC+0/UTC+1)' },
+  { value: 'Europe/Berlin', label: 'Berlin (UTC+1/UTC+2)' },
+  { value: 'Europe/Paris', label: 'Paris (UTC+1/UTC+2)' },
+  { value: 'America/New_York', label: 'New York (UTC-5/UTC-4)' },
+  { value: 'America/Chicago', label: 'Chicago (UTC-6/UTC-5)' },
+  { value: 'America/Denver', label: 'Denver (UTC-7/UTC-6)' },
+  { value: 'America/Los_Angeles', label: 'Los Angeles (UTC-8/UTC-7)' },
+  { value: 'Asia/Dubai', label: 'Dubai (UTC+4)' },
+  { value: 'Asia/Tashkent', label: 'Tashkent (UTC+5)' },
+  { value: 'Asia/Almaty', label: 'Almaty (UTC+6)' },
+];
+
 interface TelegramUser {
   id: number;
   id: number;
@@ -23,6 +48,82 @@ interface TeamMember {
   telegram_user_id: number;
   role: string;
   joined_at: string;
+}
+
+// ========== NOTIFICATION SETTINGS SECTION ==========
+const PUSH_OPTIONS = [
+  { key: 'assigned', label: '📌 Задачи назначены мне' },
+  { key: 'status_changed', label: '🔄 Смена статуса задач' },
+  { key: 'comments', label: '💬 Комментарии' },
+  { key: 'deadlines', label: '⏰ Дедлайны' },
+  { key: 'all_tasks', label: '📢 Все задачи (только для админа)' },
+];
+
+function NotificationSettingsSection({ accountId }: { accountId: number | null }) {
+  const [settings, setSettings] = React.useState<Record<string, boolean>>({
+    assigned: true,
+    status_changed: true,
+    comments: false,
+    deadlines: true,
+    all_tasks: false,
+  });
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!accountId) return;
+    axios.get(`${API_URL}/api/auth/notification-settings`, {
+      params: { account_id: accountId },
+    }).then(r => {
+      if (r.data) setSettings(r.data);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [accountId]);
+
+  const toggle = async (key: string) => {
+    if (!accountId) return;
+    const next = { ...settings, [key]: !settings[key] };
+    setSettings(next);
+    setSaving(true);
+    try {
+      await axios.put(`${API_URL}/api/auth/notification-settings`, next, {
+        params: { account_id: accountId },
+      });
+      showToast('Настройки уведомлений сохранены', 'success');
+    } catch {
+      showToast('Ошибка при сохранении', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className="text-center py-4 text-gray-400 text-sm">Загрузка...</div>;
+
+  return (
+    <section className="bg-white border rounded-xl p-6">
+      <h3 className="text-lg font-semibold text-gray-800 mb-4">🔔 Настройки push-уведомлений</h3>
+      <div className="space-y-3">
+        {PUSH_OPTIONS.map(opt => (
+          <label
+            key={opt.key}
+            className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition ${
+              settings[opt.key]
+                ? 'bg-blue-50 border-blue-200'
+                : 'bg-gray-50 border-gray-200'
+            } ${saving ? 'opacity-50 pointer-events-none' : ''}`}
+          >
+            <input
+              type="checkbox"
+              checked={settings[opt.key]}
+              onChange={() => toggle(opt.key)}
+              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700">{opt.label}</span>
+          </label>
+        ))}
+      </div>
+      <p className="text-xs text-gray-400 mt-3">Уведомления приходят в браузер и Telegram (если подключён)</p>
+    </section>
+  );
 }
 
 export default function AccountPage() {
@@ -55,6 +156,11 @@ export default function AccountPage() {
   const [oauthProviders, setOauthProviders] = React.useState<{google: boolean, yandex: boolean}>({ google: false, yandex: false });
   const [botUsername, setBotUsername] = React.useState<string>('');
   const [telegramWaiting, setTelegramWaiting] = React.useState(false);
+  const [timezone, setTimezone] = React.useState<string>(() => {
+    const saved = localStorage.getItem('teamflow_timezone');
+    return saved || Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  });
+  const [savingTz, setSavingTz] = React.useState(false);
 
   const { data: user, isLoading } = useQuery<any | null>({
     queryKey: ['my-account', myAccountId],
@@ -278,6 +384,9 @@ export default function AccountPage() {
       setEditFirstName(user.first_name);
       setEditLastName(user.last_name || '');
       setEditDisplayName(user.display_name || '');
+      if (user.timezone) {
+        setTimezone(user.timezone);
+      }
     }
   }, [user]);
 
@@ -309,6 +418,22 @@ export default function AccountPage() {
     queryClient.clear();
     showToast('Вы вышли из аккаунта', 'success');
     window.location.pathname = '/';
+  };
+
+  const handleSaveTimezone = async (tz: string) => {
+    setTimezone(tz);
+    setSavingTz(true);
+    try {
+      await axios.patch(`${API_URL}/api/auth/account/profile`, { timezone: tz }, {
+        params: { account_id: myAccountId },
+      });
+      localStorage.setItem('teamflow_timezone', tz);
+      showToast('Часовой пояс сохранён', 'success');
+    } catch {
+      showToast('Ошибка при сохранении', 'error');
+    } finally {
+      setSavingTz(false);
+    }
   };
 
   if (!myAccountId) {
@@ -545,6 +670,28 @@ export default function AccountPage() {
               )}
             </div>
           </section>
+
+          {/* Часовой пояс */}
+          <section className="bg-white border rounded-xl p-6">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">🕐 Часовой пояс</h3>
+            <div className="flex items-center gap-3">
+              <select
+                value={timezone}
+                onChange={(e) => handleSaveTimezone(e.target.value)}
+                disabled={savingTz}
+                className="flex-1 px-3 py-2 border rounded-lg text-sm bg-white disabled:opacity-50"
+              >
+                {TIMEZONES.map(tz => (
+                  <option key={tz.value} value={tz.value}>{tz.label}</option>
+                ))}
+              </select>
+              {savingTz && <span className="text-sm text-gray-400">⏳</span>}
+            </div>
+            <p className="text-xs text-gray-400 mt-2">Используется для отображения дат и уведомлений о дедлайнах</p>
+          </section>
+
+          {/* Настройки уведомлений */}
+          <NotificationSettingsSection accountId={myAccountId} />
 
           {/* Выход */}
           <div className="pt-4 border-t">

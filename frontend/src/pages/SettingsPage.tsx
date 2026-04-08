@@ -315,12 +315,28 @@ function BotInfoSection() {
   );
 }
 
+const SYSTEM_TIMEZONES = [
+  { value: 'UTC', label: 'UTC' },
+  { value: 'Europe/Kaliningrad', label: 'Калининград (UTC+2)' },
+  { value: 'Europe/Moscow', label: 'Москва (UTC+3)' },
+  { value: 'Europe/Samara', label: 'Самара (UTC+4)' },
+  { value: 'Asia/Yekaterinburg', label: 'Екатеринбург (UTC+5)' },
+  { value: 'Asia/Omsk', label: 'Омск (UTC+6)' },
+  { value: 'Asia/Krasnoyarsk', label: 'Красноярск (UTC+7)' },
+  { value: 'Asia/Irkutsk', label: 'Иркутск (UTC+8)' },
+  { value: 'Asia/Yakutsk', label: 'Якутск (UTC+9)' },
+  { value: 'Asia/Vladivostok', label: 'Владивосток (UTC+10)' },
+  { value: 'Asia/Magadan', label: 'Магадан (UTC+11)' },
+  { value: 'Asia/Kamchatka', label: 'Камчатка (UTC+12)' },
+];
+
 // ========== SYSTEM SETTINGS COMPONENT ==========
 function SystemSettingsSection() {
   const [settings, setSettings] = React.useState({
     deadline_notify_hours: '24,3',
     frontend_url: '',
     cors_origins: '',
+    default_timezone: 'UTC',
   });
   const [vapidEmail, setVapidEmail] = React.useState('');
   const [loading, setLoading] = React.useState(true);
@@ -332,6 +348,7 @@ function SystemSettingsSection() {
         deadline_notify_hours: r.data.deadline_notify_hours || '24,3',
         frontend_url: r.data.frontend_url || '',
         cors_origins: r.data.cors_origins || '',
+        default_timezone: r.data.default_timezone || 'UTC',
       }))
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -415,6 +432,21 @@ function SystemSettingsSection() {
           {selectedHours.length === 0 && (
             <p className="text-xs text-gray-400 mt-1">Уведомления отключены</p>
           )}
+        </div>
+
+        {/* Default timezone */}
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">🕐 Часовой пояс по умолчанию</label>
+          <select
+            value={settings.default_timezone}
+            onChange={e => setSettings(prev => ({ ...prev, default_timezone: e.target.value }))}
+            className="w-full px-3 py-2 border rounded-lg text-sm bg-white"
+          >
+            {SYSTEM_TIMEZONES.map(tz => (
+              <option key={tz.value} value={tz.value}>{tz.label}</option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-400 mt-1">Будет назначен новым пользователям при регистрации</p>
         </div>
 
         <div>

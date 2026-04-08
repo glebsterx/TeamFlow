@@ -5,7 +5,7 @@
 
 ---
 
-## Текущая версия: v0.8.19 (спринт #283 закрыт ✅)
+## Текущая версия: v0.8.21 (спринт v0.9.0 закрыт ✅)
 
 > Аудит 01.04.2026: v0.8.19 — полный рефакторинг архитектуры пользователей. LocalAccount как основная сущность, Telegram как OAuth-провайдер, system roles, invite-only регистрация, API Key middleware, ServerRestartGuard.
 
@@ -44,10 +44,10 @@
 | Telegram: уведомления дедлайнов (#72), /remind (#75), прокси (#208), таймзоны parseUTC (#207) | v0.8.15 |
 | Настройки: статус бота (#212), heartbeat в БД (#214), перезапуск сервисов (#209) | v0.8.15 |
 | Настройки: версия в UI (#206), редизайн 2 колонки (#211), экспорт/импорт обновлён (#210) | v0.8.15 |
-| MTProxy sidecar mtg (#213): docker-compose profiles, _make_bot() рефактор, deploy.sh | v0.8.15 |
+| MTProxy sidecar mtg (#213): был попробован и не заработал — удалён | v0.8.15 |
 | Telegram Mini App (#73): /api/webapp/*, MiniAppPage, WebApp-кнопка в боте, SPA роутинг | v0.8.15 |
 | fix: pydantic extra=ignore в config.py — лишние .env переменные не роняют бэкенд | v0.8.15 |
-| fix: ProxyConnector в async (start_bot), AiohttpSession(proxy=url), _ensure_mtg_container | v0.8.15 |
+| fix: ProxyConnector в async (start_bot), AiohttpSession(proxy=url) | v0.8.15 |
 | fix: DOING не IN_PROGRESS во всех хендлерах бота и MiniAppPage | v0.8.15 |
 | fix: get_my_tasks_text() вместо _FakeMsg хака в menu:my callback | v0.8.15 |
 | Встречи v2: расширенная модель, participants, agenda, action items, бот (#104–117) | v0.8.14 |
@@ -173,12 +173,12 @@
 | #75 | /remind <id> <30m/2h/1d/18:00> — напоминание через бота |
 | #206 | Версия приложения в UI настроек |
 | #207 | parseUTC() — корректное отображение UTC дат из бэкенда |
-| #208 | Прокси для бота (MTProxy/SOCKS5), GET/POST /api/settings/proxy |
+| #208 | Прокси для бота (SOCKS5; MTProxy не поддерживается), GET/POST /api/settings/proxy |
 | #209 | Кнопки перезапуска backend/frontend через Docker socket API |
 | #210 | Экспорт/импорт обновлён: теги, зависимости, шаблоны, встречи v2, спринты |
 | #211 | Редизайн Настроек — 2-колоночный grid layout |
 | #212 | Статус Telegram-бота в Настройках (● Работает / ◌ Запускается) |
-| #213 | MTProxy sidecar mtg — docker-compose profiles, _make_bot() рефактор |
+| #213 | ~~MTProxy sidecar mtg~~ — был попробован и не заработал, удалён |
 | #73  | Telegram Mini App — /api/webapp/*, MiniAppPage, WebApp-кнопка в боте |
 | #214 | Heartbeat бота через БД (таблица bot_heartbeat) вместо in-memory dict |
 

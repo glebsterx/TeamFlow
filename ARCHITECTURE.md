@@ -21,14 +21,14 @@
 - **Docker Compose** — контейнеризация
 - **SQLite (WAL mode)** — база данных
 - **MemoryStorage** — FSM storage для aiogram (Redis убран)
-- **Docker Unix socket** — управление контейнерами из бэкенда (restart, mtg sidecar)
+- **Docker Unix socket** — управление контейнерами из бэкенда (restart API)
 
 ---
 
 ## Высокоуровневая схема
 
 ```
-Telegram ←→ aiogram Bot (прокси: SOCKS5 / MTProxy→sidecar mtg)
+Telegram ←→ aiogram Bot (прокси: SOCKS5/HTTP; MTProxy был попробован и не заработал в v0.8.15)
                  ↓
             Services → Repository → SQLite WAL
                  ↕
@@ -50,8 +50,7 @@ main.py
 ├── asyncio.run(startup())       ← инициализация БД + миграции
 ├── Process(run_api)             ← FastAPI/uvicorn, порт 8000 (внешний 8180)
 └── run_bot()                    ← aiogram polling
-    ├── _make_bot_async()        ← прокси: SOCKS5 / MTProxy через sidecar
-    ├── _ensure_mtg_container()  ← создаёт teamflow-mtg через Docker socket
+    ├── _make_bot_async()        ← прокси: SOCKS5/HTTP (MTProxy удалён)
     └── asyncio.create_task(run_deadline_checker)
         └── heartbeat каждые 30с → bot_heartbeat таблица
 ```
@@ -89,7 +88,7 @@ backend/app/
 │   └── webhook_service.py           ← trigger_webhooks, HMAC, retry
 │
 ├── telegram/
-│   ├── bot.py                       ← _make_bot_async(), _ensure_mtg_container()
+│   ├── bot.py                       ← _make_bot_async(), start_bot()
 │   ├── deadline_notifier.py         ← уведомления + heartbeat в БД
 │   ├── middleware.py                ← UserTrackingMiddleware
 │   └── handlers/

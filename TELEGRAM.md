@@ -131,8 +131,9 @@ menu:help     → справка
 
 Бот поддерживает работу через прокси (если Telegram заблокирован):
 - **SOCKS5:** `TELEGRAM_PROXY_URL=socks5://user:pass@host:port`
-- **MTProxy:** `TELEGRAM_PROXY_URL=mtproto://host:port?secret=...`
-  Автоматически создаёт Docker-контейнер `teamflow-mtg` (sidecar mtg).
+- **HTTP/HTTPS:** `TELEGRAM_PROXY_URL=http://user:pass@host:port`
+
+> MTProxy **не поддерживается** — был попробован в v0.8.15 (sidecar `teamflow-mtg`) и не заработал, удалён.
 
 Настраивается через `backend/.env` или через UI настроек (⚙️ → Прокси).
 

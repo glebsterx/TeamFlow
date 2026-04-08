@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, Column, Integer, String, Text, DateTime, Boolean
 from app.core.db import Base, get_db
+from app.core.clock import Clock
 
 router = APIRouter()
 
@@ -19,7 +20,7 @@ class TaskTemplate(Base):
     priority = Column(String(10), nullable=False, default="NORMAL")
     project_id = Column(Integer, nullable=True)
     recurrence = Column(String(20), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
 
 
 class TemplateCreate(BaseModel):

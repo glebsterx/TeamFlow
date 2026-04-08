@@ -1,6 +1,7 @@
 """Handler for /remind command — reminder for a specific task."""
 import asyncio
 from datetime import datetime, timezone, timedelta
+from app.core.clock import Clock
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -35,7 +36,7 @@ def _parse_delay(arg: str) -> int | None:
         # Формат HH:MM — сегодня в это время (UTC+3 = MSK)
         if ":" in arg:
             h, m = arg.split(":")
-            now_msk = datetime.now(timezone.utc) + timedelta(hours=3)
+            now_msk = Clock.now() + timedelta(hours=3)
             target = now_msk.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
             if target <= now_msk:
                 target += timedelta(days=1)

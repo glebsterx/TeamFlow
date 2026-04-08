@@ -33,11 +33,10 @@ BASE_URL=http://tf.example.com
 ### `backend/.env` — для приложения
 ```env
 APP_NAME=TeamFlow
-VERSION=0.8.19
+VERSION=0.8.21
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_BOT_USERNAME=...
-TELEGRAM_PROXY_URL=          # socks5://user:pass@host:port  или  mtproto://host:port?secret=...
-MTG_SIDECAR_URL=socks5://mtg:2080  # адрес sidecar-контейнера (не менять)
+TELEGRAM_PROXY_URL=          # socks5://user:pass@host:port  (MTProxy не поддерживается)
 DATABASE_URL=sqlite+aiosqlite:///./data/teamflow.db
 BASE_URL=http://tf.example.com
 BACKEND_PORT=8180
@@ -78,11 +77,12 @@ VITE_API_URL=http://tf.example.com:8180
 |-----------|-------|------|-----------|
 | `teamflow-backend` | python 3.11 | 8180 | FastAPI + aiogram бот |
 | `teamflow-frontend` | node (vite) | 5180 | React UI (HMR) |
-| `teamflow-mtg` | ghcr.io/9seconds/mtg:2 | — | MTProxy sidecar (создаётся автоматически при mtproto://) |
+
+> MTProxy sidecar (`teamflow-mtg`) был попробован в v0.8.15 и не заработал — удалён.
 
 Volumes:
 - `teamflow_teamflow-data` — SQLite БД (named volume, не удалять!)
-- `/var/run/docker.sock` — Docker socket для restart API и создания mtg-контейнера
+- `/var/run/docker.sock` — Docker socket для restart API
 
 ### После изменений кода
 ```bash

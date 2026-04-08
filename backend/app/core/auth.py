@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.config import settings
 from app.domain.user import User
+from app.core.clock import Clock
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -23,9 +24,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     """Create JWT access token."""
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = Clock.now() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(days=30)
+        expire = Clock.now() + timedelta(days=30)
     
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm="HS256")

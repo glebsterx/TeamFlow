@@ -70,16 +70,22 @@ async def _run_migrations():
         async with db.execute("PRAGMA table_info(tasks)") as cur:
             cols = {row[1] async for row in cur}
 
+        # Получаем текущие колонки local_accounts
+        async with db.execute("PRAGMA table_info(local_accounts)") as cur:
+            local_accounts_cols = {row[1] async for row in cur}
+
         # Добавляем отсутствующие колонки
         migrations = [
-            ("assignee_id", "ALTER TABLE tasks ADD COLUMN assignee_id INTEGER"),
-            ("source_chat_id", "ALTER TABLE tasks ADD COLUMN source_chat_id BIGINT"),
-            ("project_id", "ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id)"),
+            ("assignee_id", "ALTER TABLE tasks ADD COLUMN assignee_id INTEGER", cols),
+            ("source_chat_id", "ALTER TABLE tasks ADD COLUMN source_chat_id BIGINT", cols),
+            ("project_id", "ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id)", cols),
+            ("timezone", "ALTER TABLE local_accounts ADD COLUMN timezone VARCHAR(64)", local_accounts_cols),
         ]
-        for col, sql in migrations:
-            if col not in cols:
+        for col, sql, existing_cols in migrations:
+            if col not in existing_cols:
                 await db.execute(sql)
-                print(f"[migrate] Added column tasks.{col}")
+                table = "local_accounts" if col == "timezone" else "tasks"
+                print(f"[migrate] Added column {table}.{col}")
 
         await db.commit()
 

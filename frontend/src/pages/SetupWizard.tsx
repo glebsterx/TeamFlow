@@ -2,6 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { API_URL } from '../constants/taskDisplay';
 import { useTheme } from '../hooks/useTheme';
 
+const SYSTEM_TIMEZONES = [
+  { value: 'UTC', label: 'UTC' },
+  { value: 'Europe/Kaliningrad', label: 'Калининград (UTC+2)' },
+  { value: 'Europe/Moscow', label: 'Москва (UTC+3)' },
+  { value: 'Europe/Samara', label: 'Самара (UTC+4)' },
+  { value: 'Asia/Yekaterinburg', label: 'Екатеринбург (UTC+5)' },
+  { value: 'Asia/Omsk', label: 'Омск (UTC+6)' },
+  { value: 'Asia/Krasnoyarsk', label: 'Красноярск (UTC+7)' },
+  { value: 'Asia/Irkutsk', label: 'Иркутск (UTC+8)' },
+  { value: 'Asia/Yakutsk', label: 'Якутск (UTC+9)' },
+  { value: 'Asia/Vladivostok', label: 'Владивосток (UTC+10)' },
+  { value: 'Asia/Magadan', label: 'Магадан (UTC+11)' },
+  { value: 'Asia/Kamchatka', label: 'Камчатка (UTC+12)' },
+];
+
 interface StartupCheck {
   has_users: boolean;
   bot_configured: boolean;
@@ -15,6 +30,7 @@ interface SystemSettings {
   telegram_chat_id: string;
   cors_origins: string;
   bot_username: string;
+  default_timezone: string;
 }
 
 export const SetupWizard: React.FC = () => {
@@ -43,6 +59,7 @@ export const SetupWizard: React.FC = () => {
     telegram_chat_id: '',
     cors_origins: '',
     bot_username: '',
+    default_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   });
 
   useEffect(() => {
@@ -300,7 +317,6 @@ export const SetupWizard: React.FC = () => {
                     </div>
                     <p className="text-xs text-gray-600 dark:text-gray-400">
                       SOCKS5: <code className="bg-white dark:bg-gray-800 px-1 rounded">socks5://user:pass@host:port</code>
-                      {' '}или MTProto: <code className="bg-white dark:bg-gray-800 px-1 rounded">mtproto://host:port?secret=...</code>
                     </p>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Proxy URL</label>
@@ -409,6 +425,19 @@ export const SetupWizard: React.FC = () => {
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                   <p className="text-xs text-gray-500 mt-1">Через сколько часов до дедлайна уведомлять (через запятую)</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">🕐 Часовой пояс по умолчанию</label>
+                  <select
+                    value={settings.default_timezone}
+                    onChange={e => setSettings(s => ({ ...s, default_timezone: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  >
+                    {SYSTEM_TIMEZONES.map(tz => (
+                      <option key={tz.value} value={tz.value}>{tz.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">Определён из браузера. Будет назначен новым пользователям.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">URL приложения (BASE_URL)</label>

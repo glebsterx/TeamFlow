@@ -13,6 +13,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 import secrets
 from app.core.db import get_db
+from app.core.clock import Clock
 from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskStatus
@@ -929,7 +930,7 @@ async def create_task_api(
 
     if request.backlog:
         task.backlog = True
-        task.backlog_added_at = datetime.utcnow()
+        task.backlog_added_at = Clock.now()
 
     if request.recurrence:
         task.recurrence = request.recurrence
@@ -1000,7 +1001,7 @@ async def update_task_api(
 
     if request.backlog is not None:
         task.backlog = request.backlog
-        task.backlog_added_at = datetime.utcnow() if request.backlog else None
+        task.backlog_added_at = Clock.now() if request.backlog else None
 
     if "recurrence" in request.model_fields_set:
         task.recurrence = request.recurrence
@@ -1297,7 +1298,7 @@ async def auto_archive_done_tasks(db: AsyncSession = Depends(get_db)):
     from datetime import timedelta
     from app.domain.models import Task as TaskModel
 
-    cutoff = datetime.utcnow() - timedelta(days=7)
+    cutoff = Clock.now() - timedelta(days=7)
     result = await db.execute(
         sa_update(TaskModel)
         .where(TaskModel.status == "DONE")
@@ -1314,15 +1315,17 @@ async def auto_archive_done_tasks(db: AsyncSession = Depends(get_db)):
 # ============= WEB PUSH API =============
 
 
-async def send_push(title: str, body: str, url: str = "/") -> None:
+async def send_push(title: str, body: str, url: str = "/", task_id: int = None) -> None:
     """Send Web Push notification to all active subscriptions.
 
     #272 — VAPID keys and email stored in app_settings DB.
     #260 — Runs in thread pool to avoid blocking event loop.
+    #317 — Conditional: only send to users who have relevant notifications enabled.
     """
     import asyncio
+    import json
     from app.core.db import AsyncSessionLocal
-    from app.domain.models import PushSubscription as PushSubscriptionModel
+    from app.domain.models import PushSubscription as PushSubscriptionModel, AppSetting
     from app.services.vapid_service import (
         get_vapid_private_key,
         get_vapid_claims_email,
@@ -1342,13 +1345,29 @@ async def send_push(title: str, body: str, url: str = "/") -> None:
             await set_vapid_keys(session, private_key, public_key)
             logger.info("send_push: VAPID keys generated and saved to DB")
 
-        # Fetch subscriptions
-        result = await session.execute(select(PushSubscriptionModel))
+        # Fetch subscriptions with account_id
+        result = await session.execute(
+            select(PushSubscriptionModel).where(
+                PushSubscriptionModel.account_id != None
+            )
+        )
         subs = list(result.scalars().all())
 
     if not subs:
-        logger.info("send_push: no subscriptions, skipping")
+        logger.info("send_push: no subscriptions with account_id, skipping")
         return
+
+    # Load user preferences for conditional push
+    user_prefs = {}  # account_id -> dict
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(AppSetting))
+        for setting in result.scalars().all():
+            if setting.key.startswith("notif_prefs_"):
+                try:
+                    acc_id = int(setting.key.replace("notif_prefs_", ""))
+                    user_prefs[acc_id] = json.loads(setting.value)
+                except Exception:
+                    pass
 
     logger.info("send_push: sending '%s' to %d subscription(s), email=%s", title, len(subs), claims_email)
 
@@ -1358,6 +1377,14 @@ async def send_push(title: str, body: str, url: str = "/") -> None:
     async def _send_one(sub):
         """Отправить один push в thread pool."""
         nonlocal sent_count, fail_count
+
+        # Check user preferences
+        if sub.account_id and sub.account_id in user_prefs:
+            prefs = user_prefs[sub.account_id]
+            if not prefs.get("status_changed", True):
+                logger.info("send_push: skipped for account_id=%d (status_changed disabled)", sub.account_id)
+                return
+
         loop = asyncio.get_event_loop()
         payload = json.dumps({"title": title, "body": body, "url": url})
         try:
@@ -1378,7 +1405,7 @@ async def send_push(title: str, body: str, url: str = "/") -> None:
                 ),
             )
             sent_count += 1
-            logger.info("Push sent OK to %s", sub.endpoint[:60])
+            logger.info("Push sent OK to %s (account_id=%d)", sub.endpoint[:60], sub.account_id)
         except WebPushException as exc:
             fail_count += 1
             if (
@@ -1460,12 +1487,14 @@ async def push_subscribe(
         sub.p256dh = request.keys["p256dh"]
         sub.auth = request.keys["auth"]
         sub.user_telegram_id = request.user_telegram_id
+        sub.account_id = request.account_id
     else:
         sub = PushSubscriptionModel(
             endpoint=request.endpoint,
             p256dh=request.keys["p256dh"],
             auth=request.keys["auth"],
             user_telegram_id=request.user_telegram_id,
+            account_id=request.account_id,
         )
         db.add(sub)
     await db.commit()
@@ -1670,7 +1699,7 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
     proj_repo = ProjectRepository(db)
     projects = await proj_repo.get_all_active()
 
-    today = datetime.utcnow().date()
+    today = Clock.now().date()
     soon = today + timedelta(days=7)
 
     terminal = {TS.DONE.value, TS.ON_HOLD.value}
@@ -1854,7 +1883,7 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
     # Активность комментариев за неделю (#90)
     from app.domain.models import Comment
 
-    week_ago = datetime.utcnow() - timedelta(days=7)
+    week_ago = Clock.now() - timedelta(days=7)
     comments_result = await db.execute(
         select(Comment).where(Comment.created_at >= week_ago)
     )
@@ -1955,11 +1984,11 @@ async def export_data(
             "templates",
         }
     )
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = Clock.now().strftime("%Y-%m-%d")
 
     payload: dict = {
         "version": settings.VERSION,
-        "exported_at": datetime.utcnow().isoformat(),
+        "exported_at": Clock.now().isoformat(),
         "filters": {"project_id": project_id, "include": sorted(parts)},
         "projects": [],
         "tasks": [],
@@ -2261,7 +2290,7 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
                 emoji=p.get("emoji", "📁"),
                 is_active=p.get("is_active", True),
                 parent_project_id=p.get("parent_project_id"),
-                created_at=_parse_dt(p.get("created_at")) or datetime.utcnow(),
+                created_at=_parse_dt(p.get("created_at")) or Clock.now(),
             )
         )
         counts["projects"] += 1
@@ -2299,8 +2328,8 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
                     backlog_added_at=_parse_dt(t.get("backlog_added_at")),
                     recurrence=t.get("recurrence"),
                     recurrence_end_date=_parse_dt(t.get("recurrence_end_date")),
-                    created_at=_parse_dt(t.get("created_at")) or datetime.utcnow(),
-                    updated_at=_parse_dt(t.get("updated_at")) or datetime.utcnow(),
+                    created_at=_parse_dt(t.get("created_at")) or Clock.now(),
+                    updated_at=_parse_dt(t.get("updated_at")) or Clock.now(),
                     started_at=_parse_dt(t.get("started_at")),
                     completed_at=_parse_dt(t.get("completed_at")),
                 )
@@ -2351,7 +2380,7 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
             TaskDependency(
                 task_id=dep["task_id"],
                 depends_on_id=dep["depends_on_id"],
-                created_at=_parse_dt(dep.get("created_at")) or datetime.utcnow(),
+                created_at=_parse_dt(dep.get("created_at")) or Clock.now(),
             )
         )
         counts["dependencies"] += 1
@@ -2370,7 +2399,7 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
                 id=tmpl["id"],
                 name=tmpl["name"],
                 fields_json=tmpl.get("fields_json"),
-                created_at=_parse_dt(tmpl.get("created_at")) or datetime.utcnow(),
+                created_at=_parse_dt(tmpl.get("created_at")) or Clock.now(),
             )
         )
         counts["templates"] += 1
@@ -2392,8 +2421,8 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
                 meeting_type=m.get("meeting_type"),
                 duration_min=m.get("duration_min"),
                 agenda=m.get("agenda"),
-                meeting_date=_parse_dt(m.get("meeting_date")) or datetime.utcnow(),
-                created_at=_parse_dt(m.get("created_at")) or datetime.utcnow(),
+                meeting_date=_parse_dt(m.get("meeting_date")) or Clock.now(),
+                created_at=_parse_dt(m.get("created_at")) or Clock.now(),
             )
         )
         counts["meetings"] += 1
@@ -2421,7 +2450,7 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
                 text=c["text"],
                 author_name=c.get("author_name"),
                 author_telegram_id=c.get("author_telegram_id"),
-                created_at=_parse_dt(c.get("created_at")) or datetime.utcnow(),
+                created_at=_parse_dt(c.get("created_at")) or Clock.now(),
             )
         )
         counts["comments"] += 1
@@ -2445,7 +2474,7 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
                 position=s.get("position", 0),
                 start_date=_parse_dt(s.get("start_date")),
                 end_date=_parse_dt(s.get("end_date")),
-                created_at=_parse_dt(s.get("created_at")) or datetime.utcnow(),
+                created_at=_parse_dt(s.get("created_at")) or Clock.now(),
             )
         )
         counts["sprints"] += 1
@@ -2661,7 +2690,7 @@ async def set_proxy_settings(req: dict):
             setting = result.scalar_one_or_none()
             if setting:
                 setting.value = proxy_url
-                setting.updated_at = datetime.utcnow()
+                setting.updated_at = Clock.now()
             else:
                 setting = AppSetting(key="telegram_proxy_url", value=proxy_url)
                 session.add(setting)
