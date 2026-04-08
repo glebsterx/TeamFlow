@@ -60,23 +60,43 @@ export default function MiniAppPage() {
   const [telegramId, setTelegramId] = useState<number | null>(null);
   const [userName, setUserName] = useState<string>("Пользователь");
   const [isDark, setIsDark] = useState(false);
+  const [sdkReady, setSdkReady] = useState(false);
   const qc = useQueryClient();
 
   useEffect(() => {
-    const tg = window.Telegram?.WebApp;
-    if (tg) {
-      tg.ready(); tg.expand();
-      setIsDark(tg.colorScheme === "dark");
-      const user = tg.initDataUnsafe?.user;
-      if (user) { setTelegramId(user.id); setUserName(user.first_name || user.username || "Пользователь"); }
-    }
+    const initTg = () => {
+      const tg = window.Telegram?.WebApp;
+      if (tg) {
+        setSdkReady(true);
+        tg.ready(); tg.expand();
+        setIsDark(tg.colorScheme === "dark");
+        const user = tg.initDataUnsafe?.user;
+        if (user) { setTelegramId(user.id); setUserName(user.first_name || user.username || "Пользователь"); }
+      }
+    };
+
+    initTg();
+
+    let attempts = 0;
+    const poll = setInterval(() => {
+      attempts++;
+      if (window.Telegram?.WebApp) {
+        clearInterval(poll);
+        initTg();
+      } else if (attempts > 25) {
+        clearInterval(poll);
+        setSdkReady(true);
+      }
+    }, 200);
+
+    return () => clearInterval(poll);
   }, []);
 
   const { data: tasks = [], isLoading: tasksLoading } = useQuery<MiniTask[]>({
     queryKey: ["webapp-tasks", telegramId],
     queryFn: async () => {
       if (!telegramId) return [];
-      const { data } = await axios.get(`${API_URL}/webapp/my-tasks`, { params: { telegram_id: telegramId } });
+      const { data } = await axios.get(`${API_URL}/api/webapp/my-tasks`, { params: { telegram_id: telegramId } });
       return data;
     },
     enabled: !!telegramId,
@@ -85,13 +105,13 @@ export default function MiniAppPage() {
 
   const { data: sprintData } = useQuery<{ sprint: SprintSummary | null }>({
     queryKey: ["webapp-sprint"],
-    queryFn: async () => { const { data } = await axios.get(`${API_URL}/webapp/sprint`); return data; },
+    queryFn: async () => { const { data } = await axios.get(`${API_URL}/api/webapp/sprint`); return data; },
     refetchInterval: 60_000,
   });
 
   const statusMutation = useMutation({
     mutationFn: async ({ taskId, status }: { taskId: number; status: string }) => {
-      const { data } = await axios.post(`${API_URL}/webapp/tasks/${taskId}/status`, { status, telegram_id: telegramId });
+      const { data } = await axios.post(`${API_URL}/api/webapp/tasks/${taskId}/status`, { status, telegram_id: telegramId });
       return data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["webapp-tasks"] }),
@@ -99,6 +119,18 @@ export default function MiniAppPage() {
 
   const bg = isDark ? "bg-gray-900 text-white" : "bg-gray-50 text-gray-900";
   const card = isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200";
+
+  // Show loading while waiting for SDK
+  if (!sdkReady) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center ${bg}`}>
+        <div className="text-center">
+          <div className="text-4xl mb-4 animate-pulse">⏳</div>
+          <p className="text-lg font-medium">Загрузка...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!telegramId) {
     return (

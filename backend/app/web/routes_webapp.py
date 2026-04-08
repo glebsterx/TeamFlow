@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.core.db import get_db
-from app.domain.models import Task, Sprint, SprintTask, TelegramUser
+from app.domain.models import Task, Sprint, SprintTask
 from app.domain.enums import TaskStatus
 from app.web.schemas import TaskResponse
 from app.config import settings
@@ -41,11 +41,24 @@ async def get_my_tasks(
     telegram_id: int = Query(..., description="Telegram user ID"),
     status: Optional[str] = Query(None, description="Фильтр по статусу"),
     db: AsyncSession = Depends(get_db)):
-    """Задачи, назначенные пользователю (по telegram_id).
+    """Задачи, назначенные пользователю (по telegram_id через UserIdentity).
 
     Используется Mini App для показа персональной доски прямо в Telegram.
     Возвращает задачи отсортированные: URGENT→HIGH→NORMAL→LOW, затем по due_date.
     """
+    from app.domain.models import UserIdentity
+
+    # Find LocalAccount via UserIdentity
+    identity_result = await db.execute(
+        select(UserIdentity.local_account_id).where(
+            UserIdentity.provider == "telegram",
+            UserIdentity.provider_user_id == str(telegram_id),
+        )
+    )
+    account_id = identity_result.scalar_one_or_none()
+    if not account_id:
+        return []
+
     priority_order = {"URGENT": 0, "HIGH": 1, "NORMAL": 2, "LOW": 3}
 
     query = (
@@ -55,7 +68,7 @@ async def get_my_tasks(
             selectinload(Task.tags),
             selectinload(Task.assignee))
         .where(
-            Task == telegram_id,
+            Task.assignee_id == account_id,
             Task.deleted.is_(False),
             Task.archived.is_(False))
     )
@@ -111,7 +124,7 @@ async def get_active_sprint_summary(db: AsyncSession = Depends(get_db)):
 
     total = len(tasks)
     done = sum(1 for t in tasks if t.status == TaskStatus.DONE)
-    in_progress = sum(1 for t in tasks if t.status == TaskStatus.IN_PROGRESS)
+    in_progress = sum(1 for t in tasks if t.status == TaskStatus.DOING)
 
     return {
         "sprint": {
@@ -138,9 +151,11 @@ async def update_task_status_webapp(
     db: AsyncSession = Depends(get_db)):
     """Сменить статус задачи из Mini App.
 
-    Body: {"status": "IN_PROGRESS", "telegram_id": 123456}
+    Body: {"status": "DOING", "telegram_id": 123456}
     Проверяем, что пользователь — исполнитель задачи.
     """
+    from app.domain.models import UserIdentity
+
     new_status_str = body.get("status", "").upper()
     telegram_id = body.get("telegram_id")
 
@@ -158,16 +173,24 @@ async def update_task_status_webapp(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    # Разрешаем только исполнителю или любому (если telegram_id не указан — только чтение)
-    if telegram_id and task and task != telegram_id:
-        raise HTTPException(status_code=403, detail="Not your task")
+    # Check authorization via UserIdentity
+    if telegram_id:
+        identity_result = await db.execute(
+            select(UserIdentity.local_account_id).where(
+                UserIdentity.provider == "telegram",
+                UserIdentity.provider_user_id == str(telegram_id),
+            )
+        )
+        account_id = identity_result.scalar_one_or_none()
+        if account_id and task.assignee_id and task.assignee_id != account_id:
+            raise HTTPException(status_code=403, detail="Not your task")
 
     from datetime import datetime, timezone
     task.status = new_status
     task.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     if new_status == TaskStatus.DONE:
         task.completed_at = task.updated_at
-    elif new_status == TaskStatus.IN_PROGRESS and not task.started_at:
+    elif new_status == TaskStatus.DOING and not task.started_at:
         task.started_at = task.updated_at
 
     await db.commit()

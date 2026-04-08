@@ -131,11 +131,6 @@ body {
   accent-color: #3b82f6 !important;
 }
 
-.dark .toast button {
-  background-color: transparent !important;
-  color: white !important;
-  border: none !important;
-}
 
 .dark .bg-red-50 { background-color: #2a1515 !important; }
 .dark .bg-red-100 { background-color: #3a1a1a !important; }
@@ -205,6 +200,15 @@ body {
 
 .dark .bg-gray-100 { background-color: #374151 !important; }
 .dark .text-gray-400 { color: #9ca3af !important; }
+
+/* Toast colors in dark mode — must be last to override all .dark .bg-* rules */
+.dark .toast { background-color: #1f2937 !important; color: #fff !important; }
+.dark .toast.info { background-color: #1f2937 !important; color: #fff !important; }
+.dark .toast.success { background-color: #16a34a !important; color: #fff !important; }
+.dark .toast.warning { background-color: #f59e0b !important; color: #fff !important; }
+.dark .toast.error { background-color: #dc2626 !important; color: #fff !important; }
+.dark .toast * { color: #ffffff !important; }
+.dark .toast button { background-color: transparent !important; color: #fff !important; border: none !important; }
 
 .line-clamp-2 {
   display: -webkit-box;

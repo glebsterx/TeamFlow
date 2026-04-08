@@ -6,7 +6,7 @@ from app.core.db import AsyncSessionLocal
 from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskStatus
-from app.domain.models import TelegramUser
+
 from app.config import settings
 from app.core.logging import get_logger
 

@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     FRONTEND_PORT: int = 5180
     
     # Telegram Bot
-    TELEGRAM_BOT_TOKEN: str
+    TELEGRAM_BOT_TOKEN: Optional[str] = None  # Can be configured later via UI
     TELEGRAM_CHAT_ID: Optional[int] = None  # Optional - bot works in all chats
     TELEGRAM_BOT_USERNAME: str = ""
     TELEGRAM_PROXY_URL: Optional[str] = None  # socks5://... (MTProxy не поддерживается)
@@ -44,11 +44,9 @@ class Settings(BaseSettings):
     ]
     
     # Security
-    SECRET_KEY: str = "change-this-secret-key-in-production"
+    SECRET_KEY: str = ""
 
-    # Web Push (VAPID)
-    VAPID_PRIVATE_KEY: str = ""
-    VAPID_PUBLIC_KEY: str = ""
+    # Web Push (VAPID) — stored in app_settings DB, not .env
     VAPID_CLAIMS_EMAIL: str = "admin@teamflow.local"
     
     # Performance

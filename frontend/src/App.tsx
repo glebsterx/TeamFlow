@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Dashboard from './pages/Dashboard';
 import MiniAppPage from './pages/MiniAppPage';
-import { Login } from './pages/Login/Login';
+import { Login } from './pages/Login';
 import { Welcome } from './pages/Welcome';
+import { SetupWizard } from './pages/SetupWizard';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -22,6 +23,7 @@ function isAuthenticated(): boolean {
 
 /**
  * Роутинг без react-router — определяем по pathname.
+ * /setup → SetupWizard (первоначальная настройка)
  * /login → Login (авторизация через Telegram / логин/пароль)
  * /app   → MiniAppPage (Telegram Mini App)
  * /welcome → Welcome (страница приветствия)
@@ -30,6 +32,9 @@ function isAuthenticated(): boolean {
 function AppRouter() {
   const path = window.location.pathname;
 
+  if (path === '/setup') {
+    return <SetupWizard />;
+  }
   if (path === '/login') {
     return <Login />;
   }

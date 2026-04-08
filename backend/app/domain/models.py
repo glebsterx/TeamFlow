@@ -107,31 +107,6 @@ class ProjectMember(Base):
         return f"<ProjectMember(project_id={self.project_id}, telegram_user_id={self.telegram_user_id}, role='{self.role}')>"
 
 
-class TelegramUser(Base):
-    """Telegram user."""
-    __tablename__ = "telegram_users"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    telegram_id = Column(BigInteger, unique=True, nullable=False, index=True)
-    username = Column(String(100), nullable=True)
-    first_name = Column(String(100), nullable=False)
-    last_name = Column(String(100), nullable=True)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    @property
-    def display_name(self) -> str:
-        if self.username:
-            return f"@{self.username}"
-        if self.last_name:
-            return f"{self.first_name} {self.last_name}"
-        return self.first_name
-
-    def __repr__(self):
-        return f"<TelegramUser(id={self.telegram_id}, name='{self.display_name}')>"
-
-
 class LocalAccount(Base):
     """Единый аккаунт пользователя."""
     __tablename__ = "local_accounts"
@@ -187,7 +162,6 @@ class UserIdentity(Base):
     local_account_id = Column(Integer, ForeignKey("local_accounts.id", ondelete="CASCADE"), nullable=False)
     provider = Column(String(20), nullable=False)
     provider_user_id = Column(String(255), nullable=False)
-    telegram_id = Column(Integer, nullable=True)
     email = Column(String(255), nullable=True)
     access_token = Column(Text, nullable=True)
     refresh_token = Column(Text, nullable=True)
@@ -204,19 +178,19 @@ class Task(Base):
     description = Column(Text, nullable=True)
 
     # Project
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True, index=True)
 
     # Assignee
-    assignee_id = Column(Integer, ForeignKey("local_accounts.id"), nullable=True)
+    assignee_id = Column(Integer, ForeignKey("local_accounts.id"), nullable=True, index=True)
     assignee = relationship("LocalAccount", foreign_keys=[assignee_id])
 
     # Subtasks
-    parent_task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True)
+    parent_task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True, index=True)
 
     # Status and dates
-    status = Column(String(20), nullable=False, default=TaskStatus.TODO.value)
-    priority = Column(String(10), nullable=False, default=TaskPriority.NORMAL.value)
-    due_date = Column(DateTime, nullable=True)
+    status = Column(String(20), nullable=False, default=TaskStatus.TODO.value, index=True)
+    priority = Column(String(10), nullable=False, default=TaskPriority.NORMAL.value, index=True)
+    due_date = Column(DateTime, nullable=True, index=True)
     definition_of_done = Column(Text, nullable=True)
 
     # Source tracking
@@ -325,16 +299,16 @@ class MeetingProject(Base):
 
 
 class MeetingParticipant(Base):
-    """Meeting participant — telegram user or external name."""
+    """Meeting participant — local account or external name."""
     __tablename__ = "meeting_participants"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     meeting_id = Column(Integer, ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False)
-    telegram_user_id = Column(Integer, ForeignKey("telegram_users.id", ondelete="SET NULL"), nullable=True)
+    account_id = Column(Integer, ForeignKey("local_accounts.id", ondelete="SET NULL"), nullable=True)
     display_name = Column(String(100), nullable=False)  # always stored for display
 
     meeting = relationship("Meeting", back_populates="participants")
-    user = relationship("TelegramUser")
+    account = relationship("LocalAccount")
 
 
 class MeetingTask(Base):

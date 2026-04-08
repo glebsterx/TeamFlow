@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { showToast } from '../utils/toast';
 
 interface TaskTimerProps {
   taskId: number;
@@ -60,7 +61,7 @@ export function TaskTimer({ taskId, onStop }: TaskTimerProps) {
     if (isRunning && !isPaused && seconds > 0 && seconds % 900 === 0) {
       const hours = Math.floor(seconds / 3600);
       if (hours >= 4) {
-        alert(`⏰ Таймер работает уже ${hours} часа(ов)! Может, пора остановить?`);
+        showToast(`⏰ Таймер работает уже ${hours} часа(ов)! Может, пора остановить?`, 'warning');
       }
     }
   }, [seconds, isRunning, isPaused]);

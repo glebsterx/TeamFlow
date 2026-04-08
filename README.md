@@ -34,12 +34,20 @@ cd TeamFlow
 - Directory navigation по проектам
 - Фильтры: проект, исполнитель, приоритет, статус
 - Архив и корзина (soft delete)
-- Адаптивный дизайн
+- Адаптивный дизайн + тёмная тема
 - **Вебхуки** — POST на внешний URL при смене статуса
 - **API-ключи** — для внешнего доступа к API
 - **Учёт времени** — таймер и ручной ввод по задаче
 - **Спринты** — планирование и отслеживание прогресса
 - **Встречи v2** — с участниками, повесткой, автопарсинг action items
+- **Telegram Mini App** — встроенный интерфейс в боте
+
+### Авторизация
+- **Локальный вход** — логин/пароль
+- **Telegram** — deep link login через бота
+- **Google/Yandex OAuth** — привязка и вход (настраивается через UI)
+- **Invite-only режим** — регистрация только по приглашениям
+- **System roles** — admin/user для доступа к настройкам
 
 ---
 
@@ -49,7 +57,7 @@ cd TeamFlow
 |---------|----------|----------------|
 | Python 3.11, FastAPI | React 18, TypeScript | Docker Compose |
 | aiogram 3.4 (Telegram) | Vite 5, Tailwind CSS | SQLite (WAL mode) |
-| SQLAlchemy 2.0 async | TanStack Query | Redis (FSM) |
+| SQLAlchemy 2.0 async | TanStack Query | MemoryStorage (FSM) |
 
 ---
 
@@ -87,14 +95,15 @@ docker cp teamflow-backend:/app/data/teamflow.db ./backup.db  # Бэкап
 `docker cp teamflow-backend:/app/data/teamflow.db ./backup.db`
 
 **Нужна авторизация?**
-Пока нет — Web UI открыт для всех на вашем сервере. Telegram Login Widget планируется в v1.0.0 (требует HTTPS).
+Да — локальный логин/пароль, Telegram через бота, или Google/Yandex OAuth.
+Администратор может включить invite-only режим для закрытой регистрации.
 
 **Порты по умолчанию?**
 Backend: 8180, Frontend: 5180. Меняются через `.env`.
 
 ---
 
-## Текущая версия: v0.8.17
+## Текущая версия: v0.8.19
 
 [История изменений →](CHANGELOG.md) · [Планы →](ROADMAP.md)
 

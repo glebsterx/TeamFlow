@@ -4,7 +4,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from sqlalchemy import select
 from app.core.db import AsyncSessionLocal
-from app.domain.models import Task
+from app.domain.models import Task, UserIdentity, LocalAccount
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -31,28 +31,34 @@ async def get_my_tasks_text(tg_id: int, username: str | None, display: str) -> s
     """Получить текст доски 'мои задачи' по telegram_id. Используется из обработчиков и меню."""
     try:
         async with AsyncSessionLocal() as session:
+            # Find LocalAccount via UserIdentity
+            identity_result = await session.execute(
+                select(UserIdentity.local_account_id).where(
+                    UserIdentity.provider == "telegram",
+                    UserIdentity.provider_user_id == str(tg_id),
+                )
+            )
+            identity_row = identity_result.scalar_one_or_none()
+
+            if not identity_row:
+                return f"👤 *Мои задачи — {display}*\n\nАккаунт не найден. Войдите через веб или напишите /start."
+
+            account_id = identity_row
+            at_username = f"@{username}" if username else None
+
+            # Get tasks assigned to this account
             stmt = (
-                select(
-                    Task.id,
-                    Task.title,
-                    Task.status,
-                    Task.priority,
-                    Task,
-                    Task)
+                select(Task)
                 .where(
                     Task.deleted.is_(False),
                     Task.archived.is_(False),
-                    Task.status.in_(list(ACTIVE_STATUSES)))
+                    Task.status.in_(list(ACTIVE_STATUSES)),
+                    Task.assignee_id == account_id,
+                )
+                .order_by(Task.created_at.desc())
             )
             result = await session.execute(stmt)
-            rows = result.all()
-
-        at_username = f"@{username}" if username else None
-        tasks = [
-            r for r in rows
-            if r == tg_id
-            or (at_username and r == at_username)
-        ]
+            tasks = list(result.scalars().all())
 
         if not tasks:
             return f"👤 *Мои задачи — {display}*\n\nУ вас нет активных задач 🎉"

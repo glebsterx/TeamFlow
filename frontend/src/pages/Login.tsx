@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { authApi } from '../../api/auth';
-import { useAuthStore } from '../../stores/authStore';
-import { API_URL } from '../../constants/taskDisplay';
-import { useTheme } from '../../hooks/useTheme';
-import { ToastContainer } from '../../components/Toast';
+import { authApi } from '../api/auth';
+import { useAuthStore } from '../stores/authStore';
+import { API_URL } from '../constants/taskDisplay';
+import { useTheme } from '../hooks/useTheme';
+import { ToastContainer } from '../components/Toast';
 
 export const Login: React.FC = () => {
   const setUser = useAuthStore((state) => state.setUser);
@@ -216,19 +216,19 @@ export const Login: React.FC = () => {
 
   if (isProcessing) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-gray-500">Авторизация...</div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-gray-500 dark:text-gray-400">Авторизация...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 relative">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4 relative">
       <ToastContainer />
       {/* Theme toggle */}
       <button
         onClick={toggleTheme}
-        className="absolute top-4 right-4 p-2 rounded-lg bg-white border border-gray-200 hover:bg-gray-100 transition text-sm"
+        className="absolute top-4 right-4 p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 transition text-sm"
         title={theme === 'light' ? 'Светлая' : theme === 'dark' ? 'Тёмная' : 'Авто'}
       >
         <ThemeIcon />
@@ -236,8 +236,8 @@ export const Login: React.FC = () => {
 
       <div className="max-w-sm w-full space-y-6">
         <div className="text-center">
-          <h2 className="text-3xl font-bold text-gray-900">TeamFlow</h2>
-          <p className="mt-2 text-gray-600">Войдите в аккаунт</p>
+          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">TeamFlow</h2>
+          <p className="mt-2 text-gray-600 dark:text-gray-400">Войдите в аккаунт</p>
         </div>
 
         {/* Social login buttons */}
@@ -260,7 +260,7 @@ export const Login: React.FC = () => {
           {oauthProviders.google && (
             <a
               href={`${API_URL}/api/auth/google/link?state=login`}
-              className="flex items-center justify-center gap-2 w-full py-2.5 px-4 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium rounded-lg transition"
+              className="flex items-center justify-center gap-2 w-full py-2.5 px-4 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-medium rounded-lg transition"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
@@ -288,34 +288,34 @@ export const Login: React.FC = () => {
         </div>
 
         <div className="flex items-center my-4">
-          <div className="flex-1 border-t border-gray-300" />
-          <span className="px-3 text-sm text-gray-400">или через логин/пароль</span>
-          <div className="flex-1 border-t border-gray-300" />
+          <div className="flex-1 border-t border-gray-300 dark:border-gray-600" />
+          <span className="px-3 text-sm text-gray-400 dark:text-gray-500">или через логин/пароль</span>
+          <div className="flex-1 border-t border-gray-300 dark:border-gray-600" />
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded text-sm">{error}</div>
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded text-sm">{error}</div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Логин</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Логин</label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Пароль</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Пароль</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               required
             />
           </div>
@@ -343,69 +343,69 @@ export const Login: React.FC = () => {
       {/* Register Modal */}
       {showRegister && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 relative">
+          <div className="bg-white dark:bg-gray-800 rounded-xl max-w-md w-full p-6 relative">
             <button
               onClick={() => { setShowRegister(false); setRegLogin(''); setRegEmail(''); setRegPassword(''); setRegConfirm(''); setRegInviteCode(''); setError(''); }}
-              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 text-xl"
+              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl"
             >
               ×
             </button>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Регистрация</h3>
-            <p className="text-xs text-gray-500 mb-4">Создайте аккаунт для входа в TeamFlow</p>
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Регистрация</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">Создайте аккаунт для входа в TeamFlow</p>
             <form onSubmit={handleRegister} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Логин</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Логин</label>
                 <input
                   type="text"
                   value={regLogin}
                   onChange={(e) => setRegLogin(e.target.value)}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                   placeholder="neo_matrix"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
                 <input
                   type="email"
                   value={regEmail}
                   onChange={(e) => setRegEmail(e.target.value)}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                   placeholder="you@example.com"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Пароль</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Пароль</label>
                 <input
                   type="password"
                   value={regPassword}
                   onChange={(e) => setRegPassword(e.target.value)}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                   placeholder="Минимум 6 символов"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Подтверждение пароля</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Подтверждение пароля</label>
                 <input
                   type="password"
                   value={regConfirm}
                   onChange={(e) => setRegConfirm(e.target.value)}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                   placeholder="Повторите пароль"
                 />
               </div>
               {inviteOnly && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Код приглашения</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Код приглашения</label>
                   <input
                     type="text"
                     value={regInviteCode}
                     onChange={(e) => setRegInviteCode(e.target.value)}
                     required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                     placeholder="Введите код из приглашения"
                   />
                 </div>

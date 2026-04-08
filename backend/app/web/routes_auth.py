@@ -8,7 +8,7 @@ from datetime import datetime
 
 from app.core.db import get_db
 from app.config import settings
-from app.domain.models import LocalAccount, LocalIdentity, UserIdentity, TelegramUser, AppSetting, TeamMember
+from app.domain.models import LocalAccount, LocalIdentity, UserIdentity, AppSetting, TeamMember
 from sqlalchemy import select
 from app.services.account_service import AccountService
 
@@ -52,6 +52,16 @@ async def get_my_account(
     if not account:
         raise HTTPException(status_code=404, detail="Аккаунт не найден")
     return _account_to_dict(account, account.local_identity)
+
+
+# ============= HAS USERS =============
+
+@router.get("/has-users")
+async def has_users(db: AsyncSession = Depends(get_db)):
+    """Проверить, есть ли в системе хотя бы один пользователь."""
+    result = await db.execute(select(LocalAccount).where(LocalAccount.is_active == True).limit(1))
+    user = result.scalar_one_or_none()
+    return {"has_users": user is not None}
 
 
 # ============= REGISTER =============

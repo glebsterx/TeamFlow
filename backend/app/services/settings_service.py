@@ -36,3 +36,14 @@ class SettingsService:
         )
         rows = result.all()
         return {row[0]: row[1] for row in rows}
+
+    @staticmethod
+    async def delete(db: AsyncSession, key: str) -> bool:
+        result = await db.execute(
+            select(AppSetting).where(AppSetting.key == key)
+        )
+        setting = result.scalar_one_or_none()
+        if setting:
+            await db.delete(setting)
+            return True
+        return False

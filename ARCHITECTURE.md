@@ -84,6 +84,8 @@ backend/app/
 │   ├── task_service.py
 │   ├── board_service.py
 │   ├── digest_service.py
+│   ├── account_service.py           ← LocalAccount CRUD, JWT, OAuth
+│   ├── settings_service.py          ← app_settings CRUD
 │   └── webhook_service.py           ← trigger_webhooks, HMAC, retry
 │
 ├── telegram/
@@ -103,8 +105,9 @@ backend/app/
 │       └── message_handlers.py      ← автопарсинг сообщений
 │
 └── web/
-    ├── app.py                       ← FastAPI, CORS, подключение роутеров
-    ├── routes.py                    ← основные endpoints (~2500 строк)
+    ├── app.py                       ← FastAPI, CORS, API Key middleware, роутеры
+    ├── routes.py                    ← основные endpoints
+    ├── routes_auth.py               ← auth endpoints (login, register, OAuth, users)
     ├── routes_tags.py               ← /api/tags
     ├── routes_templates.py          ← /api/task-templates
     ├── routes_webapp.py             ← /api/webapp/* (Telegram Mini App)
@@ -114,11 +117,11 @@ backend/app/
 
 ---
 
-## Модель данных (актуальная)
+## Модель данных (актуальная — v0.8.19)
 
 ```
 tasks: id, title, description, status, priority, due_date,
-       parent_task_id, project_id, assignee_id/name/telegram_id,
+       parent_task_id, project_id, assignee_id FK local_accounts.id,
        archived, deleted, backlog, backlog_added_at,
        source, source_message_id, source_chat_id,
        recurrence, recurrence_end_date,
@@ -133,7 +136,7 @@ sprints: id, name, description, project_id,
 sprint_tasks: id, sprint_id, task_id, position, created_at
 
 meetings: id, summary, meeting_date, title, meeting_type, duration_min, agenda, created_at
-meeting_participants: id, meeting_id, display_name, telegram_user_id
+meeting_participants: id, meeting_id, display_name, account_id FK local_accounts.id
 meeting_projects: meeting_id, project_id
 meeting_tasks: id, meeting_id, task_id, created_at
 
@@ -150,11 +153,25 @@ api_key_logs: id, api_key_id, endpoint, method, ip_address, user_agent, timestam
 webhooks: id, url, events (JSON), secret, is_active, created_at
 webhook_logs: id, webhook_id, event, status_code, response, attempt, timestamp
 
-telegram_users: id, telegram_id, username, first_name, last_name, display_name, is_active
 deadline_notifications: id, task_id, threshold_hours, sent_at, user_telegram_id
 bot_heartbeat: id=1, last_seen, username, started_at   ← одна запись, пишет бот
 push_subscriptions: id, user_id, subscription_json, created_at
+app_settings: key PK, value, updated_at  ← система настроек (OAuth, invite_only, bot_username)
+
+# === Авторизация и пользователи ===
+local_accounts: id, display_name, first_name, last_name, username, email,
+                is_active, system_role (admin/user), created_at, updated_at
+local_identities: id, local_account_id FK, login, password_hash, email, is_active
+user_identities: id, local_account_id FK, provider (telegram|google|yandex),
+                 provider_user_id, email, access_token, refresh_token, linked_at
+team_members: id, telegram_user_id FK local_accounts.id, role (owner/admin/member/viewer),
+              joined_at, invited_by_id
+team_invites: id, invite_token, email, telegram_username, role, created_by_id,
+              is_active, expires_at, used_at, used_by_telegram_id, created_at
 ```
+
+> **TelegramUser таблица удалена** в v0.8.19. Все ссылки на пользователей теперь через LocalAccount.
+> **Task.assignee_id** ссылается на `local_accounts.id`, не на `telegram_users.id`.
 
 ---
 
@@ -220,7 +237,21 @@ NullPool вместо StaticPool — решает deadlock при async SQLite.
 
 ---
 
-## Авторизация
+## Авторизация (v0.8.19)
 
-Web UI открыт без авторизации — для локальных/VPS команд.
-Telegram Login Widget + JWT планируется в v1.0.0 (требует HTTPS).
+### Архитектура
+- **LocalAccount** — основная сущность пользователя
+- **LocalIdentity** — логин/пароль для LocalAccount
+- **UserIdentity** — OAuth провайдеры (telegram, google, yandex)
+- **System roles**: `admin` (доступ к настройкам), `user` (обычный доступ)
+- **Team roles**: `owner`, `admin`, `member`, `viewer` (независимы от system roles)
+
+### Flow авторизации
+1. **Локальный вход**: POST /api/auth/local/login → JWT (30 дней access, 90 дней refresh)
+2. **Telegram deep link**: `/start weblogin_{token}` → бот сохраняет токены → polling → вход
+3. **Google/Yandex OAuth**: редирект → callback → обмен кода → JWT
+4. **Invite-only**: если включено, регистрация только с кодом приглашения или email
+
+### API Key Middleware
+- Все запросы к `/api/*` (кроме auth) требуют `Origin` с разрешённого домена или `X-API-Key`
+- Фронтенд проходит по Origin, внешние клиенты — по API ключу

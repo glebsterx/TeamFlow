@@ -347,7 +347,40 @@ export default function DigestPage({ onOpenTask }: DigestPageProps) {
       <div className={`bg-white rounded-lg border p-4 ${totalTime === 0 ? 'opacity-50' : ''}`}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-gray-700">⏱ Учёт времени</h3>
-          <div className="flex gap-1">
+          <div className="flex gap-1 items-center">
+            {totalTime > 0 && (
+              <button
+                onClick={() => {
+                  const rows = [['ID', 'Название', 'Проект', 'Время (мин)', 'Время', 'Статус', 'Приоритет', 'Исполнитель']];
+                  timeTasks.forEach((t: any) => {
+                    const proj = allProjects.find((p: any) => p.id === t.project_id);
+                    rows.push([
+                      String(t.id),
+                      `"${(t.title || '').replace(/"/g, '""')}"`,
+                      proj?.name || '—',
+                      String(t.time_spent || 0),
+                      formatTime(t.time_spent || 0),
+                      t.status || '',
+                      t.priority || 'NORMAL',
+                      t.assignee?.display_name || '—',
+                    ]);
+                  });
+                  const csv = rows.map(r => r.join(',')).join('\n');
+                  const bom = '\uFEFF';
+                  const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `time-report-${timePeriod}-${new Date().toISOString().slice(0,10)}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="px-2 py-0.5 text-xs rounded bg-green-600 text-white hover:bg-green-700 transition"
+                title="Экспорт отчёта по времени в CSV"
+              >
+                📥 CSV
+              </button>
+            )}
             {(['week', 'month', 'quarter'] as const).map(p => (
               <button
                 key={p}

@@ -108,9 +108,13 @@ class TaskRepository:
         return list(result.scalars().all())
     
     async def update(self, task: Task) -> Task:
-        """Update existing task."""
+        """Update existing task.
+
+        #260 — Removed redundant refresh(): after flush() the in-memory values
+        are already known. refresh() caused an extra SELECT round-trip.
+        """
         await self.session.flush()
-        await self.session.refresh(task)
+        # #260 — No refresh needed; caller already has the updated object
         return task
     
     async def delete(self, task_id: int) -> bool:

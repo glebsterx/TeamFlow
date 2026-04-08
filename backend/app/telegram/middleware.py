@@ -7,7 +7,7 @@ from app.repositories.user_repository import UserRepository
 
 
 class UserTrackingMiddleware(BaseMiddleware):
-    """Создаёт/обновляет TelegramUser при каждом событии.
+    """Ищет LocalAccount через UserIdentity при каждом событии.
     
     Передаёт telegram_id в data["tg_user_id"] — не сам объект,
     чтобы избежать DetachedInstanceError после закрытия сессии.

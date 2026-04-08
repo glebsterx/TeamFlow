@@ -10,6 +10,7 @@ from app.web.routes_templates import router as templates_router
 from app.web.routes_webapp import router as webapp_router
 from app.web.routes_webhooks import router as webhooks_router
 from app.web.routes_auth import router as auth_router
+from app.web.routes_system_settings import router as system_settings_router
 
 app = FastAPI(
     title="TeamFlow API",
@@ -28,6 +29,10 @@ AUTH_PATHS = [
     "/api/auth/yandex/callback",
     "/api/auth/pending-login",
     "/api/auth/refresh",
+    "/api/auth/has-users",
+    "/api/auth/oauth-providers",
+    "/api/auth/registration-settings",
+    "/api/settings/startup-check",
     "/api/bot-info",
     "/health",
     "/",
@@ -126,6 +131,7 @@ app.include_router(templates_router, prefix="/api")
 app.include_router(webapp_router, prefix="/api")
 app.include_router(webhooks_router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth")
+app.include_router(system_settings_router, prefix="/api/settings")
 
 
 @app.get("/")

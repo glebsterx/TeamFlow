@@ -9,10 +9,26 @@ from app.config import settings
 
 logger = get_logger(__name__)
 
-NOTIFY_BEFORE_HOURS = [24, 3]
+DEFAULT_NOTIFY_HOURS = [24, 3]
 CHECK_INTERVAL_MINUTES = 30
 
 _started_at: datetime | None = None
+
+
+async def _get_notify_hours() -> list[int]:
+    """Read deadline notify hours from DB, fallback to default."""
+    try:
+        from app.domain.models import AppSetting
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(AppSetting.value).where(AppSetting.key == "deadline_notify_hours")
+            )
+            val = result.scalar_one_or_none()
+            if val:
+                return [int(h.strip()) for h in val.split(",") if h.strip()]
+    except Exception:
+        pass
+    return DEFAULT_NOTIFY_HOURS
 
 
 def _now_utc() -> datetime:
@@ -72,12 +88,16 @@ async def get_bot_status_from_db() -> dict:
 
 async def check_deadlines(bot):
     """Проверить дедлайны и отправить уведомления."""
-    from app.domain.models import Task, DeadlineNotification
+    from app.domain.models import Task, DeadlineNotification, UserIdentity
+
+    notify_hours = await _get_notify_hours()
+    if not notify_hours:
+        return
 
     now = _now_utc()
 
     async with AsyncSessionLocal() as db:
-        window_end = now + timedelta(hours=max(NOTIFY_BEFORE_HOURS) + 1)
+        window_end = now + timedelta(hours=max(notify_hours) + 1)
         result = await db.execute(
             select(Task)
             .options(selectinload(Task.assignee))
@@ -112,7 +132,7 @@ async def check_deadlines(bot):
 
             hours_left = (task.due_date.replace(tzinfo=timezone.utc) - now).total_seconds() / 3600
 
-            for threshold in NOTIFY_BEFORE_HOURS:
+            for threshold in notify_hours:
                 if hours_left <= threshold:
                     notif_result = await db.execute(
                         select(DeadlineNotification).where(

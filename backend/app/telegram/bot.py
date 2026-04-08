@@ -154,8 +154,10 @@ dp = Dispatcher(storage=storage)
 
 # bot создаётся без прокси как placeholder для импортов на уровне модуля.
 # Настоящий bot с прокси создаётся асинхронно в start_bot() и заменяет этот объект.
+# Если токен не задан — placeholder с фейковым токеном (бот не запустится, но API работает)
+_bot_token = settings.TELEGRAM_BOT_TOKEN or "0:placeholder"
 bot: Bot = Bot(
-    token=settings.TELEGRAM_BOT_TOKEN,
+    token=_bot_token,
     default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN),
 )
 
@@ -182,6 +184,14 @@ def setup_handlers():
 async def start_bot():
     """Start the bot — создаём прокси-сессию здесь, в async-контексте."""
     global bot
+
+    if not settings.TELEGRAM_BOT_TOKEN:
+        logger.warning("bot_token_missing", hint="Set TELEGRAM_BOT_TOKEN or configure via UI")
+        # Бот не запущен, но API работает — ждём бесконечно
+        logger.info("bot_disabled_waiting_for_token")
+        while True:
+            await asyncio.sleep(3600)
+        return
 
     from app.telegram.deadline_notifier import record_heartbeat_sync
     setup_handlers()

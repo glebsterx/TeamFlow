@@ -113,16 +113,16 @@ class TaskService:
     
     async def block_task(
         self,
-        task_id: int,
+        task: "Task",
         blocker_text: str,
         blocked_by: Optional[int] = None
-    ) -> Task:
-        """Block task with reason."""
-        
-        task = await self.repository.get_by_id(task_id)
-        if not task:
-            raise ValueError(f"Task {task_id} not found")
-        
+    ) -> "Task":
+        """Block task with reason.
+
+        #260 — Accepts pre-fetched task object to avoid redundant SELECT.
+        """
+        from app.domain.models import Blocker
+
         # Change status to BLOCKED
         task.status = TaskStatus.BLOCKED.value
         task.backlog = False
@@ -130,7 +130,7 @@ class TaskService:
 
         # Add blocker
         blocker = Blocker(
-            task_id=task_id,
+            task_id=task.id,
             text=blocker_text,
             created_by=blocked_by,
         )

@@ -6,6 +6,7 @@ import type { Project } from '../types/dashboard';
 import { API_URL } from '../constants/taskDisplay';
 import { showToast } from '../utils/toast';
 import { parseUTC } from '../utils/dateUtils';
+import ProjectNavPage from './ProjectNavPage';
 
 interface TeamMember {
   id: number;
@@ -47,9 +48,29 @@ interface ApiKey {
 
 interface SettingsPageProps {
   projects: Project[];
+  tasks?: any[];
+  navProject?: any;
+  navTaskPath?: any[];
+  onSelectProject?: (p: any) => void;
+  onPushTask?: (t: any) => void;
+  onEditProject?: (p: any) => void;
+  onOpenTask?: (t: any) => void;
+  onNewProject?: (parentId?: number) => void;
+  onNewTask?: (ctx: any) => void;
+  changeStatusMutation?: any;
+  takeTaskMutation?: any;
+  myUserId?: number | null;
+  invalidate?: () => void;
+  ancestorBlockedIds?: number[];
+  onDeleteTask?: (id: number) => void;
+  onShowMembers?: (p: any) => void;
+  navProjectPath?: any[];
+  onPopTask?: () => void;
+  activeTab?: string;
+  onTabChange?: (tab: string) => void;
 }
 
-type SettingsTab = 'general' | 'team' | 'users' | 'integrations' | 'system';
+type SettingsTab = 'general' | 'projects' | 'team' | 'users' | 'integrations' | 'bot' | 'system';
 
 const ROLE_COLORS: { [key: string]: string } = {
   owner: 'bg-purple-100 text-purple-700 border-purple-200',
@@ -64,6 +85,367 @@ const ROLE_LABELS: { [key: string]: string } = {
   member: '👤 Участник',
   viewer: '👁 Наблюдатель',
 };
+
+// ========== BOT SETTINGS COMPONENT ==========
+function BotSettingsSection() {
+  const [botToken, setBotToken] = React.useState('');
+  const [maskedToken, setMaskedToken] = React.useState<string | null>(null);
+  const [proxyUrl, setProxyUrl] = React.useState('');
+  const [chatId, setChatId] = React.useState('');
+  const [loading, setLoading] = React.useState(true);
+  const [savingToken, setSavingToken] = React.useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [savingProxy, setSavingProxy] = React.useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [botStatus, setBotStatus] = React.useState<any>(null);
+
+  React.useEffect(() => {
+    axios.get(`${API_URL}/api/settings/proxy`).then(r => {
+      const url = r.data.proxy_url || '';
+      setProxyUrl('');
+    }).catch(() => {});
+    const fetchBotStatus = () => { axios.get(`${API_URL}/api/bot-status`).then(r => setBotStatus(r.data)).catch(() => {}); };
+    fetchBotStatus();
+    const interval = setInterval(fetchBotStatus, 30000);
+    axios.get(`${API_URL}/api/settings/bot-token`).then(r => { setMaskedToken(r.data.token); }).catch(() => {});
+    axios.get(`${API_URL}/api/settings/system`).then(r => { setChatId(r.data.telegram_chat_id || ''); }).catch(() => {}).finally(() => setLoading(false));
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleSaveBotToken = async () => {
+    if (!botToken.trim()) return;
+    setSavingToken('saving');
+    try {
+      await axios.put(`${API_URL}/api/settings/bot-token`, { token: botToken.trim() });
+      setSavingToken('saved');
+      setMaskedToken(botToken.substring(0, 4) + '••••');
+      setBotToken('');
+      setTimeout(() => setSavingToken('idle'), 2500);
+    } catch { setSavingToken('error'); setTimeout(() => setSavingToken('idle'), 2500); }
+  };
+
+  const handleSaveProxy = async () => {
+    if (!proxyUrl.trim()) return;
+    setSavingProxy('saving');
+    try {
+      await axios.post(`${API_URL}/api/settings/proxy`, { proxy_url: proxyUrl.trim() || null });
+      setSavingProxy('saved');
+      setProxyUrl('');
+      setTimeout(() => setSavingProxy('idle'), 2500);
+    } catch { setSavingProxy('error'); setTimeout(() => setSavingProxy('idle'), 2500); }
+  };
+
+  if (loading) return <div className="text-center py-8 text-gray-400">Загрузка...</div>;
+
+  return (
+    <form autoComplete="off" onSubmit={e => e.preventDefault()}>
+    <section className="bg-white border rounded-xl p-4">
+      <h3 className="font-semibold text-sm mb-4">🤖 Telegram-бот</h3>
+      <div className="space-y-4">
+        {/* Status */}
+        <div className="flex items-center gap-3">
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium ${botStatus?.ok ? 'bg-green-100 text-green-700' : botStatus?.error === 'Bot not started yet' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-600'}`}>
+            {botStatus?.ok ? '● Работает' : botStatus?.error === 'Bot not started yet' ? '◌ Запускается' : '● Нет связи'}
+          </span>
+          {botStatus?.username && <span className="text-sm text-gray-500">@{botStatus.username}</span>}
+          {botStatus?.ok && botStatus.uptime_sec !== null && <span className="text-xs text-gray-400">Uptime: {botStatus.uptime_sec < 3600 ? `${Math.floor(botStatus.uptime_sec / 60)} мин` : `${(botStatus.uptime_sec / 3600).toFixed(1)} ч`}</span>}
+        </div>
+
+        {/* Token */}
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">Bot Token</label>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              value={botToken}
+              onChange={e => setBotToken(e.target.value)}
+              onFocus={e => e.target.removeAttribute('readonly')}
+              placeholder={maskedToken || 'Новый токен'}
+              autoComplete="new-password"
+              name="tf_bt"
+              readOnly
+              className="flex-1 px-3 py-2 border rounded-lg text-sm"
+            />
+            <button onClick={handleSaveBotToken} disabled={savingToken === 'saving' || !botToken.trim()} className={`px-3 py-2 rounded-lg text-sm font-medium transition ${savingToken === 'saved' ? 'bg-green-600 text-white' : savingToken === 'error' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+              {savingToken === 'saving' ? '⏳' : savingToken === 'saved' ? '✓' : savingToken === 'error' ? '✗' : '💾'}
+            </button>
+          </div>
+        </div>
+
+        {/* Chat ID */}
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">Chat ID</label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={chatId}
+              onChange={e => setChatId(e.target.value)}
+              onFocus={e => e.target.removeAttribute('readonly')}
+              placeholder="-1001234567890"
+              autoComplete="off"
+              name="tf_cid"
+              readOnly
+              className="flex-1 px-3 py-2 border rounded-lg text-sm"
+            />
+            <button
+              onClick={async () => {
+                try {
+                  await axios.put(`${API_URL}/api/settings/system`, {
+                    deadline_notify_hours: '',
+                    frontend_url: '',
+                    telegram_chat_id: chatId,
+                    cors_origins: '',
+                    bot_username: '',
+                  });
+                  showToast('Chat ID сохранён', 'success');
+                } catch {}
+              }}
+              className="px-3 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition"
+            >💾</button>
+          </div>
+        </div>
+
+        {/* Proxy */}
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">Прокси</label>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              value={proxyUrl}
+              onChange={e => setProxyUrl(e.target.value)}
+              onFocus={e => e.target.removeAttribute('readonly')}
+              placeholder="Новый прокси"
+              autoComplete="new-password"
+              name="tf_px"
+              readOnly
+              className="flex-1 px-3 py-2 border rounded-lg text-sm"
+            />
+            <button onClick={handleSaveProxy} disabled={savingProxy === 'saving' || !proxyUrl.trim()} className={`px-3 py-2 rounded-lg text-sm font-medium transition ${savingProxy === 'saved' ? 'bg-green-600 text-white' : savingProxy === 'error' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+              {savingProxy === 'saving' ? '⏳' : savingProxy === 'saved' ? '✓' : savingProxy === 'error' ? '✗' : '💾'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+    </form>
+  );
+}
+
+// ========== BOT INFO SECTION ==========
+function BotInfoSection() {
+  const [maskedToken, setMaskedToken] = React.useState<string | null>(null);
+  const [botStatus, setBotStatus] = React.useState<any>(null);
+  const [proxyUrl, setProxyUrl] = React.useState('');
+  const [proxyCheck, setProxyCheck] = React.useState<{ checking: boolean; reachable?: boolean; error?: string; latency_ms?: number }>({ checking: false });
+
+  React.useEffect(() => {
+    axios.get(`${API_URL}/api/settings/bot-token`).then(r => setMaskedToken(r.data.token)).catch(() => {});
+    axios.get(`${API_URL}/api/bot-status`).then(r => setBotStatus(r.data)).catch(() => {});
+    axios.get(`${API_URL}/api/settings/proxy`).then(r => setProxyUrl(r.data.proxy_url || '')).catch(() => {});
+  }, []);
+
+  const handleCheckProxy = async () => {
+    setProxyCheck({ checking: true });
+    try {
+      const r = await axios.get(`${API_URL}/api/settings/proxy/check`, { timeout: 20000 });
+      setProxyCheck({ checking: false, ...r.data });
+    } catch (e: any) { setProxyCheck({ checking: false, reachable: false, error: e?.message || 'Ошибка' }); }
+  };
+
+  const handleDeleteProxy = async () => {
+    try {
+      await axios.post(`${API_URL}/api/settings/proxy`, { proxy_url: null });
+      setProxyUrl('');
+      setProxyCheck({ checking: false });
+    } catch {}
+  };
+
+  const handleDeleteBotToken = async () => {
+    try {
+      await axios.put(`${API_URL}/api/settings/bot-token`, { token: '' });
+      setMaskedToken(null);
+    } catch {}
+  };
+
+  return (
+    <section className="bg-white border rounded-xl p-4">
+      <h3 className="font-semibold text-sm mb-3">📋 Информация</h3>
+      <div className="space-y-3">
+        <div>
+          <p className="text-xs text-gray-500 mb-1">Username</p>
+          <p className="text-sm text-gray-700">{botStatus?.username || 'Не настроен'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500 mb-1">Токен</p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm text-gray-500 font-mono truncate">{maskedToken || 'Из .env'}</p>
+            <div className="flex gap-1 shrink-0">
+              <div className="w-6" />
+              {maskedToken && (
+                <button onClick={handleDeleteBotToken} className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded" title="Удалить из БД, использовать .env">✕</button>
+              )}
+              {!maskedToken && <div className="w-6" />}
+            </div>
+          </div>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500 mb-1">Прокси</p>
+          {proxyUrl ? (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-700 font-mono text-xs">{proxyUrl.split('@').pop() || proxyUrl}</p>
+              <div className="flex gap-1">
+                <button onClick={handleCheckProxy} disabled={proxyCheck.checking} className="px-2 py-1 text-xs bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50" title="Проверить">🔍</button>
+                <button onClick={handleDeleteProxy} className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded" title="Удалить">✕</button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-400">Не используется</p>
+              <div className="flex gap-1">
+                <div className="w-6" />
+              </div>
+            </div>
+          )}
+          {proxyCheck.reachable !== undefined && !proxyCheck.checking && (
+            <div className={`text-xs mt-1 px-2 py-1 rounded ${proxyCheck.reachable ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+              {proxyCheck.reachable ? `✅ Доступен (${proxyCheck.latency_ms}мс)` : `❌ ${proxyCheck.error || 'Недоступен'}`}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ========== SYSTEM SETTINGS COMPONENT ==========
+function SystemSettingsSection() {
+  const [settings, setSettings] = React.useState({
+    deadline_notify_hours: '24,3',
+    frontend_url: '',
+    cors_origins: '',
+  });
+  const [vapidEmail, setVapidEmail] = React.useState('');
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  React.useEffect(() => {
+    axios.get(`${API_URL}/api/settings/system`)
+      .then(r => setSettings({
+        deadline_notify_hours: r.data.deadline_notify_hours || '24,3',
+        frontend_url: r.data.frontend_url || '',
+        cors_origins: r.data.cors_origins || '',
+      }))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+    // Load VAPID email
+    axios.get(`${API_URL}/api/push/config`)
+      .then(r => {
+        if (r.data.claims_email) {
+          setVapidEmail(r.data.claims_email);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSave = async () => {
+    setSaving('saving');
+    try {
+      // Save system settings
+      await axios.put(`${API_URL}/api/settings/system`, {
+        ...settings,
+        telegram_chat_id: '',
+        bot_username: '',
+      });
+      // Save VAPID email
+      if (vapidEmail && vapidEmail.includes('@')) {
+        await axios.put(`${API_URL}/api/push/config`, { claims_email: vapidEmail });
+      }
+      setSaving('saved');
+      setTimeout(() => setSaving('idle'), 2500);
+    } catch {
+      setSaving('error');
+      setTimeout(() => setSaving('idle'), 2500);
+    }
+  };
+
+  const toggleHour = (hour: number) => {
+    const current = settings.deadline_notify_hours.split(',').map(Number).filter(Boolean);
+    if (current.includes(hour)) {
+      const updated = current.filter(h => h !== hour);
+      setSettings(prev => ({ ...prev, deadline_notify_hours: updated.sort((a, b) => b - a).join(',') }));
+    } else {
+      const updated = [...current, hour];
+      setSettings(prev => ({ ...prev, deadline_notify_hours: updated.sort((a, b) => b - a).join(',') }));
+    }
+  };
+
+  const presetHours = [
+    { value: 72, label: '3 дня' },
+    { value: 48, label: '2 дня' },
+    { value: 24, label: '1 день' },
+    { value: 12, label: '12 часов' },
+    { value: 6, label: '6 часов' },
+    { value: 3, label: '3 часа' },
+    { value: 1, label: '1 час' },
+  ];
+  const selectedHours = settings.deadline_notify_hours.split(',').map(Number).filter(Boolean);
+
+  if (loading) return <div className="text-center py-8 text-gray-400">Загрузка...</div>;
+
+  return (
+    <section className="bg-white border rounded-xl p-4">
+      <h3 className="font-semibold text-sm mb-3">⚙️ Системные</h3>
+      <div className="space-y-4">
+        {/* Deadline notifications */}
+        <div>
+          <label className="text-xs text-gray-500 block mb-2">Уведомления о дедлайнах</label>
+          <div className="flex flex-wrap gap-2">
+            {presetHours.map(h => (
+              <button
+                key={h.value}
+                onClick={() => toggleHour(h.value)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                  selectedHours.includes(h.value)
+                    ? 'bg-blue-100 border-blue-300 text-blue-700'
+                    : 'bg-white border-gray-200 text-gray-600 hover:border-blue-300'
+                }`}
+              >
+                {h.label}
+              </button>
+            ))}
+          </div>
+          {selectedHours.length === 0 && (
+            <p className="text-xs text-gray-400 mt-1">Уведомления отключены</p>
+          )}
+        </div>
+
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">URL приложения</label>
+          <input type="text" value={settings.frontend_url} onChange={e => setSettings(prev => ({ ...prev, frontend_url: e.target.value }))} placeholder={window.location.origin} className="w-full px-3 py-2 border rounded-lg text-sm" />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">CORS Origins</label>
+          <input type="text" value={settings.cors_origins} onChange={e => setSettings(prev => ({ ...prev, cors_origins: e.target.value }))} placeholder={window.location.origin} className="w-full px-3 py-2 border rounded-lg text-sm" />
+        </div>
+        {/* VAPID email for Web Push */}
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">📧 Email для Push-уведомлений (VAPID)</label>
+          <input
+            type="email"
+            value={vapidEmail}
+            onChange={e => setVapidEmail(e.target.value)}
+            placeholder={`mail@${window.location.hostname}`}
+            className="w-full px-3 py-2 border rounded-lg text-sm"
+          />
+          <p className="text-xs text-gray-400 mt-1">
+            Требуется Apple для Web Push на iOS. По умолчанию: <code className="text-gray-500">mail@{window.location.hostname}</code>
+          </p>
+        </div>
+        <button onClick={handleSave} disabled={saving === 'saving'} className={`w-full py-2 rounded-lg text-sm font-medium transition ${saving === 'saved' ? 'bg-green-600 text-white' : saving === 'error' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+          {saving === 'saving' ? '⏳ Сохранение...' : saving === 'saved' ? '✓ Сохранено' : saving === 'error' ? '✗ Ошибка' : '💾 Сохранить'}
+        </button>
+      </div>
+    </section>
+  );
+}
 
 // ========== OAUTH SETTINGS COMPONENT ==========
 function OAuthSettingsSection() {
@@ -502,41 +884,44 @@ function UsersSection() {
       <h3 className="text-lg font-semibold text-gray-800 mb-4">👥 Пользователи ({users.length})</h3>
       <div className="space-y-3">
         {users.map(user => (
-          <div key={user.id} className="flex items-center justify-between p-4 bg-gray-50 border rounded-lg">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold">
+          <div key={user.id} className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 bg-gray-50 border rounded-lg">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold shrink-0">
                 {user.display_name?.charAt(0)?.toUpperCase() || '?'}
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-gray-800">{user.display_name}</span>
-                  
-                </div>
+              <div className="min-w-0">
+                <span className="font-medium text-gray-800 truncate block">{user.display_name}</span>
                 <div className="text-xs text-gray-500">
                   {user.username && `@${user.username}`}
                   {user.email && ` · ${user.email}`}
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 sm:ml-auto">
               <select
                 value={user.system_role}
                 onChange={(e) => updateRoleMutation.mutate({ userId: user.id, role: e.target.value })}
                 disabled={user.id === myAccountId}
-                className="text-xs px-2 py-1 border rounded-lg bg-white"
+                className="text-xs px-2 py-1.5 border rounded-lg bg-white"
               >
                 <option value="admin">🔹 Администратор</option>
                 <option value="user">👤 Пользователь</option>
               </select>
-              {user.id !== myAccountId && (
+              {user.id !== myAccountId ? (
                 <button
                   onClick={() => {
                     if (confirm(`Деактивировать ${user.display_name}?`)) {
                       deactivateMutation.mutate(user.id);
                     }
                   }}
-                  className="text-xs px-2 py-1 text-red-500 hover:text-red-700"
+                  className="text-xs px-2 py-1.5 text-red-500 hover:text-red-700 border border-red-200 rounded-lg hover:bg-red-50"
                   title="Деактивировать"
+                >🚫</button>
+              ) : (
+                <button
+                  disabled
+                  className="text-xs px-2 py-1.5 text-gray-300 border border-gray-200 rounded-lg cursor-not-allowed"
+                  title="Нельзя деактивировать себя"
                 >🚫</button>
               )}
             </div>
@@ -703,23 +1088,25 @@ function TeamManagementSection() {
         ) : (
           <div className="space-y-3">
             {teamMembers.map((member) => (
-              <div key={member.id} className="flex items-center gap-4 p-4 border rounded-lg hover:bg-gray-50 transition">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-semibold text-sm">
-                  {getDisplayName(member).charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-gray-800">{getDisplayName(member)}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full border ${ROLE_COLORS[member.role]}`}>
-                      {ROLE_LABELS[member.role]}
-                    </span>
+              <div key={member.id} className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 border rounded-lg hover:bg-gray-50 transition">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-semibold text-sm shrink-0">
+                    {getDisplayName(member).charAt(0).toUpperCase()}
                   </div>
-                  <div className="text-xs text-gray-400">
-                    В команде с {parseUTC(member.joined_at).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' })}
-                    {member.user?.username && <span className="ml-2">· @{member.user.username}</span>}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-gray-800 truncate">{getDisplayName(member)}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border shrink-0 ${ROLE_COLORS[member.role]}`}>
+                        {ROLE_LABELS[member.role]}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      В команде с {parseUTC(member.joined_at).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      {member.user?.username && <span className="ml-2">· @{member.user.username}</span>}
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 sm:ml-auto">
                   {canManage ? (
                     <>
                       <select
@@ -841,9 +1228,21 @@ function TeamManagementSection() {
 }
 
 // ========== MAIN SETTINGS PAGE ==========
-export default function SettingsPage({ projects }: SettingsPageProps) {
-  const [activeTab, setActiveTab] = React.useState<SettingsTab>(() => sessionStorage.getItem('tf_settings_tab') as SettingsTab || 'general');
-  React.useEffect(() => { sessionStorage.setItem('tf_settings_tab', activeTab); }, [activeTab]);
+export default function SettingsPage(props: SettingsPageProps) {
+  const { projects, tasks, navProject, navProjectPath, navTaskPath, onSelectProject, onPushTask, onPopTask, onEditProject, onOpenTask, onNewProject, onNewTask, changeStatusMutation, takeTaskMutation, myUserId, invalidate, ancestorBlockedIds, onDeleteTask, onShowMembers, activeTab: propActiveTab, onTabChange } = props;
+  const [activeTab, setActiveTab] = React.useState<SettingsTab>(() => (propActiveTab as SettingsTab) || (sessionStorage.getItem('tf_settings_tab') as SettingsTab) || 'general');
+  React.useEffect(() => {
+    if (propActiveTab) {
+      setActiveTab(propActiveTab as SettingsTab);
+    }
+  }, [propActiveTab]);
+  const handleTabChange = (tab: SettingsTab) => {
+    setActiveTab(tab);
+    sessionStorage.setItem('tf_settings_tab', tab);
+    if (onTabChange) {
+      onTabChange(tab);
+    }
+  };
 
   const queryClient = useQueryClient();
   
@@ -914,28 +1313,6 @@ export default function SettingsPage({ projects }: SettingsPageProps) {
     }
   };
 
-  // Projects
-  const [editingProjectId, setEditingProjectId] = React.useState<number | null>(null);
-  const [editName, setEditName] = React.useState('');
-  const [editEmoji, setEditEmoji] = React.useState('');
-  const updateProjectMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: any }) => { await axios.patch(`${API_URL}/api/projects/${id}`, data); },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['projects'] }); showToast('Проект обновлён', 'success'); setEditingProjectId(null); },
-    onError: () => showToast('Ошибка при обновлении', 'error'),
-  });
-  const deleteProjectMutation = useMutation({
-    mutationFn: async (id: number) => { await axios.delete(`${API_URL}/api/projects/${id}`); },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['projects'] }); showToast('Проект удалён', 'success'); setEditingProjectId(null); },
-    onError: (err: any) => {
-      const detail = err?.response?.data?.detail;
-      if (detail?.code === 'PROJECT_HAS_DEPENDENCIES') { showToast(`Нельзя удалить: ${detail.subprojects_count} подпроектов, ${detail.tasks_count} задач`, 'error'); }
-      else { showToast('Ошибка при удалении', 'error'); }
-    },
-  });
-  const handleStartEdit = (project: Project) => { setEditingProjectId(project.id); setEditName(project.name); setEditEmoji(project.emoji || '📁'); };
-  const handleSaveEdit = (projectId: number) => { if (!editName.trim()) { showToast('Введите название проекта', 'warning'); return; } updateProjectMutation.mutate({ id: projectId, data: { name: editName.trim(), emoji: editEmoji } }); };
-  const handleCancelEdit = () => { setEditingProjectId(null); setEditName(''); setEditEmoji(''); };
-
   // Export/Import
   const handleExport = () => { const parts = (Object.keys(exportInclude) as (keyof typeof exportInclude)[]).filter(k => exportInclude[k]); if (parts.length === 0) return; const params = new URLSearchParams(); if (exportProjectId) params.set('project_id', exportProjectId); params.set('include', parts.join(',')); window.location.href = `${API_URL}/api/export?${params}`; };
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; try { setImporting(true); setImportResult(null); const text = await file.text(); const data = JSON.parse(text); const res = await axios.post(`${API_URL}/api/import`, { mode: importMode, data }); const c = res.data.imported; setImportResult(`Импортировано: ${c.projects} проектов, ${c.tasks} задач, ${c.meetings} встреч, ${c.comments} комментариев`); } catch (err: any) { setImportResult(`Ошибка: ${err?.response?.data?.detail ?? err.message}`); } finally { setImporting(false); if (fileRef.current) fileRef.current.value = ''; } };
@@ -963,18 +1340,20 @@ export default function SettingsPage({ projects }: SettingsPageProps) {
   }
 
   return (
-    <>
-      <div className="flex items-center justify-between mb-5">
+    <div className="px-4 sm:px-6 lg:px-8">
+      <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg sm:text-xl font-bold">⚙️ Настройки</h2>
         <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-          {[
+            {[
             { id: 'general', label: 'Основные', icon: '⚙️' },
+            { id: 'projects', label: 'Проекты', icon: '📁' },
             { id: 'team', label: 'Команда', icon: '👥' },
             { id: 'users', label: 'Пользователи', icon: '👤' },
+            { id: 'bot', label: 'Бот', icon: '🤖' },
             { id: 'integrations', label: 'Интеграции', icon: '🔗' },
             { id: 'system', label: 'Система', icon: '🖥️' },
           ].map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id as SettingsTab)} className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${activeTab === tab.id ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}>
+            <button key={tab.id} onClick={() => handleTabChange(tab.id as SettingsTab)} className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${activeTab === tab.id ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}>
               {tab.icon} <span className="hidden sm:inline ml-1">{tab.label}</span>
             </button>
           ))}
@@ -983,37 +1362,10 @@ export default function SettingsPage({ projects }: SettingsPageProps) {
 
       {/* GENERAL TAB */}
       {activeTab === 'general' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
-          {/* Projects */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Export/Import */}
           <section className="bg-white border rounded-xl p-4">
-            <h3 className="font-semibold text-base mb-3">📁 Управление проектами</h3>
-            <div className="space-y-2">
-              {projects.map(project => (
-                <div key={project.id} className="flex items-center gap-2 p-2 border rounded-lg hover:bg-gray-50">
-                  {editingProjectId === project.id ? (
-                    <>
-                      <input type="text" value={editEmoji} onChange={(e) => setEditEmoji(e.target.value)} className="w-10 px-2 py-1 border rounded text-center text-lg" maxLength={2} />
-                      <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="flex-1 px-2 py-1 border rounded text-sm" autoFocus />
-                      <button onClick={() => handleSaveEdit(project.id)} className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600">✓</button>
-                      <button onClick={handleCancelEdit} className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300">✕</button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-xl">{project.emoji || '📁'}</span>
-                      <span className="flex-1 text-sm font-medium">{project.name}</span>
-                      <button onClick={() => handleStartEdit(project)} className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700" title="Редактировать">✏️</button>
-                      <button onClick={() => deleteProjectMutation.mutate(project.id)} className="px-2 py-1 text-xs text-red-500 hover:text-red-700" title="Удалить">🗑️</button>
-                    </>
-                  )}
-                </div>
-              ))}
-              {projects.length === 0 && <p className="text-sm text-gray-500 text-center py-4">Проектов нет</p>}
-            </div>
-          </section>
-
-          {/* Export */}
-          <section className="bg-white border rounded-xl p-4">
-            <h3 className="font-semibold text-base mb-3">📤 Экспорт</h3>
+            <h3 className="font-semibold text-sm mb-3">📤 Экспорт / Импорт</h3>
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-500 block mb-1">Проект</label>
@@ -1024,55 +1376,90 @@ export default function SettingsPage({ projects }: SettingsPageProps) {
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">Включить</label>
-                <div className="flex flex-wrap gap-3">
+                <div className="flex flex-wrap gap-2">
                   {(Object.keys(exportInclude) as (keyof typeof exportInclude)[]).map(k => (
-                    <label key={k} className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
-                      <input type="checkbox" checked={exportInclude[k]} onChange={e => setExportInclude(prev => ({ ...prev, [k]: e.target.checked }))} className="w-4 h-4 rounded" />{k}
+                    <label key={k} className="flex items-center gap-1 text-xs cursor-pointer select-none">
+                      <input type="checkbox" checked={exportInclude[k]} onChange={e => setExportInclude(prev => ({ ...prev, [k]: e.target.checked }))} className="w-3.5 h-3.5 rounded" />{k}
                     </label>
                   ))}
                 </div>
               </div>
               <button onClick={handleExport} className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition">Скачать JSON</button>
-            </div>
-          </section>
-
-          {/* Import */}
-          <section className="bg-white border rounded-xl p-4">
-            <h3 className="font-semibold text-base mb-3">📥 Импорт</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">Режим</label>
-                <div className="flex gap-2">
+              <div className="border-t pt-3">
+                <div className="flex gap-2 mb-2">
                   {(['merge', 'full'] as const).map(m => (
-                    <button key={m} onClick={() => setImportMode(m)} className={`flex-1 py-2 rounded-lg text-sm border transition ${importMode === m ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                    <button key={m} onClick={() => setImportMode(m)} className={`flex-1 py-1.5 rounded text-xs border transition ${importMode === m ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
                       {m === 'merge' ? '🔀 Merge' : '♻️ Full'}
                     </button>
                   ))}
                 </div>
-                {importMode === 'full' && <p className="text-xs text-red-500 mt-1.5">⚠️ Удалит все текущие данные</p>}
+                {importMode === 'full' && <p className="text-xs text-red-500 mb-2">⚠️ Удалит все текущие данные</p>}
+                <label className={`flex items-center justify-center gap-2 w-full py-2 border-2 border-dashed rounded-lg text-xs cursor-pointer transition ${importing ? 'opacity-50 pointer-events-none' : 'hover:border-blue-400 hover:bg-blue-50 text-gray-500'}`}>
+                  <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={handleImport} disabled={importing} />
+                  {importing ? '⏳ Импортирую...' : '📂 Выбрать JSON файл'}
+                </label>
+                {importResult && <div className={`text-xs mt-2 px-3 py-2 rounded-lg ${importResult.startsWith('Ошибка') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>{importResult}</div>}
               </div>
-              <label className={`flex items-center justify-center gap-2 w-full py-2 border-2 border-dashed rounded-lg text-sm cursor-pointer transition ${importing ? 'opacity-50 pointer-events-none' : 'hover:border-blue-400 hover:bg-blue-50 text-gray-500'}`}>
-                <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={handleImport} disabled={importing} />
-                {importing ? '⏳ Импортирую...' : '📂 Выбрать JSON файл'}
-              </label>
-              {importResult && <div className={`text-sm px-3 py-2 rounded-lg ${importResult.startsWith('Ошибка') ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>{importResult}</div>}
             </div>
           </section>
         </div>
       )}
 
+      {/* PROJECTS TAB */}
+      {activeTab === 'projects' && (
+        <ProjectNavPage
+          projects={projects}
+          tasks={tasks}
+          navProject={navProject}
+          navProjectPath={navProjectPath || []}
+          navTaskPath={navTaskPath || []}
+          onSelectProject={onSelectProject}
+          onPushTask={onPushTask}
+          onEditProject={onEditProject}
+          onOpenTask={onOpenTask}
+          onNewProject={onNewProject}
+          onNewTask={onNewTask}
+          changeStatusMutation={changeStatusMutation}
+          takeTaskMutation={takeTaskMutation}
+          myUserId={myUserId}
+          invalidate={invalidate}
+          ancestorBlockedIds={ancestorBlockedIds}
+          onDeleteTask={onDeleteTask}
+          onShowMembers={onShowMembers}
+          onGoBack={onPopTask}
+        />
+      )}
+
       {/* TEAM TAB */}
-      {activeTab === 'team' && <TeamManagementSection />}
+      {activeTab === 'team' && (
+        <div className="space-y-4">
+          <TeamManagementSection />
+        </div>
+      )}
 
       {/* USERS TAB */}
-      {activeTab === 'users' && <UsersSection />}
+      {activeTab === 'users' && (
+        <div className="space-y-4">
+          <UsersSection />
+        </div>
+      )}
+
+      {/* BOT TAB */}
+      {activeTab === 'bot' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <BotSettingsSection />
+          <BotInfoSection />
+        </div>
+      )}
 
       {/* INTEGRATIONS TAB */}
       {activeTab === 'integrations' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
-          {/* Webhooks */}
+        <div className="space-y-4">
+          <ApiKeysSection />
+          <OAuthSettingsSection />
+          <RegistrationSettingsSection />
           <section className="bg-white border rounded-xl p-4">
-            <h3 className="font-semibold text-base mb-3">🔗 Вебхуки</h3>
+            <h3 className="font-semibold text-sm mb-3">🔗 Вебхуки</h3>
             <div className="space-y-3">
               <div className="flex gap-2">
                 <input type="text" value={newWebhookUrl} onChange={(e) => setNewWebhookUrl(e.target.value)} placeholder="https://example.com/webhook" className="flex-1 px-3 py-2 border rounded-lg text-sm" />
@@ -1113,96 +1500,37 @@ export default function SettingsPage({ projects }: SettingsPageProps) {
               </div>
             )}
           </section>
-
-          {/* API Keys */}
-          <ApiKeysSection />
-
-          {/* OAuth Settings */}
-          <div className="lg:col-span-2">
-            <OAuthSettingsSection />
-          </div>
-
-          {/* Registration Settings */}
-          <div className="lg:col-span-2">
-            <RegistrationSettingsSection />
-          </div>
         </div>
       )}
 
       {/* SYSTEM TAB */}
       {activeTab === 'system' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
-          {/* Restart */}
-          <section className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2 className="text-base font-semibold text-gray-800 mb-1">🔄 Перезапуск сервисов</h2>
-            <p className="text-xs text-gray-400 mb-4">Применить изменения конфига без SSH</p>
-            <div className="grid grid-cols-2 gap-3">
-              {(['backend', 'frontend'] as const).map(svc => {
-                const st = restartStatus[svc] || 'idle';
-                return (
-                  <button key={svc} onClick={() => handleRestart(svc)} disabled={st === 'restarting'} className={`py-2.5 px-3 rounded-lg text-sm font-medium border transition flex items-center justify-center gap-2 ${st === 'done' ? 'bg-green-50 border-green-300 text-green-700' : st === 'error' ? 'bg-red-50 border-red-300 text-red-600' : st === 'restarting' ? 'opacity-60 cursor-wait bg-gray-50' : 'bg-white hover:bg-gray-50'}`}>
-                    <span>{st === 'restarting' ? '⏳' : st === 'done' ? '✓' : st === 'error' ? '✗' : '🔄'}</span>
-                    <span>{svc === 'backend' ? 'Backend' : 'Frontend'}</span>
-                    {st === 'restarting' && <span className="text-xs text-gray-400">~15с</span>}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="text-xs text-gray-400 mt-2">Backend недоступен ~15с после перезапуска</p>
-          </section>
-
-          {/* Bot status */}
-          <section className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2 className="text-base font-semibold text-gray-800 mb-3">🤖 Telegram-бот</h2>
-            {botStatus === null ? (
-              <p className="text-xs text-gray-400">Загрузка...</p>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium ${botStatus.ok ? 'bg-green-100 text-green-700' : botStatus.error === 'Bot not started yet' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-600'}`}>
-                    <span>{botStatus.ok ? '●' : botStatus.error === 'Bot not started yet' ? '◌' : '●'}</span>
-                    <span>{botStatus.ok ? 'Работает' : botStatus.error === 'Bot not started yet' ? 'Запускается' : 'Нет связи'}</span>
-                  </span>
-                  {botStatus.username && botStatus.username !== 'unknown' && <span className="text-sm text-gray-600">@{botStatus.username}</span>}
-                </div>
-                {botStatus.ok && botStatus.uptime_sec !== null && (
-                  <p className="text-xs text-gray-400">Uptime: {botStatus.uptime_sec < 3600 ? `${Math.floor(botStatus.uptime_sec / 60)} мин` : `${(botStatus.uptime_sec / 3600).toFixed(1)} ч`}</p>
-                )}
-                {botStatus.error && botStatus.error !== 'Bot not started yet' && <p className="text-xs text-red-500">{botStatus.error}</p>}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <SystemSettingsSection />
+          <div className="space-y-4">
+            <section className="bg-white border rounded-xl p-4">
+              <h3 className="font-semibold text-sm mb-3">🔄 Перезапуск</h3>
+              <div className="grid grid-cols-2 gap-2">
+                {(['backend', 'frontend'] as const).map(svc => {
+                  const st = restartStatus[svc] || 'idle';
+                  return (
+                    <button key={svc} onClick={() => handleRestart(svc)} disabled={st === 'restarting'} className={`py-2 px-3 rounded-lg text-sm font-medium border transition flex items-center justify-center gap-2 ${st === 'done' ? 'bg-green-50 border-green-300 text-green-700' : st === 'error' ? 'bg-red-50 border-red-300 text-red-600' : st === 'restarting' ? 'opacity-60 cursor-wait bg-gray-50' : 'bg-white hover:bg-gray-50'}`}>
+                      <span>{st === 'restarting' ? '⏳' : st === 'done' ? '✓' : st === 'error' ? '✗' : '🔄'}</span>
+                      <span>{svc === 'backend' ? 'Backend' : 'Frontend'}</span>
+                    </button>
+                  );
+                })}
               </div>
-            )}
-          </section>
-
-          {/* Proxy */}
-          <section className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2 className="text-base font-semibold text-gray-800 mb-3">🌐 Прокси</h2>
-            <div className="space-y-3">
-              <input type="text" value={proxyUrl} onChange={(e) => setProxyUrl(e.target.value)} placeholder="socks5://user:pass@host:port" className="w-full px-3 py-2 border rounded-lg text-sm" />
-              <div className="flex gap-2">
-                <button onClick={handleSaveProxy} disabled={proxyStatus === 'saving'} className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${proxyStatus === 'saved' ? 'bg-green-600 text-white' : proxyStatus === 'error' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
-                  {proxyStatus === 'saving' ? '⏳' : proxyStatus === 'saved' ? '✓' : proxyStatus === 'error' ? '✗' : '💾'} Сохранить
-                </button>
-                <button onClick={handleCheckProxy} disabled={proxyCheck.checking} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 disabled:opacity-50">
-                  {proxyCheck.checking ? '⏳' : '🔍'} Проверить
-                </button>
-              </div>
-              {proxyCheck.reachable !== undefined && !proxyCheck.checking && (
-                <div className={`text-xs px-3 py-2 rounded-lg ${proxyCheck.reachable ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                  {proxyCheck.reachable ? `✅ Прокси доступен (${proxyCheck.latency_ms}мс)` : `❌ ${proxyCheck.error || 'Недоступен'}`}
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* Version */}
-          {appVersion && (
-            <section className="bg-white rounded-xl border border-gray-200 p-5">
-              <h2 className="text-base font-semibold text-gray-800 mb-3">ℹ️ Версия</h2>
-              <p className="text-sm text-gray-600">TeamFlow v{appVersion}</p>
             </section>
-          )}
+            {appVersion && (
+              <section className="bg-white border rounded-xl p-4">
+                <h3 className="font-semibold text-sm mb-2">ℹ️ Версия</h3>
+                <p className="text-sm text-gray-600">TeamFlow v{appVersion}</p>
+              </section>
+            )}
+          </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

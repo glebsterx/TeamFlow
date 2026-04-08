@@ -30,6 +30,7 @@ import ProjectModal from '../modals/ProjectModal';
 import TimelineView from '../components/TimelineView';
 import CalendarView from '../components/CalendarView';
 import CommandPalette from '../components/CommandPalette';
+import ProjectMembersModal from '../modals/ProjectMembersModal';
 
 export default function Dashboard() {
   const [currentPage, setCurrentPage] = useState<'tasks' | 'projects' | 'meetings' | 'sprints' | 'digest' | 'archive' | 'backlog' | 'settings' | 'account'>(
@@ -43,6 +44,7 @@ export default function Dashboard() {
 
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [showProjectMembers, setShowProjectMembers] = useState<{id: number, name: string} | null>(null);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [bulkSelected, setBulkSelected] = useState<Set<number>>(new Set());
   const toggleBulk = (id: number) => setBulkSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
@@ -50,6 +52,7 @@ export default function Dashboard() {
 
   // Project directory navigation (stack-based, supports unlimited depth)
   const [projNavProject, setProjNavProject] = useState<Project | null>(null);
+  const [projNavProjectPath, setProjNavProjectPath] = useState<Project[]>([]);
   const [projNavTaskPath, setProjNavTaskPath] = useState<Task[]>([]);
 
   // Читаем sessionStorage один раз при монтировании — до того как save-эффекты затрут значения
@@ -68,24 +71,28 @@ export default function Dashboard() {
   React.useEffect(() => { if (navRestoredRef.current) sessionStorage.setItem('tf_modal_task', selectedTask?.id?.toString() ?? ''); }, [selectedTask]);
   React.useEffect(() => { if (navRestoredRef.current) sessionStorage.setItem('tf_modal_proj', selectedProject?.id?.toString() ?? ''); }, [selectedProject]);
 
-  // Navigation history for back/forward (mouse buttons 3/4, Alt+←/→)
-  type NavSnap = { page: typeof currentPage; proj: Project | null; path: Task[]; statusF: string | null; projectF: number | null; assigneeF: number | null; priorityF: string | null; };
-  const navBack = React.useRef<NavSnap[]>([]);
-  const navFwd  = React.useRef<NavSnap[]>([]);
-  const snapRef = React.useRef<() => NavSnap>(() => ({ page: 'tasks', proj: null, path: [], statusF: null, projectF: null, assigneeF: null, priorityF: null }));
+  // Navigation history for back/forward (mouse buttons 3/4, Alt+←/→, browser buttons)
+  const [settingsTab, setSettingsTab] = React.useState<string>(() => sessionStorage.getItem('tf_settings_tab') || 'general');
+  React.useEffect(() => { sessionStorage.setItem('tf_settings_tab', settingsTab); }, [settingsTab]);
+  type NavSnap = { page: typeof currentPage; proj: Project | null; projPath: Project[]; path: Task[]; statusF: string | null; projectF: number | null; assigneeF: number | null; priorityF: string | null; tagF: number | null; settingsTab: string; };
+  const snapRef = React.useRef<() => NavSnap>(() => ({ page: 'tasks', proj: null, projPath: [], path: [], statusF: null, projectF: null, assigneeF: null, priorityF: null, tagF: null, settingsTab: 'general' }));
   const applyRef = React.useRef<(s: NavSnap) => void>(() => {});
-  snapRef.current = () => ({ page: currentPage, proj: projNavProject, path: projNavTaskPath, statusF: statusFilter, projectF: projectFilter, assigneeF: assigneeFilter, priorityF: priorityFilter });
-  applyRef.current = (s) => { setCurrentPage(s.page); setProjNavProject(s.proj); setProjNavTaskPath(s.path); setStatusFilter(s.statusF); setProjectFilter(s.projectF); setAssigneeFilter(s.assigneeF); setPriorityFilter(s.priorityF); };
-  const browserNavIndex = React.useRef(0);
+  snapRef.current = () => ({ page: currentPage, proj: projNavProject, projPath: projNavProjectPath, path: projNavTaskPath, statusF: statusFilter, projectF: projectFilter, assigneeF: assigneeFilter, priorityF: priorityFilter, tagF: tagFilter, settingsTab });
+  applyRef.current = (s) => { setCurrentPage(s.page); setProjNavProject(s.proj); setProjNavProjectPath(s.projPath); setProjNavTaskPath(s.path); setStatusFilter(s.statusF); setProjectFilter(s.projectF); setAssigneeFilter(s.assigneeF); setPriorityFilter(s.priorityF); setTagFilter(s.tagF); setSettingsTab(s.settingsTab || 'general'); };
   const modalCloseRef = React.useRef<(() => void) | null>(null);
-  const pushHist = () => {
-    navBack.current = [...navBack.current, snapRef.current()];
-    navFwd.current = [];
-    browserNavIndex.current++;
-    history.pushState({ tfIdx: browserNavIndex.current }, '');
+  const pushHist = (overrides?: Partial<NavSnap>) => {
+    const snap = snapRef.current();
+    history.pushState({ tfSnap: { ...snap, ...overrides } }, '');
   };
-  const goBack    = React.useCallback(() => { if (modalCloseRef.current) { modalCloseRef.current(); return; } if (!navBack.current.length) return; const s = navBack.current[navBack.current.length - 1]; navFwd.current = [snapRef.current(), ...navFwd.current]; navBack.current = navBack.current.slice(0, -1); applyRef.current(s); }, []);
-  const goForward = React.useCallback(() => { if (!navFwd.current.length) return; const s = navFwd.current[0]; navBack.current = [...navBack.current, snapRef.current()]; navFwd.current = navFwd.current.slice(1); applyRef.current(s); }, []);
+  const goBack    = React.useCallback(() => { if (modalCloseRef.current) { modalCloseRef.current(); return; } history.back(); }, []);
+  const goForward = React.useCallback(() => { history.forward(); }, []);
+
+  // Set initial history state on mount
+  React.useEffect(() => {
+    if (!history.state?.tfSnap) {
+      history.replaceState({ tfSnap: snapRef.current() }, '');
+    }
+  }, []);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -96,14 +103,19 @@ export default function Dashboard() {
       if (e.altKey && e.key === 'ArrowLeft')  { e.preventDefault(); goBack(); }
       if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); goForward(); }
     };
+    const onPopState = (e: PopStateEvent) => {
+      const snap = (e.state as any)?.tfSnap;
+      if (snap) applyRef.current(snap);
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('popstate', onPopState);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('popstate', onPopState); };
   }, [goBack, goForward]);
 
-  const [taskView, setTaskView] = useState<'cards' | 'list' | 'kanban' | 'timeline' | 'calendar'>(
+  const [taskView, setTaskView] = useState<'cards' | 'list' | 'kanban' | 'timeline' | 'calendar' | 'tree'>(
     () => (localStorage.getItem('tf_task_view') as any) || 'cards'
   );
-  const handleSetTaskView = (v: 'cards' | 'list' | 'kanban' | 'timeline' | 'calendar') => {
+  const handleSetTaskView = (v: 'cards' | 'list' | 'kanban' | 'timeline' | 'calendar' | 'tree') => {
     setTaskView(v);
     localStorage.setItem('tf_task_view', v);
   };
@@ -116,6 +128,40 @@ export default function Dashboard() {
   const [showSearch, setShowSearch] = useState(false);
   const [taskStack, setTaskStack] = useState<Task[]>([]);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
+
+  // #262 — Глобальный индикатор таймера в header
+  const [activeTimer, setActiveTimer] = useState<{taskId: number; seconds: number} | null>(null);
+  const [treeExpanded, setTreeExpanded] = useState<Set<number>>(new Set());
+  const toggleTreeExpand = (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setTreeExpanded(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  React.useEffect(() => {
+    const TIMER_KEY = 'teamflow_active_timer';
+    const poll = () => {
+      try {
+        const raw = localStorage.getItem(TIMER_KEY);
+        if (!raw) { setActiveTimer(null); return; }
+        const data = JSON.parse(raw);
+        if (!data || !data.taskId) { setActiveTimer(null); return; }
+        // Calculate current elapsed time
+        let elapsed = data.accumulatedSeconds || 0;
+        if (data.startTime && !data.pausedAt) {
+          elapsed += Math.floor((Date.now() - data.startTime) / 1000);
+        } else if (data.pausedAt) {
+          elapsed += data.pausedAt - data.startTime;
+        }
+        setActiveTimer({ taskId: data.taskId, seconds: elapsed });
+      } catch { setActiveTimer(null); }
+    };
+    poll();
+    const interval = setInterval(poll, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   const openTask = (t: Task) => {
     if (selectedTask) setTaskStack(s => [...s, selectedTask]);
@@ -168,7 +214,7 @@ export default function Dashboard() {
   const mySystemRole = myAccount?.system_role || null;
   const myDisplayName = myAccount?.display_name || null;
 
-  const { subscribed, pushError, requestAndSubscribe, unsubscribe } = usePushNotifications();
+  const { subscribed, pushError, requestAndSubscribe, unsubscribe, isIOSafari } = usePushNotifications();
   const { isDark, isAuto, toggleTheme } = useTheme();
 
   const queryClient = useQueryClient();
@@ -263,13 +309,11 @@ export default function Dashboard() {
   }, [tasks, projects, meetings]);
 
   const invalidate = () => {
+    // #260 — fire-and-forget: auto-archive не должен тормозить UI
     axios.post(`${API_URL}/api/tasks/auto-archive`).catch(() => {});
+    // #260 — Инвалидируем только задачи (stats обновится по своему refetchInterval)
+    // Загрузка ВСЕХ задач с relations — самая тяжёлая операция, не умножайте её
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    queryClient.invalidateQueries({ queryKey: ['stats'] });
-    queryClient.invalidateQueries({ queryKey: ['projects'] });
-    queryClient.invalidateQueries({ queryKey: ['meetings'] });
-    queryClient.invalidateQueries({ queryKey: ['archive'] });
-    queryClient.invalidateQueries({ queryKey: ['deleted'] });
   };
 
   const changeStatusMutation = useMutation({
@@ -513,18 +557,17 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-2 sm:px-4 py-3 sm:py-6">
+      <div className="max-w-7xl mx-auto px-2 sm:px-4 pb-3 sm:pb-6">
 
         {/* Header + Navigation — sticky при скролле */}
         <header className="sticky top-0 z-30 bg-gray-50 border-b mb-3 flex items-center justify-between overflow-x-auto scrollbar-none"
-          style={{ scrollbarWidth: 'none' }}
+          style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
         >
           <div className="flex items-center gap-1 sm:gap-2 min-w-max">
             <span className="text-base sm:text-lg font-bold text-gray-900 px-1 sm:px-2 shrink-0">TeamFlow</span>
             <span className="text-gray-200 shrink-0">|</span>
             {[
               { id: 'tasks', label: 'Задачи', icon: '📋' },
-              { id: 'projects', label: 'Проекты', icon: '📁' },
               { id: 'meetings', label: 'Встречи', icon: '🤝' },
               { id: 'sprints', label: 'Спринты', icon: '🏃' },
               { id: 'backlog', label: 'Бэклог', icon: '📦' },
@@ -534,7 +577,7 @@ export default function Dashboard() {
             ].filter(Boolean).map(page => (
               <button
                 key={page.id}
-                onClick={() => { pushHist(); setCurrentPage(page.id as any); setProjNavProject(null); setProjNavTaskPath([]); }}
+                onClick={() => { pushHist({ page: page.id as any, proj: null, projPath: [], path: [] }); setCurrentPage(page.id as any); setProjNavProject(null); setProjNavTaskPath([]); }}
                 className={`px-1 sm:px-2 py-2 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition ${
                   currentPage === page.id
                     ? 'border-blue-600 text-blue-600'
@@ -556,8 +599,9 @@ export default function Dashboard() {
             {!subscribed && (
               <button
                 onClick={requestAndSubscribe}
-                className={`relative text-xs px-2 py-1 rounded border transition ${pushError ? 'border-orange-300 text-orange-400' : 'border-blue-300 text-blue-600 hover:bg-blue-50'}`}
-                title={pushError ?? 'Включить уведомления'}
+                className={`relative text-xs px-2 py-1 rounded border transition cursor-pointer touch-manipulation ${pushError ? 'border-orange-300 text-orange-400' : 'border-blue-300 text-blue-600 hover:bg-blue-50'}`}
+                title={pushError ?? (isIOSafari ? 'Добавьте на экран «Домой» для уведомлений' : 'Включить уведомления')}
+                style={{ WebkitTapHighlightColor: 'transparent', WebkitAppearance: 'none' }}
               >
                 🔔
                 {pushError && <span className="absolute -top-1 -right-1 w-2 h-2 bg-orange-400 rounded-full" />}
@@ -579,8 +623,31 @@ export default function Dashboard() {
             >
               {isAuto ? '🔄' : isDark ? '☀️' : '🌙'}
             </button>
+            {activeTimer && (() => {
+              const timerTask = tasks?.find(t => t.id === activeTimer.taskId);
+              const mins = Math.floor(activeTimer.seconds / 60);
+              const hrs = Math.floor(mins / 60);
+              const m = mins % 60;
+              const timeStr = hrs > 0 ? `${hrs}ч ${m}м` : `${mins}м`;
+              const isWarning = mins >= 240; // ≥4 hours
+              return (
+                <button
+                  onClick={() => {
+                    if (timerTask) openTask(timerTask);
+                  }}
+                  className={`text-xs px-2 py-1 rounded-lg font-medium transition flex items-center gap-1 animate-pulse ${
+                    isWarning
+                      ? 'bg-orange-100 text-orange-700 border border-orange-300 hover:bg-orange-200'
+                      : 'bg-green-100 text-green-700 border border-green-300 hover:bg-green-200'
+                  }`}
+                  title={`Таймер: ${timerTask?.title || '#'+activeTimer.taskId} — ${timeStr}`}
+                >
+                  ⏱ {timeStr}
+                </button>
+              );
+            })()}
             <button
-              onClick={() => { pushHist(); setCurrentPage('account'); }}
+              onClick={() => { pushHist({ page: 'account' as any }); setCurrentPage('account'); }}
               className="text-xs px-3 py-1 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition flex items-center gap-1"
               title="Мой аккаунт"
             >
@@ -606,35 +673,6 @@ export default function Dashboard() {
           onNavigate={(page) => setCurrentPage(page as any)}
         />
 
-        {/* Breadcrumbs — только в разделе Проекты */}
-        {currentPage === 'projects' && (
-          <nav className="sticky top-0 z-40 bg-gray-50 border-b py-1.5 mb-3 flex items-center gap-1 text-xs sm:text-sm text-gray-500 flex-wrap">
-            <button
-              onClick={() => { pushHist(); setProjNavProject(null); setProjNavTaskPath([]); }}
-              className={`font-medium hover:text-blue-600 transition ${!projNavProject ? 'text-gray-800' : 'text-gray-500'}`}
-            >📁 Проекты</button>
-            {projNavProject && (<>
-              <span className="text-gray-300">›</span>
-              <button
-                onClick={() => { pushHist(); setProjNavTaskPath([]); }}
-                className={`hover:text-blue-600 transition ${projNavTaskPath.length === 0 ? 'text-gray-800 font-medium' : 'text-gray-500'}`}
-              >{projNavProject.emoji} {projNavProject.name}</button>
-            </>)}
-            {projNavTaskPath.map((t, i) => {
-              const isLast = i === projNavTaskPath.length - 1;
-              return (
-                <React.Fragment key={t.id}>
-                  <span className="text-gray-300">›</span>
-                  {isLast
-                    ? <span className="text-gray-800 font-medium truncate max-w-[140px]">#{t.id} {t.title}</span>
-                    : <button onClick={() => { pushHist(); setProjNavTaskPath(p => p.slice(0, i + 1)); }} className="text-gray-500 hover:text-blue-600 transition truncate max-w-[120px]">#{t.id} {t.title}</button>
-                  }
-                </React.Fragment>
-              );
-            })}
-          </nav>
-        )}
-
         {/* TASKS PAGE */}
         {currentPage === 'tasks' && (
           <>
@@ -652,7 +690,7 @@ export default function Dashboard() {
                   ].map((s, i) => (
                     <button
                       key={i}
-                      onClick={() => setStatusFilter(s.status === statusFilter ? null : s.status)}
+                      onClick={() => { const newStatus = s.status === statusFilter ? null : s.status; pushHist({ statusF: newStatus }); setStatusFilter(newStatus); }}
                       className={`p-2 sm:p-3 rounded-lg border shadow-sm text-left transition ${
                         statusFilter === s.status ? 'ring-2 ring-blue-500' : ''
                       } ${s.color}`}
@@ -676,7 +714,7 @@ export default function Dashboard() {
               <div className="grid grid-cols-2 sm:flex gap-2 flex-1 sm:flex-wrap">
                 <select
                   value={projectFilter ?? ''}
-                  onChange={(e) => setProjectFilter(e.target.value ? Number(e.target.value) : null)}
+                  onChange={(e) => { const newProj = e.target.value ? Number(e.target.value) : null; pushHist({ projectF: newProj }); setProjectFilter(newProj); }}
                   className="px-2 py-1.5 border rounded-lg text-xs sm:text-sm w-full sm:w-auto"
                 >
                   <option value="">Все проекты</option>
@@ -688,7 +726,7 @@ export default function Dashboard() {
 
                 <select
                   value={assigneeFilter ?? ''}
-                  onChange={(e) => setAssigneeFilter(e.target.value ? Number(e.target.value) : null)}
+                  onChange={(e) => { const newVal = e.target.value ? Number(e.target.value) : null; pushHist({ assigneeF: newVal }); setAssigneeFilter(newVal); }}
                   className="px-2 py-1.5 border rounded-lg text-xs sm:text-sm w-full sm:w-auto"
                 >
                   <option value="">Все</option>
@@ -699,7 +737,7 @@ export default function Dashboard() {
                 </select>
                 <select
                   value={priorityFilter ?? ''}
-                  onChange={(e) => setPriorityFilter(e.target.value || null)}
+                  onChange={(e) => { const newVal = e.target.value || null; pushHist({ priorityF: newVal }); setPriorityFilter(newVal); }}
                   className="px-2 py-1.5 border rounded-lg text-xs sm:text-sm w-full sm:w-auto col-span-2 sm:col-auto"
                 >
                   <option value="">Все приоритеты</option>
@@ -710,7 +748,7 @@ export default function Dashboard() {
                 {allTags.length > 0 && (
                   <select
                     value={tagFilter ?? ''}
-                    onChange={(e) => setTagFilter(e.target.value ? Number(e.target.value) : null)}
+                    onChange={(e) => { const newVal = e.target.value ? Number(e.target.value) : null; pushHist({ tagF: newVal }); setTagFilter(newVal); }}
                     className="px-2 py-1.5 border rounded-lg text-xs sm:text-sm w-full sm:w-auto col-span-2 sm:col-auto"
                   >
                     <option value="">Все теги</option>
@@ -722,11 +760,11 @@ export default function Dashboard() {
               </div>
 
               <div className="flex gap-1 shrink-0">
-                {([['cards','🃏'],['list','☰'],['kanban','⬛'],['timeline','📊'],['calendar','📅']] as const).map(([v, icon]) => (
+                {([['cards','🃏'],['list','☰'],['kanban','⬛'],['timeline','📊'],['calendar','📅'],['tree','🌳']] as const).map(([v, icon]) => (
                   <button
                     key={v}
                     onClick={() => handleSetTaskView(v)}
-                    title={v === 'cards' ? 'Карточки' : v === 'list' ? 'Список' : v === 'kanban' ? 'Канбан' : v === 'timeline' ? 'Таймлайн' : 'Календарь'}
+                    title={v === 'cards' ? 'Карточки' : v === 'list' ? 'Список' : v === 'kanban' ? 'Канбан' : v === 'timeline' ? 'Таймлайн' : v === 'calendar' ? 'Календарь' : 'Дерево'}
                     className={`px-2 py-1.5 border rounded-lg text-sm transition ${taskView === v ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
                   >{icon}</button>
                 ))}
@@ -1030,29 +1068,91 @@ export default function Dashboard() {
             {taskView === 'calendar' && (
               <CalendarView projects={projects} onOpenTask={setSelectedTask} />
             )}
-          </>
-        )}
 
-        {/* PROJECTS PAGE */}
-        {currentPage === 'projects' && (
-          <ProjectNavPage
-            projects={projects}
-            tasks={tasks}
-            navProject={projNavProject}
-            navTaskPath={projNavTaskPath}
-            onSelectProject={(p: Project) => { pushHist(); setProjNavProject(p); setProjNavTaskPath([]); }}
-            onPushTask={(t: Task) => { pushHist(); setProjNavTaskPath(p => [...p, t]); }}
-            onEditProject={setSelectedProject}
-            onOpenTask={setSelectedTask}
-            onNewProject={(parentId?: number) => { setNewProjectParentId(parentId); setShowNewProject(true); }}
-            onNewTask={(ctx: { projectId?: number; parentTaskId?: number }) => { setNewTaskDefaults(ctx); setShowNewTask(true); }}
-            changeStatusMutation={changeStatusMutation}
-            takeTaskMutation={takeTaskMutation}
-            myUserId={myUserId}
-            invalidate={invalidate}
-            ancestorBlockedIds={ancestorBlockedIds}
-            onDeleteTask={(id: number) => setConfirmDelete({ type: 'task', id })}
-          />
+            {/* Tasks — tree: projects → tasks → subtasks */}
+            {taskView === 'tree' && (
+              <div className="space-y-1">
+                <div className="flex gap-2 mb-2">
+                  <button onClick={() => setTreeExpanded(new Set(
+                    sortedTasks.filter(t => t.subtasks?.length > 0).map(t => t.id)
+                  ))} className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200">Развернуть все</button>
+                  <button onClick={() => setTreeExpanded(new Set())} className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200">Свернуть все</button>
+                </div>
+                {(() => {
+                  const MAX_LEVEL = 5;
+                  const projectMap = new Map<number, Project & { children: Project[], tasks: Task[] }>();
+                  projects.forEach(p => projectMap.set(p.id, { ...p, children: [], tasks: [] }));
+                  projects.forEach(p => {
+                    if (p.parent_project_id && projectMap.has(p.parent_project_id)) {
+                      projectMap.get(p.parent_project_id)!.children.push(p);
+                    }
+                  });
+                  sortedTasks.forEach(t => {
+                    if (t.project_id && projectMap.has(t.project_id)) {
+                      projectMap.get(t.project_id)!.tasks.push(t);
+                    }
+                  });
+                  const taskMap = new Map<number, Task & { subtasks: Task[] }>();
+                  sortedTasks.forEach(t => taskMap.set(t.id, { ...t, subtasks: [] }));
+                  sortedTasks.forEach(t => {
+                    if (t.parent_task_id && taskMap.has(t.parent_task_id)) {
+                      taskMap.get(t.parent_task_id)!.subtasks.push(t);
+                    }
+                  });
+                  const renderProject = (proj: Project & { children: Project[], tasks: Task[] }, level = 0) => {
+                    const ml = level * 16;
+                    return (
+                      <div key={`proj-${proj.id}`}>
+                        <div className={`flex items-center gap-2 px-2 py-1.5 font-medium bg-gray-100 rounded`} style={{ marginLeft: ml + 'px' }}>
+                          <span className="text-lg">{proj.emoji || '📁'}</span>
+                          <span className="text-sm truncate">{proj.name}</span>
+                        </div>
+                        {(proj.tasks || []).map(task => renderTask(task, level + 1))}
+                        {(proj.children || []).map(child => renderProject(child, level + 1))}
+                      </div>
+                    );
+                  };
+                  const renderTask = (task: Task & { subtasks?: Task[] }, level: number, path: number[] = []) => {
+                    const currentPath = [...path, task.id];
+                    const subtasks = task.subtasks || [];
+                    const hasSubtasks = subtasks.length > 0;
+                    const isMaxLevel = level >= MAX_LEVEL;
+                    const isExpanded = treeExpanded.has(task.id);
+                    const expandBtn = hasSubtasks ? (
+                      <button onClick={(e) => toggleTreeExpand(task.id, e)} className="text-gray-400 text-xs hover:text-gray-600 w-4">
+                        {isExpanded ? '▼' : '▶'}
+                      </button>
+                    ) : <span className="w-4" />;
+                    return (
+                      <div key={task.id}>
+                        <div
+                          onClick={() => setSelectedTask(task)}
+                          className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-gray-50 rounded border-l-2 ${STATUS_BORDER[task.status]}`}
+                          style={{ paddingLeft: `${level * 16 + 8}px` }}
+                        >
+                          {expandBtn}
+                          <span className={`text-xs px-1.5 py-0.5 rounded border shrink-0 ${STATUS_COLOR[task.status]}`}>{STATUS_EMOJI[task.status]}</span>
+                          {task.priority !== 'NORMAL' && <span className={`text-xs px-1 rounded border shrink-0 ${PRIORITY_COLOR[task.priority]}`}>{PRIORITY_EMOJI[task.priority]}</span>}
+                          <span className="text-xs text-gray-400 shrink-0">#{task.id}</span>
+                          <span className="text-sm flex-1 truncate">{task.title}</span>
+                        </div>
+                        {hasSubtasks && isExpanded && subtasks.map(sub => {
+                          const subTask = taskMap.get(sub.id);
+                          return subTask ? renderTask(subTask, level + 1, currentPath) : null;
+                        })}
+                      </div>
+                    );
+                  };
+                  const rootProjects = projects.filter(p => !p.parent_project_id);
+                  return rootProjects.length === 0 ? (
+                    <p className="text-sm text-gray-400 py-8 text-center">Нет проектов</p>
+                  ) : (
+                    rootProjects.map(p => renderProject(projectMap.get(p.id)!))
+                  );
+                })()}
+              </div>
+            )}
+          </>
         )}
 
         {/* MEETINGS PAGE */}
@@ -1093,7 +1193,40 @@ export default function Dashboard() {
 
         {/* SETTINGS PAGE */}
         {currentPage === 'settings' && (
-          <SettingsPage projects={projects} />
+          <SettingsPage
+            projects={projects}
+            tasks={tasks}
+            navProject={projNavProject}
+            navProjectPath={projNavProjectPath}
+            navTaskPath={projNavTaskPath}
+            onSelectProject={(p: Project | null) => {
+              let nextPath = projNavProjectPath;
+              if (p && projNavProject && p.id !== projNavProject.id) {
+                nextPath = [...projNavProjectPath, projNavProject];
+              } else if (!p) {
+                nextPath = [];
+              }
+              pushHist({ proj: p, projPath: nextPath, path: [] });
+              setProjNavProjectPath(nextPath);
+              setProjNavProject(p);
+              setProjNavTaskPath([]);
+            }}
+            onPushTask={(t: Task) => { const nextPath = [...projNavTaskPath, t]; pushHist({ path: nextPath }); setProjNavTaskPath(p => [...p, t]); }}
+            onPopTask={goBack}
+            onEditProject={setSelectedProject}
+            onOpenTask={setSelectedTask}
+            onNewProject={(parentId?: number) => { setNewProjectParentId(parentId); setShowNewProject(true); }}
+            onNewTask={(ctx: { projectId?: number; parentTaskId?: number }) => { setNewTaskDefaults(ctx); setShowNewTask(true); }}
+            changeStatusMutation={changeStatusMutation}
+            takeTaskMutation={takeTaskMutation}
+            myUserId={myUserId}
+            invalidate={invalidate}
+            ancestorBlockedIds={ancestorBlockedIds}
+            onDeleteTask={(id: number) => setConfirmDelete({ type: 'task', id })}
+            onShowMembers={(p: Project) => setShowProjectMembers({ id: p.id, name: p.name })}
+            activeTab={settingsTab}
+            onTabChange={(tab: string) => { pushHist({ settingsTab: tab }); setSettingsTab(tab); }}
+          />
         )}
 
         {/* ACCOUNT PAGE */}
@@ -1115,6 +1248,7 @@ export default function Dashboard() {
         />
       )}
       {selectedProject && <ProjectModal project={selectedProject} projects={projects} invalidate={invalidate} onClose={() => setSelectedProject(null)} {...{ updateProjectMutation, setConfirmDelete }} />}
+      {showProjectMembers && <ProjectMembersModal projectId={showProjectMembers.id} projectName={showProjectMembers.name} onClose={() => setShowProjectMembers(null)} />}
       {selectedMeeting && <MeetingModal meeting={selectedMeeting} onClose={() => setSelectedMeeting(null)} projects={projects} tasks={tasks} onOpenTask={setSelectedTask} invalidate={invalidate} {...{ updateMeetingMutation, setConfirmDelete }} />}
       {showNewTask && <NewTaskModal onClose={() => { setShowNewTask(false); setNewTaskDefaults({}); }} onOpenTask={(t: Task) => { setShowNewTask(false); setNewTaskDefaults({}); setSelectedTask(t); }} initialProjectId={newTaskDefaults.projectId} initialParentTaskId={newTaskDefaults.parentTaskId} initialBacklog={newTaskDefaults.backlog} {...{ projects, tasks, createTaskMutation }} />}
       {showNewProject && <NewProjectModal onClose={() => { setShowNewProject(false); setNewProjectParentId(undefined); }} projects={projects} initialParentProjectId={newProjectParentId} {...{ createProjectMutation }} />}

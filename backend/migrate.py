@@ -139,6 +139,25 @@ MIGRATIONS = [
     )"""),
     # time_spent — потраченное время на задачу (минуты)
     ("tasks", "time_spent", "ALTER TABLE tasks ADD COLUMN time_spent INTEGER DEFAULT 0"),
+    # project_members — участники проекта
+    ("project_members", None, """CREATE TABLE IF NOT EXISTS project_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        telegram_user_id INTEGER NOT NULL REFERENCES local_accounts(id) ON DELETE CASCADE,
+        role VARCHAR(20) NOT NULL DEFAULT 'viewer',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )"""),
+    # #260 — Индексы для оптимизации запросов
+    (None, None, "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)"),
+    (None, None, "CREATE INDEX IF NOT EXISTS idx_tasks_assignee_id ON tasks(assignee_id)"),
+    (None, None, "CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id)"),
+    (None, None, "CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id)"),
+    (None, None, "CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority)"),
+    (None, None, "CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date)"),
+    # Композитный индекс для частого запроса GET /api/tasks (фильтр по статусу + сортировка)
+    (None, None, "CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at DESC)"),
+    # Индекс для бэклога
+    (None, None, "CREATE INDEX IF NOT EXISTS idx_tasks_backlog ON tasks(backlog, archived, deleted)"),
 ]
 
 async def run():
@@ -155,10 +174,11 @@ async def run():
         print(f"Tables: {tables}")
 
         for table, column, sql in MIGRATIONS:
-            # Для CREATE TABLE — просто выполняем (IF NOT EXISTS защищает)
+            # Для CREATE TABLE / CREATE INDEX — просто выполняем (IF NOT EXISTS защищает)
             if column is None:
                 await db.execute(sql)
-                print(f"  ✓ Table {table} ensured")
+                target = table or "index"
+                print(f"  ✓ Table/index {target} ensured")
                 continue
 
             # Для ALTER TABLE — проверяем есть ли уже колонка

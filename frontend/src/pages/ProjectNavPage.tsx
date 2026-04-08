@@ -5,8 +5,21 @@ import { API_URL, STATUS_COLOR, STATUS_BORDER, STATUS_EMOJI, STATUS_LABELS, PRIO
 import { showToast } from '../utils/toast';
 import { BacklogTaskRow } from './BacklogPage';
 
-export default function ProjectNavPage({ projects, tasks, navProject, navTaskPath, onSelectProject, onPushTask, onEditProject, onOpenTask, onNewProject, onNewTask, changeStatusMutation, takeTaskMutation, myUserId, invalidate, ancestorBlockedIds, onDeleteTask }: any) {
+export default function ProjectNavPage({ projects, tasks, navProject, navProjectPath, navTaskPath, onSelectProject, onPushTask, onEditProject, onOpenTask, onNewProject, onNewTask, changeStatusMutation, takeTaskMutation, myUserId, invalidate, ancestorBlockedIds, onDeleteTask, onShowMembers, onGoBack }: any) {
   const [statusFilter, setStatusFilter] = React.useState<string | null>(null);
+
+  // Build project path dynamically from parent_project_id
+  const computedProjectPath = React.useMemo(() => {
+    const path: any[] = [];
+    let current = navProject;
+    while (current?.parent_project_id) {
+      const parent = projects.find((p: any) => p.id === current.parent_project_id);
+      if (!parent) break;
+      path.unshift(parent);
+      current = parent;
+    }
+    return path;
+  }, [navProject, projects]);
 
   // Current node: last task in path, or project root (берём актуальные данные из tasks)
   const currentTaskStale: Task | null = navTaskPath.length > 0 ? navTaskPath[navTaskPath.length - 1] : null;
@@ -148,6 +161,53 @@ export default function ProjectNavPage({ projects, tasks, navProject, navTaskPat
 
   return (
     <>
+      {/* Breadcrumbs / Back navigation — only when inside a project */}
+      {navProject && (
+        <nav className="flex items-center gap-1 text-xs sm:text-sm text-gray-500 mb-3 flex-wrap">
+          <button
+            onClick={() => onSelectProject(null)}
+            className="font-medium hover:text-blue-600 transition"
+          >📁 Проекты</button>
+          <span className="text-gray-300">›</span>
+          {computedProjectPath.map((p: any, i: number) => (
+            <React.Fragment key={p.id}>
+              <button
+                onClick={() => onSelectProject(p)}
+                className="hover:text-blue-600 transition"
+              >{p.emoji} {p.name}</button>
+              <span className="text-gray-300">›</span>
+            </React.Fragment>
+          ))}
+          <span className="text-gray-800 font-medium">{navProject.emoji} {navProject.name}</span>
+          {navTaskPath.map((t: any, i: number) => {
+            const isLast = i === navTaskPath.length - 1;
+            return (
+              <React.Fragment key={t.id}>
+                <span className="text-gray-300">›</span>
+                {isLast
+                  ? <span className="text-gray-800 font-medium truncate max-w-[140px]">#{t.id} {t.title}</span>
+                  : <span className="text-gray-500 truncate max-w-[120px]">#{t.id} {t.title}</span>
+                }
+              </React.Fragment>
+            );
+          })}
+          {(computedProjectPath.length > 0 || navTaskPath.length > 0) && (
+            <button
+              onClick={onGoBack}
+              className="ml-auto text-gray-400 hover:text-blue-600 transition shrink-0"
+              title="Назад"
+            >← Назад</button>
+          )}
+          {computedProjectPath.length === 0 && navTaskPath.length === 0 && (
+            <button
+              onClick={() => onSelectProject(null)}
+              className="ml-auto text-gray-400 hover:text-blue-600 transition shrink-0"
+              title="К списку проектов"
+            >✕ Закрыть</button>
+          )}
+        </nav>
+      )}
+
       {currentTask && ancestorBlockedIds?.has(currentTask.id) && (
         <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex items-center gap-2">
           🔒 Родительская задача заблокирована — эти задачи временно недоступны
@@ -186,7 +246,12 @@ export default function ProjectNavPage({ projects, tasks, navProject, navTaskPat
           )}
           {currentTask
             ? <button onClick={() => onOpenTask(currentTask)} className="px-3 py-1.5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">↗ Открыть</button>
-            : <button onClick={() => onEditProject(navProject)} className="px-3 py-1.5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">✏️</button>
+            : <>
+                {onShowMembers && (
+                  <button onClick={() => onShowMembers(navProject)} className="px-3 py-1.5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50" title="Участники проекта">👥</button>
+                )}
+                <button onClick={() => onEditProject(navProject)} className="px-3 py-1.5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">✏️</button>
+              </>
           }
         </div>
       </div>

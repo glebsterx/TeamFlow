@@ -47,7 +47,7 @@ function ToastItemComponent({ toast, onDismiss }: ToastItemProps) {
       role="alert"
       aria-live="polite"
       onClick={() => onDismiss(toast.id)}
-      className={`toast relative overflow-hidden cursor-pointer rounded-lg shadow-lg text-white text-sm px-4 py-2.5 min-w-[220px] max-w-xs
+      className={`toast ${toast.type} relative overflow-hidden cursor-pointer rounded-lg shadow-lg text-white text-sm px-4 py-2.5 min-w-[220px] max-w-xs
         transition-all duration-300 ease-out
         ${visible ? 'translate-x-0 opacity-100' : 'translate-x-8 opacity-0'}
         ${TOAST_BG[toast.type]}`}

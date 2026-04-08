@@ -5,8 +5,23 @@ import { useTheme } from '../hooks/useTheme';
 export const Welcome: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
   const [botUsername, setBotUsername] = React.useState('');
+  const [checking, setChecking] = React.useState(true);
 
   React.useEffect(() => {
+    // Check if system is ready (has users)
+    fetch(`${API_URL}/api/settings/startup-check`)
+      .then(r => {
+        if (!r.ok) return null;
+        return r.json();
+      })
+      .then(data => {
+        if (data && data.has_users === false) {
+          window.location.href = '/setup';
+        }
+        setChecking(false);
+      })
+      .catch(() => setChecking(false));
+
     fetch(`${API_URL}/api/bot-info`)
       .then(r => r.json())
       .then(data => setBotUsername(data.username || ''))
@@ -19,12 +34,20 @@ export const Welcome: React.FC = () => {
     return <span>🔄</span>;
   };
 
+  if (checking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-gray-500 dark:text-gray-400">Загрузка...</div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
       {/* Theme toggle */}
       <button
         onClick={toggleTheme}
-        className="absolute top-4 right-4 p-2 rounded-lg bg-white border border-gray-200 hover:bg-gray-100 transition text-sm"
+        className="absolute top-4 right-4 p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 transition text-sm"
         title={theme === 'light' ? 'Светлая' : theme === 'dark' ? 'Тёмная' : 'Авто'}
       >
         <ThemeIcon />
@@ -34,28 +57,28 @@ export const Welcome: React.FC = () => {
       <div className="flex-1 flex items-center justify-center px-4">
         <div className="max-w-2xl w-full text-center space-y-8">
           <div>
-            <h1 className="text-5xl font-bold text-gray-900 mb-4">TeamFlow</h1>
-            <p className="text-xl text-gray-600">
+            <h1 className="text-5xl font-bold text-gray-900 dark:text-white mb-4">TeamFlow</h1>
+            <p className="text-xl text-gray-600 dark:text-gray-400">
               Система управления задачами для небольших команд
             </p>
           </div>
 
           {/* Features */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 py-8">
-            <div className="bg-white rounded-xl p-6 border shadow-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700 shadow-sm">
               <div className="text-3xl mb-3">📋</div>
-              <h3 className="font-semibold text-gray-900 mb-2">Задачи</h3>
-              <p className="text-sm text-gray-500">Создавайте, назначайте и отслеживайте задачи команды</p>
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-2">Задачи</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Создавайте, назначайте и отслеживайте задачи команды</p>
             </div>
-            <div className="bg-white rounded-xl p-6 border shadow-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700 shadow-sm">
               <div className="text-3xl mb-3">💬</div>
-              <h3 className="font-semibold text-gray-900 mb-2">Telegram-бот</h3>
-              <p className="text-sm text-gray-500">Управляйте задачами прямо из Telegram</p>
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-2">Telegram-бот</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Управляйте задачами прямо из Telegram</p>
             </div>
-            <div className="bg-white rounded-xl p-6 border shadow-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700 shadow-sm">
               <div className="text-3xl mb-3">🔔</div>
-              <h3 className="font-semibold text-gray-900 mb-2">Уведомления</h3>
-              <p className="text-sm text-gray-500">Push-уведомления и напоминания о дедлайнах</p>
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-2">Уведомления</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Push-уведомления и напоминания о дедлайнах</p>
             </div>
           </div>
 
@@ -68,7 +91,7 @@ export const Welcome: React.FC = () => {
               Войти в систему
             </a>
             {botUsername && (
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 или напишите боту{' '}
                 <a
                   href={`https://t.me/${botUsername}`}
@@ -83,9 +106,9 @@ export const Welcome: React.FC = () => {
           </div>
 
           {/* Credits */}
-          <div className="pt-12 border-t border-gray-200 mt-12">
-            <p className="text-xs text-gray-400">
-              TeamFlow © 2026 | v0.8.19
+          <div className="pt-12 border-t border-gray-200 dark:border-gray-700 mt-12">
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              TeamFlow © 2026 | v0.9.0
             </p>
           </div>
         </div>
