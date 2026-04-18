@@ -1,0 +1,212 @@
+"""Task service with business logic."""
+from typing import Optional, List
+from datetime import datetime
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.domain.models import Task, Blocker
+from app.domain.enums import TaskStatus, TaskSource
+from app.domain.events import TaskCreated, TaskStatusChanged, TaskBlocked
+from app.repositories.task_repository import TaskRepository
+from app.core.logging import get_logger
+from app.core.clock import Clock
+
+logger = get_logger(__name__)
+
+
+class TaskService:
+    """Service for task operations."""
+    
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repository = TaskRepository(session)
+    
+    async def create_task(
+        self,
+        title: str,
+        description: Optional[str] = None,
+        
+        
+        due_date: Optional[datetime] = None,
+        definition_of_done: Optional[str] = None,
+        source: TaskSource = TaskSource.MANUAL_COMMAND,
+        source_message_id: Optional[int] = None,
+        source_chat_id: Optional[int] = None,
+    ) -> Task:
+        """Create new task."""
+        
+        task = Task(
+            title=title,
+            description=description,
+            
+            
+            status=TaskStatus.TODO.value,
+            due_date=due_date,
+            definition_of_done=definition_of_done,
+            source=source.value,
+            source_message_id=source_message_id,
+            source_chat_id=source_chat_id,
+        )
+        
+        task = await self.repository.create(task)
+        
+        # Log event
+        logger.info("task_created", task_id=task.id, title=task.title, source=source.value)
+        
+        return task
+    
+    async def change_status(
+        self,
+        task_id: int,
+        new_status: TaskStatus,
+        changed_by: Optional[int] = None
+    ) -> Task:
+        """Change task status."""
+
+        task = await self.repository.get_by_id_light(task_id)
+        if not task:
+            raise ValueError(f"Task {task_id} not found")
+
+        # Validation: cannot mark as DONE if there are incomplete subtasks
+        if new_status == TaskStatus.DONE and task.subtasks:
+            incomplete_subtasks = [st for st in task.subtasks if st.status != TaskStatus.DONE.value]
+            if incomplete_subtasks:
+                raise ValueError(
+                    f"Cannot mark task as DONE: {len(incomplete_subtasks)} subtask(s) still incomplete. "
+                    f"Complete subtasks first: {[st.id for st in incomplete_subtasks]}"
+                )
+
+        old_status = TaskStatus(task.status)
+        task.status = new_status.value
+
+        # If transitioning from BLOCKED to any other status, mark blockers as resolved
+        if old_status == TaskStatus.BLOCKED and new_status != TaskStatus.BLOCKED:
+            now = Clock.now()
+            for blocker in task.blockers:
+                if blocker.resolved_at is None:
+                    blocker.resolved_at = now
+
+        # Clear backlog flag only when task moves to active status (DOING or DONE)
+        if new_status in (TaskStatus.DOING, TaskStatus.DONE):
+            task.backlog = False
+            task.backlog_added_at = None
+
+        now = Clock.now()
+        if new_status == TaskStatus.DOING:
+            if not task.started_at:
+                task.started_at = now
+            task.completed_at = None
+        elif new_status == TaskStatus.DONE:
+            task.completed_at = now
+        elif new_status == TaskStatus.TODO:
+            task.started_at = None
+            task.completed_at = None
+
+        task = await self.repository.update(task)
+
+        logger.info(
+            "task_status_changed",
+            task_id=task_id,
+            old_status=old_status.value,
+            new_status=new_status.value
+        )
+
+        return task
+    
+    async def block_task(
+        self,
+        task: "Task",
+        blocker_text: str,
+        blocked_by: Optional[int] = None
+    ) -> "Task":
+        """Block task with reason.
+
+        #260 — Accepts pre-fetched task object to avoid redundant SELECT.
+        """
+        from app.domain.models import Blocker
+
+        # Change status to BLOCKED
+        task.status = TaskStatus.BLOCKED.value
+        task.backlog = False
+        task.backlog_added_at = None
+
+        # Add blocker
+        blocker = Blocker(
+            task_id=task.id,
+            text=blocker_text,
+            created_by=blocked_by,
+        )
+        task.blockers.append(blocker)
+        
+        task = await self.repository.update(task)
+        
+        logger.info("task_blocked", task_id=task_id, blocker_text=blocker_text)
+        
+        return task
+    
+    async def get_task(self, task_id: int) -> Optional[Task]:
+        """Get task by ID."""
+        return await self.repository.get_by_id(task_id)
+    
+    async def assign_task(self, task_id: int, user) -> "Task":
+        """Назначить задачу пользователю."""
+        task = await self.repository.get_by_id(task_id)
+        if not task:
+            raise ValueError(f"Task {task_id} not found")
+
+        task.assignee_id = user.id
+
+        task = await self.repository.update(task)
+        logger.info("task_assigned", task_id=task_id, assignee=user.display_name)
+        return task
+
+    async def take_task(self, task_id: int, user) -> "Task":
+        """Взять задачу себе и перевести в DOING."""
+        task = await self.assign_task(task_id, user)
+        if task.status == TaskStatus.TODO.value:
+            task.status = TaskStatus.DOING.value
+            if not task.started_at:
+                task.started_at = Clock.now()
+            task = await self.repository.update(task)
+        return task
+
+    async def get_all_tasks(
+        self,
+        status: Optional[TaskStatus] = None,
+        assignee_id: Optional[int] = None
+    ) -> List[Task]:
+        """Get all tasks with filters."""
+        return await self.repository.get_all(status, assignee_id)
+    
+    async def get_week_tasks(self) -> List[Task]:
+        """Get tasks for current week."""
+        return await self.repository.get_week_tasks()
+    
+    async def update_task(
+        self,
+        task_id: int,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        
+        
+        due_date: Optional[datetime] = None,
+        definition_of_done: Optional[str] = None,
+    ) -> Task:
+        """Update task fields."""
+        
+        task = await self.repository.get_by_id(task_id)
+        if not task:
+            raise ValueError(f"Task {task_id} not found")
+        
+        if title is not None:
+            task.title = title
+        if description is not None:
+            task.description = description
+        if due_date is not None:
+            task.due_date = due_date
+        if definition_of_done is not None:
+            task.definition_of_done = definition_of_done
+        
+        task = await self.repository.update(task)
+        
+        logger.info("task_updated", task_id=task_id)
+        
+        return task

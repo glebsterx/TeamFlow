@@ -68,6 +68,26 @@ export default function NewTaskModal({
 
   const [titleError, setTitleError] = useState(false);
 
+  // #332 — Prevent data loss: beforeunload warning
+  const hasData = title.trim() || description.trim() || projectId || dueDate || recurrence;
+  useEffect(() => {
+    if (!hasData) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasData]);
+
+  // #332 — Confirm close with data
+  const handleClose = () => {
+    if (hasData && !confirm('Вы уверены? Данные будут потеряны.')) {
+      return;
+    }
+    onClose();
+  };
+
   // Markdown insertion helper with toggle support
   const insertMarkdown = (prefix: string, suffix: string) => {
     const textarea = descRef.current;

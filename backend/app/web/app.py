@@ -2,6 +2,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 import time
 from app.config import settings
 from app.core.clock import Clock
@@ -18,6 +19,15 @@ app = FastAPI(
     version=settings.VERSION,
     description="TeamFlow API for task management"
 )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Return AI errors as JSON, not 500."""
+    if "Лимит" in str(exc) or "AI" in str(type(exc).__name__):
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+    raise exc
+
 
 # Auth routes that don't require API key
 AUTH_PATHS = [

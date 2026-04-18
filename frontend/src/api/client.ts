@@ -42,20 +42,25 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    // Network error or 502 (server restarting)
-    if (!error.response || error.response?.status === 502) {
-      if (!offlineToastShown) {
-        isOffline = true;
-        offlineToastShown = true;
-        showToast('Нет соединения с сервером', 'error');
-        
-        // Auto-retry after 3 seconds
-        setTimeout(() => {
-          isOffline = false;
-          offlineToastShown = false;
-        }, 3000);
+    // Handle all HTTP errors with detail
+    if (error.response?.status >= 400) {
+      const data = error.response?.data;
+      let toastMsg = null;
+      
+      // Try to get message
+      if (data?.detail) {
+        toastMsg = data.detail;
+      } else if (data?.error) {
+        toastMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+      } else if (typeof data === 'string') {
+        toastMsg = data;
       }
-      return Promise.reject(error);
+      
+      // Show toast
+      if (toastMsg) {
+        console.log('Showing toast:', toastMsg);
+        showToast(toastMsg.slice(0, 200), 'error');
+      }
     }
 
     // If error is 401 and we haven't tried to refresh yet

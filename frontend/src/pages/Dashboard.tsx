@@ -13,6 +13,7 @@ import { useTheme } from '../hooks/useTheme';
 import { ToastContainer } from '../components/Toast';
 import { SearchPanel } from '../components/SearchPanel';
 import NewTaskModal from '../modals/NewTaskModal';
+import AITaskModal from '../modals/AITaskModal';
 import ConfirmDeleteModal from '../modals/ConfirmDeleteModal';
 import BacklogPage from './BacklogPage';
 import SettingsPage from './SettingsPage';
@@ -120,6 +121,7 @@ export default function Dashboard() {
     localStorage.setItem('tf_task_view', v);
   };
   const [showNewTask, setShowNewTask] = useState(false);
+  const [showAITask, setShowAITask] = useState(false);
   const [newTaskDefaults, setNewTaskDefaults] = useState<{ projectId?: number; parentTaskId?: number; backlog?: boolean }>({});
   const [showNewProject, setShowNewProject] = useState(false);
   const [newProjectParentId, setNewProjectParentId] = useState<number | undefined>(undefined);
@@ -343,13 +345,14 @@ export default function Dashboard() {
     },
   });
 
-  const takeTaskMutation = useMutation({
-    mutationFn: async ({ taskId, userId, subtaskIds }: { taskId: number; userId: number; subtaskIds?: number[] }) => {
+const takeTaskMutation = useMutation({
+    mutationFn: async ({ taskId, subtaskIds }: { taskId: number; subtaskIds?: number[] }) => {
+      if (!myAccountId) throw new Error('No account ID');
       await axios.post(`${API_URL}/api/tasks/${taskId}/status`, { status: 'DOING' });
-      await axios.post(`${API_URL}/api/tasks/${taskId}/assign`, { user_id: userId });
+      await axios.post(`${API_URL}/api/tasks/${taskId}/assign`, { user_id: myAccountId });
       if (subtaskIds?.length) {
         await Promise.all(subtaskIds.map(sid =>
-          axios.post(`${API_URL}/api/tasks/${sid}/assign`, { user_id: userId })
+          axios.post(`${API_URL}/api/tasks/${sid}/assign`, { user_id: myAccountId })
         ));
       }
     },
@@ -773,6 +776,10 @@ export default function Dashboard() {
                 onClick={() => setShowNewTask(true)}
                 className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap"
               >+ Задача</button>
+              <button
+                onClick={() => setShowAITask(true)}
+                className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap"
+              >🤖 AI</button>
             </div>
 
             {/* Bulk-actions панель */}
@@ -949,16 +956,17 @@ export default function Dashboard() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (myUserId && !task.assignee) {
+                              if (myAccountId && !task.assignee) {
                                 const subtaskIds = (task.subtasks || []).filter((s: any) => !s.assignee).map((s: any) => s.id);
-                                takeTaskMutation.mutate({ taskId: task.id, userId: myUserId, subtaskIds });
+                                console.log('subtaskIds:', subtaskIds);
+                                takeTaskMutation.mutate({ taskId: task.id, subtaskIds });
                               } else {
                                 changeStatusMutation.mutate({ taskId: task.id, status: 'DOING' });
                               }
                             }}
                             className="absolute inset-0 flex items-center justify-center px-2 py-0.5 rounded-full text-xs border border-blue-300 bg-blue-50 text-blue-700 opacity-0 group-hover:opacity-100 [@media(not(hover:hover))]:opacity-100 transition-opacity duration-150 whitespace-nowrap"
                           >
-                            {myUserId && !task.assignee
+                            {myAccountId && !task.assignee
                               ? <><span className="sm:hidden">🙋</span><span className="hidden sm:inline">🙋 Взять</span></>
                               : <><span className="sm:hidden">▶</span><span className="hidden sm:inline">▶ Начать</span></>}
                           </button>
@@ -1251,6 +1259,7 @@ export default function Dashboard() {
       {showProjectMembers && <ProjectMembersModal projectId={showProjectMembers.id} projectName={showProjectMembers.name} onClose={() => setShowProjectMembers(null)} />}
       {selectedMeeting && <MeetingModal meeting={selectedMeeting} onClose={() => setSelectedMeeting(null)} projects={projects} tasks={tasks} onOpenTask={setSelectedTask} invalidate={invalidate} {...{ updateMeetingMutation, setConfirmDelete }} />}
       {showNewTask && <NewTaskModal onClose={() => { setShowNewTask(false); setNewTaskDefaults({}); }} onOpenTask={(t: Task) => { setShowNewTask(false); setNewTaskDefaults({}); setSelectedTask(t); }} initialProjectId={newTaskDefaults.projectId} initialParentTaskId={newTaskDefaults.parentTaskId} initialBacklog={newTaskDefaults.backlog} {...{ projects, tasks, createTaskMutation }} />}
+      {showAITask && <AITaskModal onClose={() => setShowAITask(false)} onTaskCreated={() => { setShowAITask(false); invalidate(); }} projects={projects} />}
       {showNewProject && <NewProjectModal onClose={() => { setShowNewProject(false); setNewProjectParentId(undefined); }} projects={projects} initialParentProjectId={newProjectParentId} {...{ createProjectMutation }} />}
       {showNewMeeting && <NewMeetingModal onClose={() => setShowNewMeeting(false)} projects={projects} {...{ createMeetingMutation }} />}
       {confirmDelete && <ConfirmDeleteModal confirm={confirmDelete} onClose={() => setConfirmDelete(null)} {...{ deleteTaskMutation, deleteProjectMutation, deleteMeetingMutation }} />}

@@ -23,6 +23,9 @@ export default function MeetingModal({ meeting, onClose, updateMeetingMutation, 
   const [summaryTab, setSummaryTab] = useState<'write' | 'preview'>('write');
   const [actionItems, setActionItems] = useState<string[]>([]);
   const [showActionItems, setShowActionItems] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [aiTasks, setAiTasks] = useState<{title: string; description?: string; priority?: string}[]>([]);
+  const [showAiTasks, setShowAiTasks] = useState(false);
   const descRef = useRef<HTMLTextAreaElement>(null);
   const qc = useQueryClient();
 
@@ -67,12 +70,14 @@ export default function MeetingModal({ meeting, onClose, updateMeetingMutation, 
   };
 
   const parseActionItems = async () => {
+    setLoading(true);
     try {
       const { data } = await axios.post(`${API_URL}/api/meetings/${meeting.id}/parse-action-items`);
       setActionItems(data.action_items || []);
       setShowActionItems(true);
       if ((data.action_items || []).length === 0) showToast('Action items не найдены', 'info');
     } catch { showToast('Ошибка при парсинге', 'error'); }
+    setLoading(false);
   };
 
   const createTaskFromItem = async (text: string) => {
@@ -177,10 +182,61 @@ export default function MeetingModal({ meeting, onClose, updateMeetingMutation, 
 
           {/* Action items */}
           <div>
-            <button onClick={parseActionItems}
-              className="text-xs px-3 py-1.5 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 transition w-full">
-              🤖 Найти action items в итогах
-            </button>
+            <div className="flex gap-2">
+              <button onClick={parseActionItems}
+                className="flex-1 text-xs px-3 py-1.5 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 transition">
+                🤖 Найти action items
+              </button>
+              <button onClick={async () => {
+                if (!summary.trim()) { showToast('Сначала введите итоги встречи', 'warning'); return; }
+                setLoading(true);
+                try {
+                  const { data: d } = await axios.post(`${API_URL}/api/ai/parse`, { text: summary });
+                  const tasks = d.tasks;
+                  if (!tasks?.length) { showToast('AI не создал задачи', 'warning'); return; }
+                  setAiTasks(tasks);
+                  setShowAiTasks(true);
+                } catch (e: any) { 
+                  // Interceptor shows toast
+                  console.log('AI error:', e.response?.status, e.response?.data);
+                }
+                setLoading(false);
+              }}
+                className="flex-1 text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">
+                🤖 Задачи из итогов
+              </button>
+            </div>
+            {showAiTasks && aiTasks.length > 0 && (
+              <div className="mt-2 p-2 border rounded-lg bg-purple-50">
+                <div className="text-xs text-purple-700 mb-2">AI распознал задачи. Выберите какие создать:</div>
+                {aiTasks.map((t, i) => (
+                  <label key={i} className="flex items-start gap-2 mb-1">
+                    <input type="checkbox" defaultChecked className="mt-1" onChange={e => {
+                      const checked = e.target.checked;
+                      setAiTasks(prev => checked ? prev : prev.filter((_, idx) => idx !== i));
+                    }} />
+                    <div>
+                      <div className="text-sm">{t.title}</div>
+                      {t.description && <div className="text-xs text-gray-500">{t.description}</div>}
+                      {t.priority && <span className="text-xs px-1 bg-purple-100 text-purple-600 rounded">{t.priority}</span>}
+                    </div>
+                  </label>
+                ))}
+                <button onClick={async () => {
+                  setLoading(true);
+                  try {
+                    for (const t of aiTasks) {
+                      await axios.post(`${API_URL}/api/tasks`, { title: t.title, description: t.description, priority: t.priority || 'NORMAL', project_id: selectedProjects[0] || undefined });
+                    }
+                    showToast(`Создано ${aiTasks.length} задач`, 'success');
+                    qc.invalidateQueries({ queryKey: ['tasks'] });
+                    setShowAiTasks(false);
+                    setAiTasks([]);
+                  } catch { showToast('Ошибка', 'error'); }
+                  setLoading(false);
+                }} className="w-full py-1.5 mt-2 bg-purple-600 text-white rounded text-xs">Создать {aiTasks.length} задач</button>
+              </div>
+            )}
             {showActionItems && actionItems.length > 0 && (
               <div className="mt-2 space-y-1">
                 <div className="text-xs text-gray-500 mb-1">Нажмите чтобы создать задачу:</div>

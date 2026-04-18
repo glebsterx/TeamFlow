@@ -4,13 +4,14 @@ import json
 import asyncio
 import logging
 from typing import Optional, List
-from fastapi import APIRouter, Query, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Query, BackgroundTasks, Depends, HTTPException, Header
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text, delete, func
 from sqlalchemy.orm import selectinload
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+from datetime import datetime, date
 import secrets
 from app.core.db import get_db
 from app.core.clock import Clock
@@ -95,6 +96,130 @@ async def get_users(db: AsyncSession = Depends(get_db)):
     repo = UserRepository(db)
     users = await repo.get_all_accounts()
     return users
+
+
+@router.post("/ai/parse")
+async def parse_tasks_with_ai(request: dict, db: AsyncSession = Depends(get_db)):
+    """Parse free-form text into tasks using AI."""
+    from app.services.ai_service import AIService
+    from app.services.settings_service import SettingsService
+    from fastapi import HTTPException
+
+    text = request.get("text", "")
+    if not text:
+        raise HTTPException(status_code=400, detail="Text is required")
+    settings = await SettingsService.get_many(db, ["ai_api_key", "ai_provider", "ai_model", "ai_custom_endpoint"])
+    api_key = settings.get("ai_api_key", "")
+    provider = settings.get("ai_provider") or "openrouter"
+    model = settings.get("ai_model") or "qwen/qwen3-coder:free"
+    custom_endpoint = settings.get("ai_custom_endpoint", "")
+    
+    if not api_key and provider != "custom":
+        raise HTTPException(status_code=400, detail="AI API key не настроен. Перейдите в Настройки → Интеграции")
+    if provider == "custom" and not custom_endpoint:
+        raise HTTPException(status_code=400, detail="Custom endpoint не настроен. Перейдите в Настройки → Интеграции")
+    
+    ai = AIService(api_key=api_key, model=model, provider=provider, custom_endpoint=custom_endpoint)
+    tasks = await ai.parse_tasks_from_text(text)
+    return {"tasks": tasks}
+
+
+@router.get("/ai/models")
+async def get_ai_models(
+    provider: str = Query("openrouter"),
+    api_key: str = Query(""),
+    custom_endpoint: str = Query(""),
+    include_free: bool = Query(True),
+    include_paid: bool = Query(True),
+    x_api_key: str = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get models from AI provider. Accepts query params for dynamic configuration."""
+    if not api_key and provider != "custom":
+        api_key = x_api_key or ""
+    if not api_key and provider != "custom":
+        return {"models": [], "error": "API key required"}
+    if provider == "custom" and not custom_endpoint:
+        return {"models": [], "error": "Custom endpoint required"}
+
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession() as session:
+            headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+            if provider == "openrouter":
+                async with session.get(
+                    "https://openrouter.ai/api/v1/models",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=15)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        all_models = data.get("data", [])
+                        
+                        free_models = []
+                        paid_models = []
+                        
+                        for m in all_models:
+                            model_id = m.get("id", "")
+                            pricing = m.get("pricing", {})
+                            prompt_price = str(pricing.get("prompt", ""))
+                            completion_price = str(pricing.get("completion", ""))
+                            is_truly_free = prompt_price == "0" and completion_price == "0"
+                            is_named_free = model_id.endswith(":free") or ":free" in model_id.lower()
+                            
+                            if is_truly_free or is_named_free:
+                                free_models.append(model_id)
+                            elif include_paid:
+                                paid_models.append(model_id)
+                        
+                        result_models = []
+                        if include_free:
+                            result_models.extend(sorted(free_models))
+                        if include_paid:
+                            result_models.extend(sorted(paid_models))
+                        
+                        return {
+                            "models": result_models,
+                            "free_count": len(free_models),
+                            "paid_count": len(paid_models),
+                            "provider": provider,
+                            "free_models": sorted(free_models),
+                            "paid_models": sorted(paid_models),
+                        }
+                    return {"models": [], "provider": provider}
+            elif provider == "openai":
+                async with session.get(
+                    "https://api.openai.com/v1/models",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=15)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        models = [m["id"] for m in data.get("data", [])]
+                        return {"models": models, "provider": provider}
+                    return {"models": ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"], "provider": provider}
+            elif provider == "anthropic":
+                return {
+                    "models": ["claude-3-haiku", "claude-3-sonnet", "claude-3-opus", "claude-3-5-sonnet-20241022"],
+                    "free_models": ["claude-3-haiku"],
+                    "paid_models": ["claude-3-sonnet", "claude-3-opus", "claude-3-5-sonnet-20241022"],
+                    "provider": provider,
+                }
+            elif provider == "custom":
+                base = custom_endpoint.rstrip("/")
+                async with session.get(
+                    f"{base}/v1/models",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=60)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        models = [m["id"] for m in data.get("data", [])]
+                        return {"models": models, "provider": provider}
+                    return {"models": [], "error": f"Custom endpoint returned {resp.status}", "provider": provider}
+            return {"models": [], "provider": provider}
+    except Exception as e:
+        return {"models": [], "error": str(e), "provider": provider}
 
 
 class AssignRequest(BaseModel):
@@ -865,6 +990,23 @@ class TaskCreateRequest(BaseModel):
     backlog: bool = False
     recurrence: Optional[str] = None
     recurrence_end_date: Optional[datetime] = None
+
+    @field_validator("due_date", mode="before")
+    @classmethod
+    def parse_due_date(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, datetime):
+            return v
+        if isinstance(v, date):
+            return datetime.combine(v, datetime.min.time())
+        # Try parsing string
+        for fmt in ["%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"]:
+            try:
+                return datetime.strptime(str(v), fmt)
+            except ValueError:
+                continue
+        return v  # Return as-is, let Pydantic handle validation
     source: Optional[str] = None  # overrides default TaskSource if provided
 
 
@@ -2648,6 +2790,72 @@ async def set_proxy_settings(req: dict):
 
     # Читаем старый прокси из БД перед изменением
     old_proxy_url = None
+
+
+# ============= SETTINGS: AI =============
+
+@router.get("/settings/ai")
+async def get_ai_settings():
+    """Получить текущие AI настройки."""
+    try:
+        from sqlalchemy import select
+        from app.domain.models import AppSetting
+        from app.core.db import AsyncSessionLocal
+
+        keys = ["ai_api_key", "ai_provider", "ai_model", "ai_custom_endpoint"]
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key.in_(keys))
+            )
+            settings = {s.key: s.value for s in result.scalars().all()}
+        return {
+            "ai_api_key": settings.get("ai_api_key", ""),
+            "ai_provider": settings.get("ai_provider", "openrouter"),
+            "ai_model": settings.get("ai_model", "qwen/qwen3-coder:free"),
+            "ai_custom_endpoint": settings.get("ai_custom_endpoint", ""),
+        }
+    except Exception as e:
+        return {
+            "ai_api_key": "",
+            "ai_provider": "openrouter",
+            "ai_model": "qwen/qwen3-coder:free",
+            "ai_custom_endpoint": "",
+        }
+
+
+@router.post("/settings/ai")
+async def set_ai_settings(req: dict):
+    """Сохранить AI настройки в БД."""
+    try:
+        from sqlalchemy import select
+        from app.domain.models import AppSetting
+        from app.core.db import AsyncSessionLocal
+
+        ai_api_key = req.get("ai_api_key", "")
+        ai_provider = req.get("ai_provider", "openrouter")
+        ai_model = req.get("ai_model", "qwen/qwen3-coder:free")
+        ai_custom_endpoint = req.get("ai_custom_endpoint", "")
+
+        async with AsyncSessionLocal() as session:
+            for key, value in [
+                ("ai_api_key", ai_api_key),
+                ("ai_provider", ai_provider),
+                ("ai_model", ai_model),
+                ("ai_custom_endpoint", ai_custom_endpoint),
+            ]:
+                result = await session.execute(
+                    select(AppSetting).where(AppSetting.key == key)
+                )
+                setting = result.scalar_one_or_none()
+                if setting:
+                    setting.value = value
+                else:
+                    setting = AppSetting(key=key, value=value)
+                    session.add(setting)
+            await session.commit()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     try:
         from sqlalchemy import select
         from app.domain.models import AppSetting
@@ -2876,12 +3084,17 @@ async def update_api_key(
 @router.delete("/api-keys/{key_id}")
 async def delete_api_key(key_id: int, db: AsyncSession = Depends(get_db)):
     """Delete API key."""
-    from app.domain.models import ApiKey
+    from app.domain.models import ApiKey, ApiKeyLog
 
     result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
     api_key = result.scalar_one_or_none()
     if not api_key:
         raise HTTPException(status_code=404, detail="API key not found")
+
+    # Delete related logs first (CASCADE not enabled in SQLite by default)
+    await db.execute(
+        delete(ApiKeyLog).where(ApiKeyLog.api_key_id == key_id)
+    )
 
     await db.delete(api_key)
     await db.commit()
