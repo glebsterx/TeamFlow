@@ -1,4 +1,4 @@
-"""Команда /tasks — список задач кнопками с деталями."""
+﻿"""Команда /tasks — список задач кнопками с деталями."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -136,9 +136,10 @@ async def show_filters(callback: CallbackQuery):
     await callback.answer()
 
 @router.callback_query(F.data.startswith("tasks:"))
-async def handle_tasks_filter(callback: CallbackQuery, tg_user_id: int = 0):
+async def handle_tasks_filter(callback: CallbackQuery):
     """Фильтрация → показ кнопок с задачами."""
     action = callback.data.split(":")[1]
+    tg_user_id = callback.from_user.id
 
     try:
         if action == "projects":
@@ -179,7 +180,14 @@ async def handle_tasks_filter(callback: CallbackQuery, tg_user_id: int = 0):
 
             if action == "mine":
                 tasks = await service.get_all_tasks()
-                tasks = [t for t in tasks if t == tg_user_id]
+                # Ищем LocalAccount по telegram_id, потом фильтруем по assignee_id
+                from app.repositories.user_repository import UserRepository
+                user_repo = UserRepository(session)
+                me = await user_repo.get_local_account_by_telegram_id(tg_user_id)
+                if me:
+                    tasks = [t for t in tasks if t.assignee_id == me.id]
+                else:
+                    tasks = []
                 header = "👤 Мои задачи"
             elif action in ("TODO", "DOING", "DONE", "BLOCKED"):
                 status = TaskStatus(action)
@@ -219,9 +227,17 @@ async def handle_tasks_page(callback: CallbackQuery):
     await callback.answer()
 
 @router.callback_query(F.data.startswith("task_detail:"))
-async def handle_task_detail(callback: CallbackQuery, tg_user_id: int = 0):
+async def handle_task_detail(callback: CallbackQuery):
     """Показать детали задачи."""
-    task_id = int(callback.data.split(":")[1])
+    tg_user_id = callback.from_user.id
+    # Если вызвали из task_status или другого callback — task_id может не быть в data
+    parts = callback.data.split(":")
+    if parts[0] in ("task_detail",):
+        task_id = int(parts[1])
+    else:
+        # fallback: показываем текущую задачу если есть в кеше
+        await callback.answer("↩️ К списку задач — используйте /tasks")
+        return
     
     try:
         async with AsyncSessionLocal() as session:
@@ -248,7 +264,7 @@ async def handle_task_detail(callback: CallbackQuery, tg_user_id: int = 0):
             text,
             reply_markup=task_detail_keyboard(
                 task.id, task.status,
-                task,
+                task.assignee_id,
                 tg_user_id
             ),
             parse_mode="Markdown"
@@ -260,9 +276,10 @@ async def handle_task_detail(callback: CallbackQuery, tg_user_id: int = 0):
         await callback.answer("❌ Ошибка")
 
 @router.callback_query(F.data.startswith("take_task:"))
-async def handle_take_task(callback: CallbackQuery, tg_user_id: int = 0):
+async def handle_take_task(callback: CallbackQuery):
     """Взять задачу себе."""
     task_id = int(callback.data.split(":")[1])
+    tg_user_id = callback.from_user.id
     
     try:
         async with AsyncSessionLocal() as session:
@@ -277,9 +294,9 @@ async def handle_take_task(callback: CallbackQuery, tg_user_id: int = 0):
             task = await service.take_task(task_id, user)
             await session.commit()
         
-        await callback.answer(f"✅ Задача взята в работу")
+        await callback.answer("✅ Задача взята в работу")
         # Показываем обновлённую задачу
-        await handle_task_detail(callback, tg_user_id)
+        await handle_task_detail(callback)
         
     except Exception as e:
         logger.error("take_task_error", error=str(e))
@@ -418,8 +435,6 @@ async def handle_unassign(callback: CallbackQuery):
             task = await service.get_task(task_id)
             if task:
                 task.assignee_id = None
-                task = None
-                task = None
                 await session.commit()
 
         await callback.answer("✅ Исполнитель снят")

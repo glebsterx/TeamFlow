@@ -21,7 +21,7 @@ export default function DigestPage({ onOpenTask }: DigestPageProps) {
 
   const { data: tasks = [] } = useQuery({
     queryKey: ['tasks', 'all'],
-    queryFn: () => axios.get(`${API_URL}/api/tasks?limit=1000`).then(r => r.data),
+    queryFn: () => axios.get(`${API_URL}/api/tasks?limit=100`).then(r => r.data),
   });
 
   const { data: allProjects = [] } = useQuery({

@@ -103,7 +103,7 @@ async def cmd_start(message: Message):
         
         # Извлекаем токен сессии
         session_token = args[1].split("_", 1)[1] if "_" in args[1] else str(user.id)
-        print(f"DEBUG: prefix={prefix}, args[1]={args[1]}, session_token={session_token}")
+        logger.debug("deep_link_parse", prefix=prefix, arg=args[1], session_token=session_token)
 
         # Ищем или создаём LocalAccount через UserIdentity
         async with AsyncSessionLocal() as db:

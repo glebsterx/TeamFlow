@@ -138,7 +138,7 @@ class TaskService:
         
         task = await self.repository.update(task)
         
-        logger.info("task_blocked", task_id=task_id, blocker_text=blocker_text)
+        logger.info("task_blocked", task_id=task.id, blocker_text=blocker_text)
         
         return task
     
@@ -171,10 +171,12 @@ class TaskService:
     async def get_all_tasks(
         self,
         status: Optional[TaskStatus] = None,
-        assignee_id: Optional[int] = None
+        assignee_id: Optional[int] = None,
+        offset: int = 0,
+        limit: int = 100
     ) -> List[Task]:
-        """Get all tasks with filters."""
-        return await self.repository.get_all(status, assignee_id)
+        """Get all tasks with filters and pagination."""
+        return await self.repository.get_all(status, assignee_id, offset, limit)
     
     async def get_week_tasks(self) -> List[Task]:
         """Get tasks for current week."""

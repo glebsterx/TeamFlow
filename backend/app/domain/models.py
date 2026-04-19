@@ -387,7 +387,8 @@ class ApiKey(Base):
     __tablename__ = "api_keys"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    key = Column(String(64), unique=True, nullable=False, index=True)
+    key = Column(String(64), unique=True, nullable=False, index=True)  # SHA256 hash of raw key
+    key_prefix = Column(String(12), nullable=True)  # First 12 chars of raw key for display
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)

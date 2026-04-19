@@ -936,7 +936,10 @@ function ApiKeysSection() {
                 {key.description && (
                   <div className="text-xs text-gray-500 truncate mt-1">{key.description}</div>
                 )}
-                <div className="text-xs text-gray-400 mt-1">
+                <div className="text-xs text-gray-400 mt-1 font-mono">
+                  {key.key}...
+                </div>
+                <div className="text-xs text-gray-400 mt-0.5">
                   Создан: {parseUTC(key.created_at).toLocaleDateString('ru')}
                   {key.last_used_at && (
                     <span className="ml-2">· Использован: {parseUTC(key.last_used_at).toLocaleDateString('ru')}</span>

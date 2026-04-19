@@ -111,7 +111,7 @@ async def parse_tasks_with_ai(request: dict, db: AsyncSession = Depends(get_db))
     settings = await SettingsService.get_many(db, ["ai_api_key", "ai_provider", "ai_model", "ai_custom_endpoint"])
     api_key = settings.get("ai_api_key", "")
     provider = settings.get("ai_provider") or "openrouter"
-    model = settings.get("ai_model") or "qwen/qwen3-coder:free"
+    model = settings.get("ai_model") or "openrouter/free"
     custom_endpoint = settings.get("ai_custom_endpoint", "")
     
     if not api_key and provider != "custom":
@@ -122,6 +122,34 @@ async def parse_tasks_with_ai(request: dict, db: AsyncSession = Depends(get_db))
     ai = AIService(api_key=api_key, model=model, provider=provider, custom_endpoint=custom_endpoint)
     tasks = await ai.parse_tasks_from_text(text)
     return {"tasks": tasks}
+
+
+@router.post("/ai/suggest-tags")
+async def suggest_tags_with_ai(request: dict, db: AsyncSession = Depends(get_db)):
+    """Suggest tags for a task using AI."""
+    from app.services.ai_service import AIService
+    from app.services.settings_service import SettingsService
+    from fastapi import HTTPException
+
+    title = request.get("title", "")
+    description = request.get("description", "")
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    
+    settings = await SettingsService.get_many(db, ["ai_api_key", "ai_provider", "ai_model", "ai_custom_endpoint"])
+    api_key = settings.get("ai_api_key", "")
+    provider = settings.get("ai_provider") or "openrouter"
+    model = settings.get("ai_model") or "openrouter/free"
+    custom_endpoint = settings.get("ai_custom_endpoint", "")
+    
+    if not api_key and provider != "custom":
+        raise HTTPException(status_code=400, detail="AI API key не настроен. Перейдите в Настройки → Интеграции")
+    if provider == "custom" and not custom_endpoint:
+        raise HTTPException(status_code=400, detail="Custom endpoint не настроен. Перейдите в Настройки → Интеграции")
+    
+    ai = AIService(api_key=api_key, model=model, provider=provider, custom_endpoint=custom_endpoint)
+    tags = await ai.suggest_tags(title, description)
+    return {"tags": tags}
 
 
 @router.get("/ai/models")
@@ -2207,10 +2235,8 @@ async def export_data(
                 {"id": t.id, "name": t.name, "color": t.color} for t in tag_rows
             ]
             tt_rows = (
-                (await db.execute(select(TaskTag).where(TaskTag.task_id.in_(task_ids))))
-                .scalars()
-                .all()
-            )
+                await db.execute(select(TaskTag).where(TaskTag.task_id.in_(task_ids)))
+            ).scalars().all()
             payload["task_tags"] = [
                 {"task_id": tt.task_id, "tag_id": tt.tag_id} for tt in tt_rows
             ]
@@ -2811,14 +2837,14 @@ async def get_ai_settings():
         return {
             "ai_api_key": settings.get("ai_api_key", ""),
             "ai_provider": settings.get("ai_provider", "openrouter"),
-            "ai_model": settings.get("ai_model", "qwen/qwen3-coder:free"),
+            "ai_model": settings.get("ai_model", "openrouter/free"),
             "ai_custom_endpoint": settings.get("ai_custom_endpoint", ""),
         }
     except Exception as e:
         return {
             "ai_api_key": "",
             "ai_provider": "openrouter",
-            "ai_model": "qwen/qwen3-coder:free",
+            "ai_model": "openrouter/free",
             "ai_custom_endpoint": "",
         }
 
@@ -2833,7 +2859,7 @@ async def set_ai_settings(req: dict):
 
         ai_api_key = req.get("ai_api_key", "")
         ai_provider = req.get("ai_provider", "openrouter")
-        ai_model = req.get("ai_model", "qwen/qwen3-coder:free")
+        ai_model = req.get("ai_model", "openrouter/free")
         ai_custom_endpoint = req.get("ai_custom_endpoint", "")
 
         async with AsyncSessionLocal() as session:

@@ -43,6 +43,125 @@ class AIService:
         else:
             self.base_url = "https://openrouter.ai/api/v1"
 
+    async def fetch_models_list(
+        self,
+        *,
+        include_free: bool = True,
+        include_paid: bool = True,
+    ) -> dict[str, Any]:
+        """List models for the configured provider (GET /api/ai/models)."""
+        provider = self.provider
+        api_key = self.api_key or ""
+        custom_endpoint = self.custom_endpoint
+
+        if not api_key and provider != "custom":
+            return {"models": [], "error": "API key required"}
+        if provider == "custom" and not custom_endpoint:
+            return {"models": [], "error": "Custom endpoint required"}
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+                if provider == "openrouter":
+                    async with session.get(
+                        "https://openrouter.ai/api/v1/models",
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=15),
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            all_models = data.get("data", [])
+
+                            free_models = []
+                            paid_models = []
+
+                            for m in all_models:
+                                model_id = m.get("id", "")
+                                pricing = m.get("pricing", {})
+                                prompt_price = str(pricing.get("prompt", ""))
+                                completion_price = str(pricing.get("completion", ""))
+                                is_truly_free = (
+                                    prompt_price == "0" and completion_price == "0"
+                                )
+                                is_named_free = model_id.endswith(
+                                    ":free"
+                                ) or ":free" in model_id.lower()
+
+                                if is_truly_free or is_named_free:
+                                    free_models.append(model_id)
+                                elif include_paid:
+                                    paid_models.append(model_id)
+
+                            result_models = []
+                            if include_free:
+                                result_models.extend(sorted(free_models))
+                            if include_paid:
+                                result_models.extend(sorted(paid_models))
+
+                            return {
+                                "models": result_models,
+                                "free_count": len(free_models),
+                                "paid_count": len(paid_models),
+                                "provider": provider,
+                                "free_models": sorted(free_models),
+                                "paid_models": sorted(paid_models),
+                            }
+                        return {"models": [], "provider": provider}
+                if provider == "openai":
+                    async with session.get(
+                        "https://api.openai.com/v1/models",
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=15),
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            models = [m["id"] for m in data.get("data", [])]
+                            return {"models": models, "provider": provider}
+                        return {
+                            "models": [
+                                "gpt-4o-mini",
+                                "gpt-4o",
+                                "gpt-4-turbo",
+                                "gpt-3.5-turbo",
+                            ],
+                            "provider": provider,
+                        }
+                if provider == "anthropic":
+                    return {
+                        "models": [
+                            "claude-3-haiku",
+                            "claude-3-sonnet",
+                            "claude-3-opus",
+                            "claude-3-5-sonnet-20241022",
+                        ],
+                        "free_models": ["claude-3-haiku"],
+                        "paid_models": [
+                            "claude-3-sonnet",
+                            "claude-3-opus",
+                            "claude-3-5-sonnet-20241022",
+                        ],
+                        "provider": provider,
+                    }
+                if provider == "custom":
+                    base = custom_endpoint.rstrip("/")
+                    async with session.get(
+                        f"{base}/v1/models",
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=60),
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            models = [m["id"] for m in data.get("data", [])]
+                            return {"models": models, "provider": provider}
+                        return {
+                            "models": [],
+                            "error": f"Custom endpoint returned {resp.status}",
+                            "provider": provider,
+                        }
+                return {"models": [], "provider": provider}
+        except Exception as e:
+            return {"models": [], "error": str(e), "provider": provider}
+
     async def _call_api(self, prompt: str, system_prompt: str) -> Optional[str]:
         """Make API call to AI provider."""
         if not self.api_key and self.provider != "custom":
@@ -96,7 +215,7 @@ class AIService:
                         raise AIServiceModelError(f"AI API error {resp.status}: {error_text}")
         except asyncio.TimeoutError:
             logger.error("ai_api_timeout")
-            raise AIServiceModelError("AI API request timed out (30s)")
+            raise AIServiceModelError("AI API request timed out (90s)")
         except aiohttp.ClientError as e:
             logger.error("ai_api_client_error", error=str(e))
             raise AIServiceModelError(f"AI API connection error: {str(e)}")
@@ -189,15 +308,18 @@ class AIService:
     async def suggest_tags(self, title: str, description: Optional[str] = None) -> List[str]:
         """Suggest tags for a task based on its content.
         
-        Returns list of tag strings.
+        Returns list of short Russian tag labels.
         Raises AIServiceModelError if AI fails.
         """
         text = f"Задача: {title}"
         if description:
             text += f"\nОписание: {description}"
 
-        system_prompt = """Предложи 2-4 тега для этой задачи из списка: work, personal, urgent, meeting, docs, code, review, plan.
-Верни JSON массив строк (названия тегов)."""
+        system_prompt = """Ты помощник для таск-трекера. По названию и описанию задачи предложи 2–4 коротких тега
+на русском языке (одно-два слова: существительные или прилагательные, без # и без эмодзи).
+Теги должны отражать тему, тип работы или срочность (примеры: «документация», «баг», «встреча», «срочно», «бэкенд», «ревью»).
+
+Верни строго JSON-массив строк — только русские подписи тегов, без дубликатов."""
 
         result = await self._call_api(text, system_prompt)
 
@@ -210,7 +332,11 @@ class AIService:
 
             tags = json.loads(result)
             if isinstance(tags, list):
-                return [t for t in tags if isinstance(t, str)]
+                return [
+                    t.strip()
+                    for t in tags
+                    if isinstance(t, str) and t.strip()
+                ]
             raise AIServiceModelError("AI response is not a list of tags")
         except json.JSONDecodeError as e:
             logger.error("ai_tag_json_error", error=str(e))
@@ -218,18 +344,21 @@ class AIService:
 
 
 async def get_ai_service(db: AsyncSession) -> AIService:
-    """Get AI service instance with config from database."""
-    from app.repositories.auth import AccountRepository
+    """Build AIService from app_settings (same keys as POST /api/ai/parse)."""
     from app.services.settings_service import SettingsService
 
-    # Get AI settings from database
-    settings = SettingsService()
-    api_key = await settings.get(db, "ai_api_key")
-    
-    if api_key:
-        from app.services.crypto_service import decrypt_value
-        api_key = decrypt_value(api_key)
+    vals = await SettingsService.get_many(
+        db,
+        ["ai_api_key", "ai_provider", "ai_model", "ai_custom_endpoint"],
+    )
+    api_key = vals.get("ai_api_key") or ""
+    provider = vals.get("ai_provider") or "openrouter"
+    model = vals.get("ai_model") or "openrouter/free"
+    custom_endpoint = vals.get("ai_custom_endpoint") or ""
 
-    model = await settings.get(db, "ai_model") or "meta-llama/llama-3.1-8b-instruct"
-
-    return AIService(api_key=api_key, model=model)
+    return AIService(
+        api_key=api_key,
+        model=model,
+        provider=provider,
+        custom_endpoint=custom_endpoint,
+    )

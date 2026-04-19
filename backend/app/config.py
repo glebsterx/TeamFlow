@@ -1,7 +1,11 @@
 """Application configuration."""
+import asyncio
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 from typing import Optional
+from app.core.db import AsyncSessionLocal
+from sqlalchemy import select
+from app.domain.models import AppSetting
 
 
 class Settings(BaseSettings):
@@ -9,7 +13,7 @@ class Settings(BaseSettings):
     
     # Application
     APP_NAME: str = "TeamFlow"
-    VERSION: str = "0.8.22"
+    VERSION: str = "0.8.23"
     DEBUG: bool = False
     
     # Server
@@ -53,20 +57,42 @@ class Settings(BaseSettings):
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 10
     
-    @property
-    def web_url(self) -> str:
-        """Get Web UI URL."""
-        return f"{self.BASE_URL}:{self.FRONTEND_PORT}"
+    model_config = {
+        "env_file": ".env",
+        "case_sensitive": True,
+        "extra": "ignore"
+    }
     
-    @property
-    def api_url(self) -> str:
-        """Get API URL."""
-        return f"{self.BASE_URL}:{self.BACKEND_PORT}"
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-        extra = "ignore"  # игнорировать неизвестные переменные из .env
+async def _get_db_setting(key: str) -> str | None:
+    """Get setting from DB (fallback for .env values)."""
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key == key)
+            )
+            setting = result.scalar_one_or_none()
+            return setting.value if setting and setting.value else None
+    except Exception:
+        return None
+
+
+async def get_base_url_async() -> str:
+    """Get BASE_URL from DB or .env."""
+    db_val = await _get_db_setting("base_url")
+    return db_val or settings.BASE_URL
+
+
+async def get_frontend_port_async() -> int:
+    """Get FRONTEND_PORT from DB or .env."""
+    db_val = await _get_db_setting("frontend_port")
+    return int(db_val) if db_val else settings.FRONTEND_PORT
+
+
+async def get_web_url_async() -> str:
+    """Get full web URL (BASE_URL:FRONTEND_PORT)."""
+    base = await get_base_url_async()
+    port = await get_frontend_port_async()
+    return f"{base}:{port}"
 
 
 @lru_cache()

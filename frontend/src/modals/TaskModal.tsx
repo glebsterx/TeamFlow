@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import axios from 'axios';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Task } from '../types/dashboard';
@@ -12,14 +12,31 @@ import { TaskTimer } from '../components/TaskTimer';
 
 type TagType = { id: number; name: string; color: string };
 
-function TagPicker({ taskId, taskTags, onTagsChange }: {
+/** Stable color for new tags from AI (Russian labels); same name → same color. */
+const TAG_COLOR_PALETTE = [
+  '#6366f1', '#0ea5e9', '#22c55e', '#f59e0b', '#ec4899', '#8b5cf6', '#64748b', '#14b8a6',
+] as const;
+
+function stableColorForTagLabel(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) {
+    h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  }
+  return TAG_COLOR_PALETTE[h % TAG_COLOR_PALETTE.length];
+}
+
+function TagPicker({ taskId, taskTitle, taskDescription, taskTags, onTagsChange }: {
   taskId: number;
+  taskTitle: string;
+  taskDescription?: string;
   taskTags: TagType[];
   onTagsChange: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
   const [newName, setNewName] = React.useState('');
   const [newColor, setNewColor] = React.useState('#6366f1');
+  const [aiBusy, setAiBusy] = React.useState(false);
+  const [aiSuggestions, setAiSuggestions] = React.useState<string[]>([]);
   const ref = React.useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
 
@@ -61,6 +78,70 @@ function TagPicker({ taskId, taskTags, onTagsChange }: {
     }
   };
 
+  const fetchAiTagSuggestions = async () => {
+    if (!taskTitle.trim()) {
+      showToast('Нет названия задачи', 'error');
+      return;
+    }
+    setAiBusy(true);
+    setAiSuggestions([]);
+    try {
+      const { data } = await axios.post<{ tags: string[] }>(`${API_URL}/api/ai/suggest-tags`, {
+        title: taskTitle.trim(),
+        description: taskDescription?.trim() || undefined,
+      });
+      const names = (data.tags || []).filter((t): t is string => typeof t === 'string').map((t) => t.trim()).filter(Boolean);
+      const seen = new Set<string>();
+      const unique = names.filter((n) => {
+        const k = n.toLowerCase();
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      setAiSuggestions(unique);
+      if (!unique.length) {
+        showToast('AI не вернул теги', 'info');
+        return;
+      }
+      const pending = unique.filter(
+        (n) => !taskTags.some((t) => t.name.toLowerCase() === n.toLowerCase()),
+      );
+      if (!pending.length) {
+        showToast('Все предложенные теги уже на задаче', 'info');
+      }
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { detail?: string } } };
+      const d = ax.response?.data?.detail;
+      showToast(typeof d === 'string' ? d : 'Не удалось получить подсказки тегов', 'error');
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const applySuggestedTag = async (rawName: string) => {
+    const name = rawName.trim();
+    if (!name) return;
+    const lower = name.toLowerCase();
+    const color = stableColorForTagLabel(name);
+    let tag = allTags.find((t) => t.name.toLowerCase() === lower);
+    try {
+      if (!tag) {
+        const { data } = await axios.post<TagType>(`${API_URL}/api/tags`, { name, color });
+        tag = data;
+        await qc.invalidateQueries({ queryKey: ['tags'] });
+      }
+      if (!taskTagIds.has(tag.id)) {
+        await axios.post(`${API_URL}/api/tasks/${taskId}/tags/${tag.id}`);
+      }
+      qc.invalidateQueries({ queryKey: ['tasks'] });
+      onTagsChange();
+      setAiSuggestions((prev) => prev.filter((n) => n.toLowerCase() !== lower));
+      showToast(`Тег «${tag.name}» добавлен`, 'success');
+    } catch {
+      showToast('Не удалось добавить тег', 'error');
+    }
+  };
+
   return (
     <div ref={ref} className="relative">
       <div className="flex items-center gap-1.5 flex-wrap">
@@ -78,7 +159,38 @@ function TagPicker({ taskId, taskTags, onTagsChange }: {
           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-dashed border-gray-300 text-gray-500 hover:border-gray-400 hover:text-gray-700 transition">
           + тег
         </button>
+        <button
+          type="button"
+          onClick={() => void fetchAiTagSuggestions()}
+          disabled={aiBusy}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-violet-200 text-violet-700 bg-violet-50 hover:bg-violet-100 disabled:opacity-50 transition"
+          title="Подсказать теги через AI"
+        >
+          {aiBusy ? '…' : '✨ AI'}
+        </button>
       </div>
+
+      {(() => {
+        const pending = aiSuggestions.filter(
+          (n) => !taskTags.some((t) => t.name.toLowerCase() === n.toLowerCase()),
+        );
+        if (!pending.length) return null;
+        return (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            <span className="text-[10px] text-gray-400">Подсказки:</span>
+            {pending.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => void applySuggestedTag(n)}
+                className="text-[11px] px-1.5 py-0.5 rounded-full border border-violet-200 text-violet-800 bg-white hover:bg-violet-50"
+              >
+                + {n}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
 
       {open && (
         <div className="absolute z-50 top-full left-0 mt-1 bg-white border rounded-lg shadow-lg w-56 p-2">
@@ -871,6 +983,8 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
         <label className="text-xs text-gray-500 block mb-1.5">🏷 Теги</label>
         <TagPicker
           taskId={task.id}
+          taskTitle={task.title}
+          taskDescription={task.description ?? ''}
           taskTags={task.tags || []}
           onTagsChange={invalidate}
         />

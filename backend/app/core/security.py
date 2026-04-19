@@ -2,8 +2,19 @@ from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 import bcrypt
+import hashlib
 from app.core.config import settings
 from app.core.clock import Clock
+
+
+def hash_api_key(raw_key: str) -> str:
+    """Hash an API key with SHA256 for storage."""
+    return hashlib.sha256(raw_key.encode()).hexdigest()
+
+
+def get_key_prefix(raw_key: str, length: int = 12) -> str:
+    """Get display prefix of an API key."""
+    return raw_key[:length]
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

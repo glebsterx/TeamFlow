@@ -6,6 +6,9 @@ from fastapi.exceptions import RequestValidationError
 import time
 from app.config import settings
 from app.core.clock import Clock
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 from app.web.routes import router as api_router
 from app.web.routes_tags import router as tags_router
 from app.web.routes_templates import router as templates_router
@@ -92,11 +95,13 @@ async def log_requests(request: Request, call_next):
             # Validate API key
             from app.core.db import AsyncSessionLocal
             from app.domain.models import ApiKey, ApiKeyLog
+            from app.core.security import hash_api_key
             from sqlalchemy import select
             
+            key_hash = hash_api_key(api_key_header)
             async with AsyncSessionLocal() as db:
                 result = await db.execute(
-                    select(ApiKey).where(ApiKey.key == api_key_header, ApiKey.is_active == True)
+                    select(ApiKey).where(ApiKey.key == key_hash, ApiKey.is_active == True)
                 )
                 api_key = result.scalar_one_or_none()
                 
@@ -121,12 +126,12 @@ async def log_requests(request: Request, call_next):
                 db.add(log)
                 await db.commit()
     
-    print(f"[REQUEST] {request.method} {path}")
-    
+    logger.debug("http_request", method=request.method, path=path)
+
     response = await call_next(request)
-    
+
     process_time = time.time() - start_time
-    print(f"[RESPONSE] {request.method} {path} - {response.status_code} - {process_time:.3f}s")
+    logger.debug("http_response", method=request.method, path=path, status_code=response.status_code, duration_ms=round(process_time * 1000))
     
     return response
 

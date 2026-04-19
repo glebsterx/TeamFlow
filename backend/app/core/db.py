@@ -3,6 +3,9 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import text
 from app.config import settings
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 Base = declarative_base()
 
@@ -64,7 +67,7 @@ async def _run_migrations():
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            print("[migrate] Created table: projects")
+            logger.info("migrate_created_table", table="projects")
 
         # Получаем текущие колонки tasks
         async with db.execute("PRAGMA table_info(tasks)") as cur:
@@ -74,18 +77,44 @@ async def _run_migrations():
         async with db.execute("PRAGMA table_info(local_accounts)") as cur:
             local_accounts_cols = {row[1] async for row in cur}
 
+        # Получаем текущие колонки api_keys
+        async with db.execute("PRAGMA table_info(api_keys)") as cur:
+            api_keys_cols = {row[1] async for row in cur}
+
         # Добавляем отсутствующие колонки
         migrations = [
             ("assignee_id", "ALTER TABLE tasks ADD COLUMN assignee_id INTEGER", cols),
             ("source_chat_id", "ALTER TABLE tasks ADD COLUMN source_chat_id BIGINT", cols),
             ("project_id", "ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id)", cols),
             ("timezone", "ALTER TABLE local_accounts ADD COLUMN timezone VARCHAR(64)", local_accounts_cols),
+            ("key_prefix", "ALTER TABLE api_keys ADD COLUMN key_prefix VARCHAR(12)", api_keys_cols),
         ]
         for col, sql, existing_cols in migrations:
             if col not in existing_cols:
                 await db.execute(sql)
-                table = "local_accounts" if col == "timezone" else "tasks"
-                print(f"[migrate] Added column {table}.{col}")
+                table_map = {
+                    "timezone": "local_accounts",
+                    "key_prefix": "api_keys",
+                }
+                table = table_map.get(col, "tasks")
+                logger.info("migrate_added_column", table=table, column=col)
+
+        # Migrate existing API keys: hash plain text keys and save prefix
+        if api_keys_cols and "key_prefix" not in api_keys_cols:
+            pass  # Already added above
+        if "key_prefix" in api_keys_cols:
+            async with db.execute("SELECT id, key FROM api_keys WHERE key_prefix IS NULL AND LENGTH(key) = 64") as cur:
+                plain_keys = [(row[0], row[1]) async for row in cur]
+            if plain_keys:
+                import hashlib
+                for kid, raw_key in plain_keys:
+                    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+                    prefix = raw_key[:12]
+                    await db.execute(
+                        "UPDATE api_keys SET key = ?, key_prefix = ? WHERE id = ?",
+                        (key_hash, prefix, kid)
+                    )
+                logger.info("migrate_api_keys_hashed", count=len(plain_keys))
 
         await db.commit()
 

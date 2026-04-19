@@ -87,7 +87,7 @@ async def get_bot_status_from_db() -> dict:
 
 async def check_deadlines(bot):
     """Проверить дедлайны и отправить уведомления."""
-    from app.domain.models import Task, DeadlineNotification, UserIdentity
+    from app.domain.models import Task, DeadlineNotification, UserIdentity, AppSetting
 
     notify_hours = await _get_notify_hours()
     if not notify_hours:

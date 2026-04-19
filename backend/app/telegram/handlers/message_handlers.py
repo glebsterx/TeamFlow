@@ -1,4 +1,4 @@
-"""Message handler — умная эвристика для автосоздания задач."""
+﻿"""Message handler — умная эвристика для автосоздания задач."""
 import re
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -167,7 +167,7 @@ async def handle_potential_task(message: Message):
 
 
 @router.callback_query(F.data.startswith("confirm_task:"))
-async def handle_confirm_task(callback: CallbackQuery, tg_user_id: int = 0):
+async def handle_confirm_task(callback: CallbackQuery):
     """Подтверждение создания задачи."""
     msg_id = int(callback.data.split(":")[1])
     
@@ -229,21 +229,26 @@ async def handle_cancel_task(callback: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("self_assign:"))
-async def handle_self_assign(callback: CallbackQuery, tg_user_id: int = 0):
+async def handle_self_assign(callback: CallbackQuery):
     """Взять задачу себе."""
     task_id = int(callback.data.split(":")[1])
-    
+    tg_user_id = callback.from_user.id
+
     async with AsyncSessionLocal() as session:
         service = TaskService(session)
         user_repo = UserRepository(session)
         user = await user_repo.get_local_account_by_telegram_id(tg_user_id)
-        
-        if user:
-            await service.take_task(task_id, user)
-            await session.commit()
-    
+
+        if not user:
+            await callback.answer("⚠️ Аккаунт не найден. Войдите через /start", show_alert=True)
+            return
+
+        await service.take_task(task_id, user)
+        await session.commit()
+        display = user.display_name
+
     await callback.message.edit_text(
-        f"✅ Задача #{task_id} взята в работу!\n👤 Исполнитель: {user.display_name}"
+        f"✅ Задача #{task_id} взята в работу!\n👤 Исполнитель: {display}"
     )
     await callback.answer()
 
@@ -262,12 +267,15 @@ async def handle_assign_new(callback: CallbackQuery):
         result = await session.execute(select(LocalAccount).where(LocalAccount.id == user_id))
         user = result.scalar_one_or_none()
         
-        if user:
-            await service.assign_task(task_id, user)
-            await session.commit()
-    
+        if not user:
+            await callback.answer("⚠️ Пользователь не найден", show_alert=True)
+            return
+        await service.assign_task(task_id, user)
+        await session.commit()
+        display = user.display_name
+
     await callback.message.edit_text(
-        f"✅ Задача #{task_id} назначена!\n👤 Исполнитель: {user.display_name}"
+        f"✅ Задача #{task_id} назначена!\n👤 Исполнитель: {display}"
     )
     await callback.answer()
 

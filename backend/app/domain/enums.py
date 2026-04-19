@@ -1,4 +1,4 @@
-"""Domain enumerations."""
+﻿"""Domain enumerations."""
 from enum import Enum
 
 
@@ -16,6 +16,7 @@ class TaskSource(str, Enum):
     MANUAL_COMMAND = "MANUAL_COMMAND"
     CHAT_MESSAGE = "CHAT_MESSAGE"
     MEETING = "MEETING"
+    AUTO_KEYWORD = "AUTO_KEYWORD"  # Автодетект из чата (message_handlers)
 
 
 class TaskPriority(str, Enum):

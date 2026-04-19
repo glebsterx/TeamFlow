@@ -8,6 +8,9 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from app.config import settings
 from app.core.logging import get_logger
+from app.core.db import AsyncSessionLocal
+from sqlalchemy import select
+from app.domain.models import AppSetting
 from app.telegram.middleware import UserTrackingMiddleware
 from app.telegram.handlers import (
     help_handlers,
@@ -26,49 +29,8 @@ from app.telegram.deadline_notifier import run_deadline_checker
 logger = get_logger(__name__)
 
 
-def _read_proxy_url() -> str | None:
-    """Читать TELEGRAM_PROXY_URL из БД, с fallback на .env."""
-    import os
-    import threading
-    import concurrent.futures
-    
-    # Сначала пробуем из БД (асинхронно в отдельном потоке)
-    try:
-        from sqlalchemy import select
-        from app.domain.models import AppSetting
-        from app.core.db import AsyncSessionLocal
-        
-        def _get_from_db():
-            import asyncio
-            async def _async_get():
-                async with AsyncSessionLocal() as session:
-                    result = await session.execute(
-                        select(AppSetting).where(AppSetting.key == "telegram_proxy_url")
-                    )
-                    setting = result.scalar_one_or_none()
-                    return setting.value if setting and setting.value else None
-            
-            # Создаём новый event loop для этого потока
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                return loop.run_until_complete(_async_get())
-            finally:
-                loop.close()
-        
-        # Запускаем в отдельном потоке с таймаутом
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_get_from_db)
-            try:
-                result = future.result(timeout=2)  # 2 секунды таймаут
-                if result:
-                    return result
-            except concurrent.futures.TimeoutError:
-                pass
-    except Exception:
-        pass
-    
-    # Fallback: читаем из .env
+def _read_proxy_url_from_env_file() -> str | None:
+    """Read TELEGRAM_PROXY_URL from mounted /app/.env (sync I/O, small file)."""
     env_path = "/app/.env"
     try:
         if os.path.exists(env_path):
@@ -76,10 +38,38 @@ def _read_proxy_url() -> str | None:
                 content = f.read()
             m = re.search(r"^TELEGRAM_PROXY_URL=(.+)$", content, re.MULTILINE)
             if m:
-                return m.group(1).strip() or None
+                url = m.group(1).strip()
+                return url or None
     except Exception:
         pass
     return settings.TELEGRAM_PROXY_URL or None
+
+
+async def _read_proxy_url_async() -> str | None:
+    """Read proxy URL from AppSetting in DB, then .env, then pydantic settings.
+
+    Runs DB access on the bot's event loop (no nested loop / ThreadPoolExecutor).
+    """
+    from sqlalchemy import select
+    from app.domain.models import AppSetting
+    from app.core.db import AsyncSessionLocal
+
+    async def _from_db() -> str | None:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key == "telegram_proxy_url")
+            )
+            setting = result.scalar_one_or_none()
+            return setting.value if setting and setting.value else None
+
+    try:
+        val = await asyncio.wait_for(_from_db(), timeout=2.0)
+        if val:
+            return val
+    except (asyncio.TimeoutError, Exception):
+        pass
+
+    return _read_proxy_url_from_env_file()
 
 
 def _docker_request(method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
@@ -119,12 +109,30 @@ def _docker_request(method: str, path: str, body: dict | None = None) -> tuple[i
          return 0, {}
 
 
+async def _get_bot_token() -> str | None:
+    """Get bot token: .env -> DB fallback."""
+    token = settings.TELEGRAM_BOT_TOKEN
+    if token:
+        return token
+
+    # Fallback: read from DB
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(AppSetting).where(AppSetting.key == "telegram_bot_token")
+        )
+        setting = result.scalar_one_or_none()
+        if setting and setting.value:
+            return setting.value
+    return None
+
+
 async def _make_bot_async() -> Bot:
     """Создать Bot с прокси (только SOCKS5/HTTP)."""
-    proxy_url = _read_proxy_url()
+    proxy_url = await _read_proxy_url_async()
+    bot_token = await _get_bot_token()
 
     kwargs: dict = {
-        "token": settings.TELEGRAM_BOT_TOKEN,
+        "token": bot_token or "0:placeholder",
         "default": DefaultBotProperties(parse_mode=ParseMode.MARKDOWN),
     }
 
@@ -185,13 +193,15 @@ async def start_bot():
     """Start the bot — создаём прокси-сессию здесь, в async-контексте."""
     global bot
 
-    if not settings.TELEGRAM_BOT_TOKEN:
+    bot_token = await _get_bot_token()
+    if not bot_token:
         logger.warning("bot_token_missing", hint="Set TELEGRAM_BOT_TOKEN or configure via UI")
-        # Бот не запущен, но API работает — ждём бесконечно
         logger.info("bot_disabled_waiting_for_token")
         while True:
             await asyncio.sleep(3600)
         return
+
+    logger.info("bot_token_loaded", source="db" if not settings.TELEGRAM_BOT_TOKEN else ".env")
 
     from app.telegram.deadline_notifier import record_heartbeat_sync
     setup_handlers()

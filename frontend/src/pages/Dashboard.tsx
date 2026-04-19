@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 
@@ -221,11 +221,26 @@ export default function Dashboard() {
 
   const queryClient = useQueryClient();
 
-  const { data: tasks = [] } = useQuery<Task[]>({
-    queryKey: ['tasks'],
-    queryFn: async () => (await axios.get(`${API_URL}/api/tasks`)).data,
+  const [taskPage, setTaskPage] = useState(0);
+  const PAGE_SIZE = 100;
+
+  const { data: newTasks, isFetching: isLoadingTasks } = useQuery<Task[]>({
+    queryKey: ['tasks', taskPage],
+    queryFn: async () => (await axios.get(`${API_URL}/api/tasks?offset=${taskPage * PAGE_SIZE}&limit=${PAGE_SIZE}`)).data,
     refetchInterval: 5000,
   });
+
+  const tasks = React.useMemo(() => {
+    if (taskPage === 0) return newTasks || [];
+    const prev = queryClient.getQueryData<Task[]>(['tasks', taskPage - 1]) || [];
+    return [...prev, ...(newTasks || [])];
+  }, [newTasks, taskPage, queryClient]);
+
+  const loadMoreTasks = useCallback(() => {
+    if (newTasks && newTasks.length === PAGE_SIZE) {
+      setTaskPage(prev => prev + 1);
+    }
+  }, [newTasks]);
 
   const { data: backlogTasks = [] } = useQuery<Task[]>({
     queryKey: ['backlog'],
@@ -848,7 +863,16 @@ const takeTaskMutation = useMutation({
                       </div>
                     </div>
                   );
-                })}
+})}
+                {tasks.length > 0 && tasks.length % PAGE_SIZE === 0 && (
+                  <button
+                    onClick={loadMoreTasks}
+                    disabled={isLoadingTasks}
+                    className="w-full py-2 text-sm text-blue-600 hover:bg-blue-50 disabled:opacity-50 transition"
+                  >
+                    {isLoadingTasks ? 'Загрузка...' : `Загрузить ещё (${tasks.length} + ${PAGE_SIZE})`}
+                  </button>
+                )}
               </div>
             )}
 

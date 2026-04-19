@@ -8,11 +8,14 @@ from datetime import datetime
 
 from app.core.db import get_db
 from app.core.clock import Clock
+from app.core.logging import get_logger
 from app.config import settings
 from app.domain.models import LocalAccount, LocalIdentity, UserIdentity, AppSetting, TeamMember
 from sqlalchemy import select
 from app.services.account_service import AccountService
 from app.services.settings_service import SettingsService
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -725,7 +728,7 @@ async def google_callback(
             "grant_type": "authorization_code",
         })
         token_data = resp.json()
-        print(f"DEBUG Google token response: {token_data}")
+        logger.debug("google_token_response", token_data=token_data)
     
     if "access_token" not in token_data:
         error_desc = token_data.get("error_description", token_data.get("error", "unknown"))
@@ -883,7 +886,7 @@ async def yandex_callback(
             "grant_type": "authorization_code",
         })
         token_data = resp.json()
-        print(f"DEBUG Yandex token response: {token_data}")
+        logger.debug("yandex_token_response", token_data=token_data)
     
     if "access_token" not in token_data:
         error_desc = token_data.get("error_description", token_data.get("error", "unknown"))

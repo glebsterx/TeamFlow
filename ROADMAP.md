@@ -5,7 +5,7 @@
 
 ---
 
-## Текущая версия: v0.8.21 (спринт v0.9.0 закрыт ✅)
+## Текущая версия: v0.8.22 (спринт v0.8.22 закрыт ✅)
 
 > Аудит 01.04.2026: v0.8.19 — полный рефакторинг архитектуры пользователей. LocalAccount как основная сущность, Telegram как OAuth-провайдер, system roles, invite-only регистрация, API Key middleware, ServerRestartGuard.
 
@@ -38,6 +38,14 @@
 | Экспорт CSV учёта времени (#264): кнопка в DigestPage, BOM-UTF-8 для Excel | v0.9.0 |
 | Настройка прокси при первом запуске (#288): Setup Wizard, автопроверка бота | v0.9.0 |
 | Web Push iOS (#291): PWA мета-теги, иконки PNG, iOS-compatible SW, очистка expired подписок | v0.9.0 |
+| AI интеграция: AITaskModal, AI Settings, провайдеры openrouter/openai/custom | v0.8.22 |
+| AI endpoints: POST /api/ai/parse, GET /api/ai/models, POST /api/ai/split | v0.8.22 |
+| AI в MeetingModal: задачи из итогов встречи | v0.8.22 |
+| AI error handling (#358): detail из 429/402/500, global handler 429->400 | v0.8.22 |
+| Bug fixes: assign по account_id, API key в заголовке | v0.8.22 |
+| Рефакторинг (#333): Auth/Task/Bot модули изолированы (repositories/auth/, services/auth/) | v0.8.22 |
+| Аудит качества (#300): crash /digest, async socket, N+1, пагинация, Fernet OAuth | v0.8.22 |
+| Подсчёт задач (#331), защита создания (#332), серверная пагинация (#330) | v0.8.22 |
 | Вебхуки (#215-219): CRUD API, trigger при смене статуса, retry с backoff, UI в настройках | v0.8.16 |
 | API-ключи (#220-226): модель, генерация, middleware X-API-Key, логи, UI | v0.8.16 |
 | Учёт времени (#227-230, #236-241): time_spent, таймер с localStorage, статистика в дайджесте | v0.8.16 |
@@ -122,6 +130,21 @@
 
 ---
 
+## ✅ Закрытый спринт: v0.8.22 — AI интеграция и качество кода — ЗАКРЫТ 18.04.2026
+> Задачи выполнялись после закрытия v0.9.0 (sprint id=10), без отдельного спринта в базе
+
+| # | Задача | Статус |
+|---|--------|--------|
+| #358 | AI error handling: interceptor + global 429 handler | DONE |
+| AI | AITaskModal, AI Settings, custom endpoint | DONE |
+| AI | AI в MeetingModal | DONE |
+| #300 | Аудит кода: 15/16 подзадач (#301-316) | DONE (1 skip) |
+| #330 | Серверная пагинация Dashboard | DONE |
+| #331 | Корректный подсчёт задач и подзадач | DONE |
+| #332 | Защита от потери данных при создании задачи | DONE |
+| #333 | Рефакторинг: изоляция Auth/Task/Bot | DONE |
+
+---
 ## 🔄 Активный спринт: v0.9.0 — Production Ready — **ЗАКРЫТ ✅ 06.04.2026**
 > Sprint id=10 (done), обновлён 06.04.2026
 
@@ -302,6 +325,30 @@
 | #243 | UX: быстрые действия — клавиатурные шорткаты (Ctrl+K command palette) |
 | #244 | UX: темная тема — переключатель и сохранение в настройках |
 
+### v0.9.1 — Тестовый фреймворк и стабильность — СЛЕДУЮЩИЙ
+> Sprint id=31 в базе (planned, пустой). Дата старта: 18.04.2026
+
+| # | Задача | Приоритет |
+|---|--------|-----------|
+| #344 | Тестовый фреймворк — родительская задача (13 подзадач) | HIGH |
+| #345 | Backend: setup pytest + httpx | HIGH |
+| #346 | Backend: conftest.py — test client, db session | HIGH |
+| #347 | Backend: тесты auth register/login/change-password | HIGH |
+| #348 | Backend: тесты OAuth mock (Google/Yandex) | NORMAL |
+| #349 | Backend: тесты tasks CRUD + status changes | HIGH |
+| #350 | Backend: тесты projects CRUD + members | NORMAL |
+| #351 | Backend: тесты sprints CRUD + task management | NORMAL |
+| #352 | Backend: тесты meetings CRUD + action items | NORMAL |
+| #353 | Frontend: setup Vitest + Testing Library | HIGH |
+| #354 | Frontend: test setup с mock API | HIGH |
+| #355 | Frontend: тесты TaskCard, Modal components | NORMAL |
+| #356 | Frontend: тесты login form | NORMAL |
+| #357 | Frontend: тесты Dashboard operations | NORMAL |
+| #310 | Streaming JSON export для больших датасетов | MEDIUM |
+| #313 | Консистентный паттерн в routes.py (единый стиль service/repo/raw SQL) | LOW |
+| #314 | Перенести локальные imports на уровень модуля (99 мест) | LOW |
+
+---
 ### v1.0.0 — Production ready
 > Спринт id=10 в базе (planned)
 
@@ -352,4 +399,4 @@
 
 ---
 
-**Последнее обновление:** 2026-04-06 (v0.9.0 ЗАКРЫТ ✅: все 25 задач DONE, включая #291 Web Push iOS)
+**Последнее обновление:** 2026-04-18 (v0.8.22 ЗАКРЫТ ✅: AI интеграция, рефакторинг #333, аудит #300; v0.9.1 PLANNED)

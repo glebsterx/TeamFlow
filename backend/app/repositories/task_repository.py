@@ -48,9 +48,11 @@ class TaskRepository:
     async def get_all(
         self,
         status: Optional[TaskStatus] = None,
-        assignee_id: Optional[int] = None
+        assignee_id: Optional[int] = None,
+        offset: int = 0,
+        limit: int = 100
     ) -> List[Task]:
-        """Get all non-archived, non-deleted, non-backlog tasks (top-level and subtasks)."""
+        """Get all non-archived, non-deleted, non-backlog tasks with pagination."""
         priority_order = case(
             (Task.priority == 'URGENT', 1),
             (Task.priority == 'HIGH', 2),
@@ -74,7 +76,7 @@ class TaskRepository:
             query = query.where(Task.assignee_id == assignee_id)
 
         result = await self.session.execute(
-            query.order_by(priority_order, Task.created_at.desc())
+            query.order_by(priority_order, Task.created_at.desc()).offset(offset).limit(limit)
         )
         return list(result.scalars().all())
 
