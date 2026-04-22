@@ -9,7 +9,7 @@ from datetime import datetime
 from app.core.db import get_db
 from app.core.clock import Clock
 from app.core.logging import get_logger
-from app.config import settings
+from app.config import settings, get_web_url_async
 from app.domain.models import LocalAccount, LocalIdentity, UserIdentity, AppSetting, TeamMember
 from sqlalchemy import select
 from app.services.account_service import AccountService

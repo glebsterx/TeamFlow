@@ -76,6 +76,7 @@ class TaskResponse(BaseModel):
     archived: bool = False
     deleted: bool = False
     backlog: bool = False
+    is_idea: bool = False
     backlog_added_at: Optional[datetime] = None
 
     # Project

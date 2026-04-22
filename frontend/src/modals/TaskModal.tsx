@@ -371,6 +371,7 @@ function DropdownField({ label, value, placeholder, options, current, onChange }
 }
 
 export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks, users, projects, changeStatusMutation, assignMutation, assignProjectMutation, updateTaskMutation, setConfirmDelete, invalidate, createSubtaskMutation, isAncestorBlocked, myUserId }: any) {
+  const [localIsIdea, setLocalIsIdea] = useState(task.is_idea ?? false);
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description || '');
@@ -1143,6 +1144,18 @@ export default function TaskModal({ task, onClose, onOpenTask, canGoBack, tasks,
           className={`px-3 py-2 border rounded-lg text-sm transition ${task.backlog ? 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'}`}
           title={task.backlog ? 'Убрать из бэклога' : 'В бэклог'}
         >📦</button>
+        <button
+          onClick={() => {
+            const endpoint = localIsIdea ? 'convert-to-task' : 'convert-to-idea';
+            axios.post(`${API_URL}/api/tasks/${task.id}/${endpoint}`).then(() => {
+              setLocalIsIdea(!localIsIdea);
+              invalidate();
+              showToast(localIsIdea ? 'Идея → задача' : 'Задача → идея', 'info');
+            });
+          }}
+          className={`px-3 py-2 border rounded-lg text-sm transition ${localIsIdea ? 'bg-yellow-50 border-yellow-300 text-yellow-700 hover:bg-yellow-100' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'}`}
+          title={localIsIdea ? 'Превратить в задачу' : 'Превратить в идею'}
+        >{localIsIdea ? '📋' : '💡'}</button>
         <button
           onClick={() => {
             axios.post(`${API_URL}/api/tasks/${task.id}/archive`).then(() => {

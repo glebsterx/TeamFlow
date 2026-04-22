@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Modal from '../components/Modal';
@@ -61,6 +61,7 @@ export default function NewTaskModal({
   const [recurrence, setRecurrence] = useState('');
   const [priority, setPriority] = useState('NORMAL');
   const [backlog, setBacklog] = useState(!!initialBacklog);
+  const [isIdea, setIsIdea] = useState(false);
   const [dupCandidates, setDupCandidates] = useState<Task[]>([]);
   const descRef = useRef<HTMLTextAreaElement>(null);
   const submittingRef = useRef(false);
@@ -171,6 +172,7 @@ export default function NewTaskModal({
         parent_task_id: parentTaskId ? Number(parentTaskId) : undefined,
         backlog,
         recurrence: recurrence || undefined,
+        is_idea: isIdea || undefined,
       });
     }
   };
@@ -344,10 +346,16 @@ export default function NewTaskModal({
           </div>
         </div>
       </div>
-      <label className="flex items-center gap-2 mb-3 cursor-pointer select-none">
-        <input type="checkbox" checked={backlog} onChange={e => setBacklog(e.target.checked)} className="w-4 h-4 rounded border-gray-300" />
-        <span className="text-sm text-gray-600">📦 В бэклог</span>
-      </label>
+      <div className="flex gap-4 mb-3">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" checked={backlog} onChange={e => setBacklog(e.target.checked)} className="w-4 h-4 rounded border-gray-300" />
+          <span className="text-sm text-gray-600">📦 В бэклог</span>
+        </label>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" checked={isIdea} onChange={e => setIsIdea(e.target.checked)} className="w-4 h-4 rounded border-gray-300" />
+          <span className="text-sm text-gray-600">💡 В идеи</span>
+        </label>
+      </div>
 
       {/* Шаблоны */}
       <TemplatePanel

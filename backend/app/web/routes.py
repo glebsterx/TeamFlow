@@ -1016,6 +1016,7 @@ class TaskCreateRequest(BaseModel):
     due_date: Optional[datetime] = None
     priority: Optional[str] = "NORMAL"
     backlog: bool = False
+    is_idea: bool = False
     recurrence: Optional[str] = None
     recurrence_end_date: Optional[datetime] = None
 
@@ -1047,6 +1048,7 @@ class TaskUpdateRequest(BaseModel):
     priority: Optional[str] = None
     parent_task_id: Optional[int] = None
     backlog: Optional[bool] = None
+    is_idea: Optional[bool] = None
     recurrence: Optional[str] = None
     recurrence_end_date: Optional[datetime] = None
     time_spent: Optional[int] = None
@@ -1102,6 +1104,9 @@ async def create_task_api(
         task.backlog = True
         task.backlog_added_at = Clock.now()
 
+    if request.is_idea:
+        task.is_idea = True
+
     if request.recurrence:
         task.recurrence = request.recurrence
     if request.recurrence_end_date:
@@ -1119,6 +1124,221 @@ async def create_task_api(
     from app.repositories.task_repository import TaskRepository
 
     return await TaskRepository(db).get_by_id(task.id)
+
+
+# ============= KNOWLEDGE / IDEAS API =============
+
+
+@router.get("/knowledge", response_model=list[dict])
+async def get_knowledge(db: AsyncSession = Depends(get_db)):
+    """Return ideas/knowledge items."""
+    q = select(Task).where(Task.deleted == False, Task.is_idea == True).order_by(Task.updated_at.desc())
+    rows = (await db.execute(q)).scalars().all()
+    return [
+        {
+            "id": t.id,
+            "title": t.title,
+            "description": t.description,
+            "project_id": t.project_id,
+            "is_idea": t.is_idea,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+        }
+        for t in rows
+    ]
+
+
+@router.post("/tasks/{task_id}/convert-to-task")
+async def convert_idea_to_task(task_id: int, db: AsyncSession = Depends(get_db)):
+    """Convert an idea to a regular task (set is_idea=False)."""
+    result = await db.execute(select(Task).where(Task.id == task_id))
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not task.is_idea:
+        raise HTTPException(status_code=400, detail="Task is not an idea")
+    task.is_idea = False
+    await db.commit()
+    return {"ok": True, "id": task_id, "is_idea": False}
+
+
+@router.post("/tasks/{task_id}/convert-to-idea")
+async def convert_task_to_idea(task_id: int, db: AsyncSession = Depends(get_db)):
+    """Convert a regular task to an idea (set is_idea=True)."""
+    result = await db.execute(select(Task).where(Task.id == task_id))
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    task.is_idea = True
+    await db.commit()
+    return {"ok": True, "id": task_id, "is_idea": True}
+
+
+# ============= KNOWLEDGE BASE (folders + pages) API =============
+
+
+@router.get("/knowledge-base/folders")
+async def get_knowledge_folders(db: AsyncSession = Depends(get_db)):
+    """Get all knowledge folders (tree structure)."""
+    from app.domain.models import KnowledgeFolder
+
+    q = select(KnowledgeFolder).order_by(KnowledgeFolder.order, KnowledgeFolder.name)
+    result = await db.execute(q)
+    folders = result.scalars().all()
+    return [
+        {
+            "id": f.id,
+            "name": f.name,
+            "parent_id": f.parent_id,
+            "order": f.order,
+            "created_at": f.created_at.isoformat() if f.created_at else None,
+            "updated_at": f.updated_at.isoformat() if f.updated_at else None,
+        }
+        for f in folders
+    ]
+
+
+@router.post("/knowledge-base/folders")
+async def create_knowledge_folder(request: dict, db: AsyncSession = Depends(get_db)):
+    """Create knowledge folder."""
+    from app.domain.models import KnowledgeFolder
+
+    folder = KnowledgeFolder(
+        name=request.get("name", "Новая папка"),
+        parent_id=request.get("parent_id"),
+        order=request.get("order", 0),
+    )
+    db.add(folder)
+    await db.commit()
+    await db.refresh(folder)
+    return {
+        "id": folder.id,
+        "name": folder.name,
+        "parent_id": folder.parent_id,
+        "order": folder.order,
+        "created_at": folder.created_at.isoformat() if folder.created_at else None,
+        "updated_at": folder.updated_at.isoformat() if folder.updated_at else None,
+    }
+
+
+@router.patch("/knowledge-base/folders/{folder_id}")
+async def update_knowledge_folder(folder_id: int, request: dict, db: AsyncSession = Depends(get_db)):
+    """Update knowledge folder."""
+    from app.domain.models import KnowledgeFolder
+
+    result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == folder_id))
+    folder = result.scalar_one_or_none()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    if request.get("name"):
+        folder.name = request["name"]
+    if "parent_id" in request:
+        folder.parent_id = request["parent_id"]
+    if request.get("order") is not None:
+        folder.order = request["order"]
+    await db.commit()
+    await db.refresh(folder)
+    return {"ok": True, "id": folder.id}
+
+
+@router.delete("/knowledge-base/folders/{folder_id}")
+async def delete_knowledge_folder(folder_id: int, db: AsyncSession = Depends(get_db)):
+    """Delete knowledge folder (cascades to pages)."""
+    from app.domain.models import KnowledgeFolder
+
+    result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == folder_id))
+    folder = result.scalar_one_or_none()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    await db.delete(folder)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/knowledge-base/pages")
+async def get_knowledge_pages(folder_id: Optional[int] = None, db: AsyncSession = Depends(get_db)):
+    """Get knowledge pages (optionally filtered by folder)."""
+    from app.domain.models import KnowledgePage
+
+    q = select(KnowledgePage)
+    if folder_id is not None:
+        q = q.where(KnowledgePage.folder_id == folder_id)
+    q = q.order_by(KnowledgePage.order, KnowledgePage.title)
+    result = await db.execute(q)
+    pages = result.scalars().all()
+    return [
+        {
+            "id": p.id,
+            "title": p.title,
+            "content": p.content,
+            "folder_id": p.folder_id,
+            "order": p.order,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+        }
+        for p in pages
+    ]
+
+
+@router.post("/knowledge-base/pages")
+async def create_knowledge_page(request: dict, db: AsyncSession = Depends(get_db)):
+    """Create knowledge page."""
+    from app.domain.models import KnowledgePage
+
+    page = KnowledgePage(
+        title=request.get("title", "Новая страница"),
+        content=request.get("content"),
+        folder_id=request.get("folder_id"),
+        order=request.get("order", 0),
+    )
+    db.add(page)
+    await db.commit()
+    await db.refresh(page)
+    return {
+        "id": page.id,
+        "title": page.title,
+        "content": page.content,
+        "folder_id": page.folder_id,
+        "order": page.order,
+        "created_at": page.created_at.isoformat() if page.created_at else None,
+        "updated_at": page.updated_at.isoformat() if page.updated_at else None,
+    }
+
+
+@router.patch("/knowledge-base/pages/{page_id}")
+async def update_knowledge_page(page_id: int, request: dict, db: AsyncSession = Depends(get_db)):
+    """Update knowledge page."""
+    from app.domain.models import KnowledgePage
+
+    result = await db.execute(select(KnowledgePage).where(KnowledgePage.id == page_id))
+    page = result.scalar_one_or_none()
+    if not page:
+        raise HTTPException(status_code=404, detail="Page not found")
+    if request.get("title"):
+        page.title = request["title"]
+    if "content" in request:
+        page.content = request["content"]
+    if "folder_id" in request:
+        page.folder_id = request["folder_id"]
+    if request.get("order") is not None:
+        page.order = request["order"]
+    await db.commit()
+    await db.refresh(page)
+    return {"ok": True, "id": page.id}
+
+
+@router.delete("/knowledge-base/pages/{page_id}")
+async def delete_knowledge_page(page_id: int, db: AsyncSession = Depends(get_db)):
+    """Delete knowledge page."""
+    from app.domain.models import KnowledgePage
+
+    result = await db.execute(select(KnowledgePage).where(KnowledgePage.id == page_id))
+    page = result.scalar_one_or_none()
+    if not page:
+        raise HTTPException(status_code=404, detail="Page not found")
+    await db.delete(page)
+    await db.commit()
+    return {"ok": True}
 
 
 @router.patch("/tasks/{task_id}", response_model=TaskResponse)

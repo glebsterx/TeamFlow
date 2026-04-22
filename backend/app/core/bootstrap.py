@@ -54,17 +54,123 @@ def _write_env_var(path: str, key: str, value: str):
     logger.info(f"[bootstrap] {key} written to .env")
 
 
-def bootstrap_secret_key():
-    """Generate SECRET_KEY if still default."""
-    current = os.environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
-    if current == DEFAULT_SECRET_KEY:
-        new_key = secrets.token_urlsafe(48)
-        os.environ["SECRET_KEY"] = new_key
+async def bootstrap_secret_key():
+    """Generate and store SECRET_KEY if not set in .env or DB.
+    
+    Priority: .env -> DB -> generate new
+    """
+    import secrets
+    from app.config import set_secret_key_cache
+    
+    # Check .env first
+    env_secret = os.environ.get("SECRET_KEY", "")
+    if env_secret and env_secret != DEFAULT_SECRET_KEY:
+        # Also save to DB for consistency
         try:
-            _write_env_var("/app/.env", "SECRET_KEY", new_key)
+            from app.core.db import AsyncSessionLocal
+            from app.domain.models import AppSetting
+            from sqlalchemy import select
+            
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(
+                    select(AppSetting).where(AppSetting.key == "secret_key")
+                )
+                existing = result.scalar_one_or_none()
+                if not existing:
+                    session.add(AppSetting(key="secret_key", value=env_secret))
+                    await session.commit()
+                    logger.info("[bootstrap] SECRET_KEY from .env saved to DB")
         except Exception as e:
-            logger.warning(f"[bootstrap] Could not write SECRET_KEY to .env: {e}")
-        logger.info("[bootstrap] SECRET_KEY auto-generated")
+            logger.warning(f"[bootstrap] Could not save SECRET_KEY to DB: {e}")
+        
+        set_secret_key_cache(env_secret)
+        return
+    
+    # Check DB
+    try:
+        from app.core.db import AsyncSessionLocal
+        from app.domain.models import AppSetting
+        from sqlalchemy import select
+        
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key == "secret_key")
+            )
+            existing = result.scalar_one_or_none()
+            if existing and existing.value and existing.value != DEFAULT_SECRET_KEY:
+                os.environ["SECRET_KEY"] = existing.value
+                set_secret_key_cache(existing.value)
+                logger.info("[bootstrap] SECRET_KEY loaded from DB")
+                return
+    except Exception as e:
+        logger.warning(f"[bootstrap] Could not read SECRET_KEY from DB: {e}")
+    
+    # Generate new
+    new_key = secrets.token_urlsafe(48)
+    os.environ["SECRET_KEY"] = new_key
+    set_secret_key_cache(new_key)
+    
+    # Save to DB
+    try:
+        from app.core.db import AsyncSessionLocal
+        from app.domain.models import AppSetting
+        
+        async with AsyncSessionLocal() as session:
+            session.add(AppSetting(key="secret_key", value=new_key))
+            await session.commit()
+    except Exception as e:
+        logger.warning(f"[bootstrap] Could not save SECRET_KEY to DB: {e}")
+    
+    # Try to save to .env (may fail in container without volume mount)
+    try:
+        _write_env_var("/app/.env", "SECRET_KEY", new_key)
+    except Exception as e:
+        logger.warning(f"[bootstrap] Could not write SECRET_KEY to .env: {e}")
+    
+    logger.info("[bootstrap] SECRET_KEY auto-generated")
+
+
+async def bootstrap_default_settings():
+    """Set default BASE_URL, FRONTEND_PORT in DB if not already set.
+    
+    This ensures first-time installation works even with empty .env and empty DB.
+    """
+    # These defaults are also in config.py, but we store them in DB
+    # so they can be changed via UI and persist across restarts
+    default_base_url = "http://localhost"
+    default_frontend_port = "5180"
+    
+    try:
+        # Import here to avoid circular imports
+        from app.core.db import AsyncSessionLocal
+        from app.domain.models import AppSetting
+        from sqlalchemy import select
+        
+        async with AsyncSessionLocal() as session:
+            # Check if base_url is set
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key == "base_url")
+            )
+            existing = result.scalar_one_or_none()
+            if not existing or not existing.value:
+                setting = AppSetting(key="base_url", value=default_base_url)
+                session.add(setting)
+                logger.info(f"[bootstrap] Set default base_url={default_base_url}")
+            
+            # Check if frontend_port is set
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key == "frontend_port")
+            )
+            existing = result.scalar_one_or_none()
+            if not existing or not existing.value:
+                setting = AppSetting(key="frontend_port", value=default_frontend_port)
+                session.add(setting)
+                logger.info(f"[bootstrap] Set default frontend_port={default_frontend_port}")
+            
+            await session.commit()
+            
+    except Exception as e:
+        logger.warning(f"[bootstrap] Could not set default settings in DB: {e}")
 
 
 def bootstrap_vapid_keys():

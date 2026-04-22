@@ -38,6 +38,7 @@ export interface Task {
   completed_at?: string;
   blockers?: Blocker[];
   backlog?: boolean;
+  is_idea?: boolean;
   backlog_added_at?: string;
   time_spent?: number;
 }

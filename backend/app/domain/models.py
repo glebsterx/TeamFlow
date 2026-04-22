@@ -203,6 +203,9 @@ class Task(Base):
     # Archive / Soft delete
     archived = Column(Boolean, default=False, nullable=False)
     deleted = Column(Boolean, default=False, nullable=False)
+    
+    # Idea (not a regular task)
+    is_idea = Column(Boolean, default=False, nullable=False, index=True)
 
     # Backlog
     backlog = Column(Boolean, default=False, nullable=False)
@@ -500,3 +503,50 @@ class WebhookLog(Base):
 
     def __repr__(self):
         return f"<WebhookLog(id={self.id}, webhook_id={self.webhook_id}, event='{self.event}', status={self.status_code})>"
+
+
+class DomainEvent(Base):
+    """Domain events log for audit trail."""
+    __tablename__ = "domain_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_type = Column(String(50), nullable=False)  # task.created, task.status_changed, etc.
+    payload = Column(Text, nullable=False)  # JSON payload
+    task_id = Column(Integer, nullable=True)  # Optional link to task
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
+
+    def __repr__(self):
+        return f"<DomainEvent(id={self.id}, type='{self.event_type}', task_id={self.task_id})>"
+
+
+# ============= KNOWLEDGE BASE =============
+
+
+class KnowledgeFolder(Base):
+    """Папка/раздел в базе знаний."""
+    __tablename__ = "knowledge_folders"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False)
+    parent_id = Column(Integer, ForeignKey("knowledge_folders.id", ondelete="CASCADE"), nullable=True)
+    order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
+    updated_at = Column(DateTime, nullable=False, default=Clock.now, onupdate=Clock.now)
+
+    children = relationship("KnowledgeFolder", backref=backref("parent", remote_side=[id]), order_by="KnowledgeFolder.order")
+    pages = relationship("KnowledgePage", back_populates="folder", cascade="all, delete-orphan", order_by="KnowledgePage.order")
+
+
+class KnowledgePage(Base):
+    """Страница/статья в базе знаний."""
+    __tablename__ = "knowledge_pages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(200), nullable=False)
+    content = Column(Text, nullable=True)  # Markdown content
+    folder_id = Column(Integer, ForeignKey("knowledge_folders.id", ondelete="CASCADE"), nullable=True)
+    order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
+    updated_at = Column(DateTime, nullable=False, default=Clock.now, onupdate=Clock.now)
+
+    folder = relationship("KnowledgeFolder", back_populates="pages")

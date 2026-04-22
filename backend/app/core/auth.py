@@ -5,7 +5,7 @@ import bcrypt
 import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.config import settings
+from app.config import get_secret_key
 from app.domain.user import User
 from app.core.clock import Clock
 
@@ -29,14 +29,14 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         expire = Clock.now() + timedelta(days=30)
     
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm="HS256")
+    encoded_jwt = jwt.encode(to_encode, get_secret_key(), algorithm="HS256")
     return encoded_jwt
 
 
 def decode_token(token: str) -> Optional[dict]:
     """Decode JWT token."""
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(token, get_secret_key(), algorithms=["HS256"])
         return payload
     except jwt.PyJWTError:
         return None

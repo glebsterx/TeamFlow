@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import jwt
 import bcrypt
-from app.config import settings
+from app.config import get_secret_key
 from app.core.clock import Clock
 
 
@@ -25,13 +25,13 @@ def create_simple_access_token(username: str) -> str:
         "exp": expire,
         "type": "simple_auth"
     }
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm="HS256")
+    return jwt.encode(to_encode, get_secret_key(), algorithm="HS256")
 
 
 def verify_simple_token(token: str) -> Optional[str]:
     """Verify simple auth token and return username."""
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(token, get_secret_key(), algorithms=["HS256"])
         if payload.get("type") != "simple_auth":
             return None
         return payload.get("sub")

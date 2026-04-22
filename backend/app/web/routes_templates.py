@@ -20,6 +20,7 @@ class TaskTemplate(Base):
     priority = Column(String(10), nullable=False, default="NORMAL")
     project_id = Column(Integer, nullable=True)
     recurrence = Column(String(20), nullable=True)
+    fields_json = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=Clock.now)
 
 

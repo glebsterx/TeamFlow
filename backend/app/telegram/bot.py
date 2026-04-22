@@ -163,12 +163,15 @@ dp = Dispatcher(storage=storage)
 # bot создаётся без прокси как placeholder для импортов на уровне модуля.
 # Настоящий bot с прокси создаётся асинхронно в start_bot() и заменяет этот объект.
 # Если токен не задан — placeholder с фейковым токеном (бот не запустится, но API работает)
-_bot_token = settings.TELEGRAM_BOT_TOKEN or "0:placeholder"
-bot: Bot = Bot(
-    token=_bot_token,
-    default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN),
-)
-
+# bot создаётся без прокси как placeholder для импортов на уровне модуля.
+# Настоящий bot с прокси создаётся асинхронно в start_bot() и заменяет этот объект.
+# placeholder — dummy, real token читается асинхронно в start_bot через _get_bot_token()
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from aiogram import Bot
+    bot: Bot  # noqa: F821
+else:
+    bot = None
 
 def setup_handlers():
     """Register all handlers in priority order."""

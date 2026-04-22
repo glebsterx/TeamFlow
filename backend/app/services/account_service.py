@@ -8,7 +8,7 @@ import bcrypt
 import jwt
 
 from app.domain.models import LocalAccount, LocalIdentity, UserIdentity
-from app.config import settings
+from app.config import get_secret_key
 from app.core.clock import Clock
 
 
@@ -178,11 +178,11 @@ class AccountService:
         token_data = {"sub": str(account_id), "type": provider}
         access_token = jwt.encode(
             {**token_data, "exp": Clock.now().timestamp() + 30 * 86400},
-            settings.SECRET_KEY, algorithm="HS256",
+            get_secret_key(), algorithm="HS256",
         )
         refresh_token = jwt.encode(
             {**token_data, "exp": Clock.now().timestamp() + 90 * 86400, "type": "refresh"},
-            settings.SECRET_KEY, algorithm="HS256",
+            get_secret_key(), algorithm="HS256",
         )
         return {"access_token": access_token, "refresh_token": refresh_token}
 

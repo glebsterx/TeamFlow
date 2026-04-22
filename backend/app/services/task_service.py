@@ -48,7 +48,17 @@ class TaskService:
         
         task = await self.repository.create(task)
         
-        # Log event
+        # Log to domain events
+        try:
+            from app.domain import events as events_module
+            await events_module.save_event(
+                "task.created",
+                {"title": title, "source": source.value},
+                task_id=task.id,
+            )
+        except Exception:
+            pass
+        
         logger.info("task_created", task_id=task.id, title=task.title, source=source.value)
         
         return task
@@ -101,6 +111,17 @@ class TaskService:
             task.completed_at = None
 
         task = await self.repository.update(task)
+        
+        # Log to domain events
+        try:
+            from app.domain import events as events_module
+            await events_module.save_event(
+                "task.status_changed",
+                {"old_status": old_status.value, "new_status": new_status.value},
+                task_id=task.id,
+            )
+        except Exception:
+            pass
 
         logger.info(
             "task_status_changed",

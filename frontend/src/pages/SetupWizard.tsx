@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { API_URL } from '../constants/taskDisplay';
 import { useTheme } from '../hooks/useTheme';
 
@@ -55,7 +55,7 @@ export const SetupWizard: React.FC = () => {
   const [settings, setSettings] = useState<SystemSettings>({
     deadline_notify_hours: '24,3',
     webapp_url: '',
-    frontend_url: '',
+    frontend_url: window.location.origin,
     telegram_chat_id: '',
     cors_origins: '',
     bot_username: '',
@@ -440,14 +440,18 @@ export const SetupWizard: React.FC = () => {
                   <p className="text-xs text-gray-500 mt-1">Определён из браузера. Будет назначен новым пользователям.</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">URL приложения (BASE_URL)</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">URL приложения</label>
                   <input
                     type="text"
                     value={settings.frontend_url}
                     onChange={e => setSettings(s => ({ ...s, frontend_url: e.target.value }))}
-                    placeholder="http://localhost:5180"
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder={window.location.origin}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm"
                   />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Полный URL с портом — используется в ссылках из бота и уведомлениях.
+                    Можно сменить позже в Настройках. Например: <code>http://192.168.0.3:5180</code> или <code>https://teamflow.example.com</code>
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Telegram Chat ID (опционально)</label>

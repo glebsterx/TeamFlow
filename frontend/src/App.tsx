@@ -4,6 +4,7 @@ import MiniAppPage from './pages/MiniAppPage';
 import { Login } from './pages/Login';
 import { Welcome } from './pages/Welcome';
 import { SetupWizard } from './pages/SetupWizard';
+import HelpPage from './pages/HelpPage';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -43,6 +44,12 @@ function AppRouter() {
   }
   if (path === '/welcome') {
     return <Welcome />;
+  }
+  if (path === '/help') {
+    return <HelpPage isAdmin={false} />;
+  }
+  if (path === '/help-admin') {
+    return <HelpPage isAdmin={true} />;
   }
 
   // Если не авторизован — показываем welcome

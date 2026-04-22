@@ -16,6 +16,8 @@ import NewTaskModal from '../modals/NewTaskModal';
 import AITaskModal from '../modals/AITaskModal';
 import ConfirmDeleteModal from '../modals/ConfirmDeleteModal';
 import BacklogPage from './BacklogPage';
+import IdeasPage from './IdeasPage';
+import KnowledgeBasePage from './KnowledgeBasePage';
 import SettingsPage from './SettingsPage';
 import SprintsPage from './SprintsPage';
 import MeetingsPage from './MeetingsPage';
@@ -34,7 +36,7 @@ import CommandPalette from '../components/CommandPalette';
 import ProjectMembersModal from '../modals/ProjectMembersModal';
 
 export default function Dashboard() {
-  const [currentPage, setCurrentPage] = useState<'tasks' | 'projects' | 'meetings' | 'sprints' | 'digest' | 'archive' | 'backlog' | 'settings' | 'account'>(
+  const [currentPage, setCurrentPage] = useState<'tasks' | 'projects' | 'meetings' | 'sprints' | 'digest' | 'archive' | 'backlog' | 'ideas' | 'knowledge' | 'settings' | 'account'>(
     () => (sessionStorage.getItem('tf_page') as any) || 'tasks'
   );
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
@@ -42,6 +44,7 @@ export default function Dashboard() {
   const [assigneeFilter, setAssigneeFilter] = useState<number | null>(null);
   const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<number | null>(null);
+  const [ideaFilter, setIdeaFilter] = useState<boolean>(false);
 
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -216,6 +219,16 @@ export default function Dashboard() {
   const mySystemRole = myAccount?.system_role || null;
   const myDisplayName = myAccount?.display_name || null;
 
+  const { data: systemSettings } = useQuery<any>({
+    queryKey: ['system-settings'],
+    queryFn: async () => {
+      const res = await axios.get(`${API_URL}/api/settings/system`);
+      return res.data;
+    },
+  });
+
+  const enabledSections = systemSettings?.enabled_sections?.split(',') || [];
+
   const { subscribed, pushError, requestAndSubscribe, unsubscribe, isIOSafari } = usePushNotifications();
   const { isDark, isAuto, toggleTheme } = useTheme();
 
@@ -331,6 +344,7 @@ export default function Dashboard() {
     // #260 — Инвалидируем только задачи (stats обновится по своему refetchInterval)
     // Загрузка ВСЕХ задач с relations — самая тяжёлая операция, не умножайте её
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    queryClient.invalidateQueries({ queryKey: ['knowledge'] });
   };
 
   const changeStatusMutation = useMutation({
@@ -518,6 +532,10 @@ const takeTaskMutation = useMutation({
   });
 
   let filteredTasks = tasks;
+  // По умолчанию скрываем идеи из списка задач
+  if (!ideaFilter) {
+    filteredTasks = filteredTasks.filter(t => !t.is_idea);
+  }
   if (statusFilter !== null) {
     filteredTasks = filteredTasks.filter(t => t.status === statusFilter);
   }
@@ -537,6 +555,9 @@ const takeTaskMutation = useMutation({
   }
   if (tagFilter !== null) {
     filteredTasks = filteredTasks.filter(t => t.tags?.some((tag: any) => tag.id === tagFilter));
+  }
+  if (ideaFilter) {
+    filteredTasks = filteredTasks.filter(t => t.is_idea === true);
   }
 
   // Канбан использует все фильтры КРОМЕ статуса — колонки сами разбивают по статусам.
@@ -558,6 +579,9 @@ const takeTaskMutation = useMutation({
   }
   if (tagFilter !== null) {
     kanbanTasks = kanbanTasks.filter(t => t.tags?.some((tag: any) => tag.id === tagFilter));
+  }
+  if (ideaFilter) {
+    kanbanTasks = kanbanTasks.filter(t => t.is_idea === true);
   }
 
   const sortedTasks = [...filteredTasks].sort((a, b) => {
@@ -585,12 +609,14 @@ const takeTaskMutation = useMutation({
             <span className="text-base sm:text-lg font-bold text-gray-900 px-1 sm:px-2 shrink-0">TeamFlow</span>
             <span className="text-gray-200 shrink-0">|</span>
             {[
-              { id: 'tasks', label: 'Задачи', icon: '📋' },
-              { id: 'meetings', label: 'Встречи', icon: '🤝' },
-              { id: 'sprints', label: 'Спринты', icon: '🏃' },
-              { id: 'backlog', label: 'Бэклог', icon: '📦' },
-              { id: 'digest', label: 'Дайджест', icon: '📊' },
-              { id: 'archive', label: 'Архив', icon: '🗄️' },
+              ...(enabledSections.includes('tasks') ? [{ id: 'tasks', label: 'Задачи', icon: '📋' }] : []),
+              ...(enabledSections.includes('meetings') ? [{ id: 'meetings', label: 'Встречи', icon: '🤝' }] : []),
+              ...(enabledSections.includes('sprints') ? [{ id: 'sprints', label: 'Спринты', icon: '🏃' }] : []),
+              ...(enabledSections.includes('ideas') ? [{ id: 'ideas', label: 'Идеи', icon: '💡' }] : []),
+              ...(enabledSections.includes('backlog') ? [{ id: 'backlog', label: 'Бэклог', icon: '📦' }] : []),
+              ...(enabledSections.includes('digest') ? [{ id: 'digest', label: 'Дайджест', icon: '📊' }] : []),
+              ...(enabledSections.includes('archive') ? [{ id: 'archive', label: 'Архив', icon: '🗄️' }] : []),
+              ...(enabledSections.includes('knowledge') ? [{ id: 'knowledge', label: 'База знаний', icon: '📚' }] : []),
               ...(mySystemRole === 'admin' ? [{ id: 'settings', label: 'Настройки', icon: '⚙️' }] : []),
             ].filter(Boolean).map(page => (
               <button
@@ -775,6 +801,12 @@ const takeTaskMutation = useMutation({
                     ))}
                   </select>
                 )}
+                <button
+                  onClick={() => setIdeaFilter(f => !f)}
+                  className={`px-2 py-1.5 border rounded-lg text-xs sm:text-sm ${ideaFilter ? 'bg-yellow-50 border-yellow-400 text-yellow-700' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                >
+                  💡 Идеи
+                </button>
               </div>
 
               <div className="flex gap-1 shrink-0">
@@ -1221,6 +1253,16 @@ const takeTaskMutation = useMutation({
         {/* ARCHIVE PAGE */}
         {currentPage === 'archive' && (
           <ArchivePage projects={projects} />
+        )}
+
+        {/* IDEAS PAGE */}
+        {currentPage === 'ideas' && (
+          <IdeasPage tasks={tasks} projects={projects} />
+        )}
+
+        {/* KNOWLEDGE BASE PAGE */}
+        {currentPage === 'knowledge' && (
+          <KnowledgeBasePage />
         )}
 
         {/* SETTINGS PAGE */}

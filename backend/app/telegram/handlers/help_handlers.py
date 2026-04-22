@@ -4,7 +4,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message, CallbackQuery, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from app.config import settings
+from app.config import get_secret_key, settings
 from app.core.logging import get_logger
 from app.core.clock import Clock
 from datetime import timedelta
@@ -150,12 +150,12 @@ async def cmd_start(message: Message):
 
         access_token = jwt.encode(
             {**token_data, "exp": Clock.now() + timedelta(days=30)},
-            settings.SECRET_KEY,
+            get_secret_key(),
             algorithm="HS256"
         )
         refresh_token = jwt.encode(
             {**token_data, "exp": Clock.now() + timedelta(days=90), "type": "refresh"},
-            settings.SECRET_KEY,
+            get_secret_key(),
             algorithm="HS256"
         )
 

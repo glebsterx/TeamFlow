@@ -1,11 +1,7 @@
 """Application configuration."""
-import asyncio
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 from typing import Optional
-from app.core.db import AsyncSessionLocal
-from sqlalchemy import select
-from app.domain.models import AppSetting
 
 
 class Settings(BaseSettings):
@@ -13,7 +9,7 @@ class Settings(BaseSettings):
     
     # Application
     APP_NAME: str = "TeamFlow"
-    VERSION: str = "0.8.23"
+    VERSION: str = "0.8.24"
     DEBUG: bool = False
     
     # Server
@@ -57,6 +53,16 @@ class Settings(BaseSettings):
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 10
     
+    @property
+    def web_url(self) -> str:
+        """Get Web UI URL (sync fallback)."""
+        return f"{self.BASE_URL}:{self.FRONTEND_PORT}"
+    
+    @property
+    def api_url(self) -> str:
+        """Get API URL (sync fallback)."""
+        return f"{self.BASE_URL}:{self.BACKEND_PORT}"
+    
     model_config = {
         "env_file": ".env",
         "case_sensitive": True,
@@ -66,6 +72,9 @@ class Settings(BaseSettings):
 async def _get_db_setting(key: str) -> str | None:
     """Get setting from DB (fallback for .env values)."""
     try:
+        from app.core.db import AsyncSessionLocal
+        from sqlalchemy import select
+        from app.domain.models import AppSetting
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(AppSetting).where(AppSetting.key == key)
@@ -74,6 +83,63 @@ async def _get_db_setting(key: str) -> str | None:
             return setting.value if setting and setting.value else None
     except Exception:
         return None
+
+
+async def get_secret_key_async() -> str:
+    """Get SECRET_KEY from DB or .env or generate new."""
+    from app.core.db import AsyncSessionLocal
+    from sqlalchemy import select
+    from app.domain.models import AppSetting
+    import secrets
+    
+    # Try DB first
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key == "secret_key")
+            )
+            setting = result.scalar_one_or_none()
+            if setting and setting.value:
+                return setting.value
+    except Exception:
+        pass
+    
+    # Fallback to .env
+    if settings.SECRET_KEY:
+        return settings.SECRET_KEY
+    
+    # Generate new (should not happen if bootstrap ran correctly)
+    new_key = secrets.token_urlsafe(48)
+    try:
+        async with AsyncSessionLocal() as session:
+            session.add(AppSetting(key="secret_key", value=new_key))
+            await session.commit()
+    except Exception:
+        pass
+    return new_key
+
+
+# Sync fallback - populated at startup from bootstrap_secret_key()
+_secret_key_cache: str | None = None
+
+
+def get_secret_key() -> str:
+    """Get SECRET_KEY synchronously (cached at startup)."""
+    global _secret_key_cache
+    if _secret_key_cache:
+        return _secret_key_cache
+    # Fallback to pydantic settings (may be empty on first run)
+    return settings.SECRET_KEY
+
+
+def set_secret_key_cache(key: str):
+    """Set the cached secret key (called from bootstrap)."""
+    global _secret_key_cache
+    _secret_key_cache = key
+
+
+# Alias for convenience in auth modules
+get_secret = get_secret_key
 
 
 async def get_base_url_async() -> str:
@@ -93,6 +159,30 @@ async def get_web_url_async() -> str:
     base = await get_base_url_async()
     port = await get_frontend_port_async()
     return f"{base}:{port}"
+
+
+def get_web_url_cached() -> str:
+    """Synchronous get_web_url with caching (call once at startup)."""
+    if not hasattr(get_web_url_cached, '_cached'):
+        base = settings.BASE_URL or "http://localhost"
+        port = settings.FRONTEND_PORT
+        get_web_url_cached._cached = f"{base}:{port}"
+    return get_web_url_cached._cached
+
+
+def get_base_url_cached() -> str:
+    """Synchronous get_base_url with caching."""
+    if not hasattr(get_base_url_cached, '_cached'):
+        get_base_url_cached._cached = settings.BASE_URL or "http://localhost"
+    return get_base_url_cached._cached
+
+
+def refresh_url_cache():
+    """Refresh URL cache (call after settings save)."""
+    if hasattr(get_web_url_cached, '_cached'):
+        delattr(get_web_url_cached, '_cached')
+    if hasattr(get_base_url_cached, '_cached'):
+        delattr(get_base_url_cached, '_cached')
 
 
 @lru_cache()

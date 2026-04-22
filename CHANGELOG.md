@@ -2,6 +2,66 @@
 
 ---
 
+## v0.8.24 — Идеи и База знаний (2026-04-21)
+
+### Frontend
+
+#### Идеи (is_idea)
+- Поле `is_idea` в модели задачи
+- IdeasPage: создание и управление идеями
+- Конвертация task↔idea в TaskModal
+- Фильтр "💡 Идеи" в Dashboard
+
+#### База знаний
+- Модели KnowledgeFolder/KnowledgePage
+- KnowledgeBasePage: полный CRUD папок и страниц
+- Управление видимостью секций в настройках
+
+#### UI улучшения
+- HelpPage: документация и подсказки
+- Видимость секций (задачи, встречи, спринты, бэклог, архив, идеи, база знаний)
+- Динамический CORS middleware
+
+---
+
+## v0.8.24 — Настройки в БД (2026-04-19)
+
+### Backend
+
+#### DB fallback для .env (#385-388)
+- TELEGRAM_BOT_TOKEN: добавлен fallback в БД (AppSetting telegram_bot_token)
+- TELEGRAM_PROXY_URL: уже работает из БД
+- BASE_URL/FRONTEND_PORT: добавлены async getters (get_base_url_async, get_frontend_port_async)
+- Бот теперь запускается когда токен сохранён через UI
+
+#### Bug fixes
+- Бот не запускался если токен сохранён в БД но не в .env — **FIXED**
+
+---
+
+## v0.8.23 — Тестовый фреймворк (2026-04-18)
+
+### Backend
+- pytest + httpx: 22 теста
+- Vitest: 3 теста
+
+---
+
+## v0.8.22 — AI интеграция (2026-04-18)
+
+### Backend
+- AITaskModal: генерация задач из текста через AI
+- AI Settings: провайдер, модель, API-ключ из UI
+- Custom endpoint: LM Studio, Ollama
+- AI Error handling с понятными сообщениями
+
+### Bug fixes
+- Assign задач: telegram_id → account_id
+- Подзадачам присваивается assignee при "Взять"
+- API key в заголовке, не в URL
+
+---
+
 ## v0.8.16 — API и интеграции: вебхуки, API-ключи, учёт времени (2026-03-25)
 
 ### Backend
