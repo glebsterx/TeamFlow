@@ -1228,7 +1228,7 @@ async def update_knowledge_folder(folder_id: int, request: dict, db: AsyncSessio
 
     result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == folder_id))
     folder = result.scalar_one_or_none()
-    if not folder:
+    if not folder or folder.deleted_at:
         raise HTTPException(status_code=404, detail="Folder not found")
     if request.get("name"):
         folder.name = request["name"]
@@ -1328,7 +1328,7 @@ async def update_knowledge_page(page_id: int, request: dict, db: AsyncSession = 
 
     result = await db.execute(select(KnowledgePage).where(KnowledgePage.id == page_id))
     page = result.scalar_one_or_none()
-    if not page:
+    if not page or page.deleted_at:
         raise HTTPException(status_code=404, detail="Page not found")
     if request.get("title"):
         page.title = request["title"]
@@ -1403,13 +1403,18 @@ async def get_knowledge_trash(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/knowledge-base/trash/{item_id}/restore")
-async def restore_knowledge_item(item_id: int, db: AsyncSession = Depends(get_db)):
-    """Restore deleted knowledge page or folder (with all parents path)."""
+async def restore_knowledge_item(item_id: int, type: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Restore deleted knowledge page or folder (with all parents path).
+
+    `type` ("page"/"folder") disambiguates id collisions between the two tables.
+    """
     from app.domain.models import KnowledgePage, KnowledgeFolder
     from sqlalchemy import select, update
 
-    page_result = await db.execute(select(KnowledgePage).where(KnowledgePage.id == item_id))
-    page = page_result.scalar_one_or_none()
+    page = None
+    if type != "folder":
+        page_result = await db.execute(select(KnowledgePage).where(KnowledgePage.id == item_id))
+        page = page_result.scalar_one_or_none()
     if page and page.deleted_at:
         folder_id = page.folder_id
         await db.execute(
@@ -1434,7 +1439,7 @@ async def restore_knowledge_item(item_id: int, db: AsyncSession = Depends(get_db
     folder_result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == item_id))
     folder = folder_result.scalar_one_or_none()
     if folder and folder.deleted_at:
-        # Restore all parent folders from bottom to top
+        # Restore all parent folders from bottom to top (so the path is visible)
         parent_id = folder.parent_id
         while parent_id:
             parent_result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == parent_id))
@@ -1446,23 +1451,45 @@ async def restore_knowledge_item(item_id: int, db: AsyncSession = Depends(get_db
                 parent_id = parent.parent_id
             else:
                 break
-        
+
+        # Restore the folder itself and its whole subtree (mirror of cascade delete)
+        async def restore_subtree(fid: int):
+            await db.execute(
+                update(KnowledgeFolder).where(KnowledgeFolder.id == fid).values(deleted_at=None)
+            )
+            await db.execute(
+                update(KnowledgePage).where(KnowledgePage.folder_id == fid).values(deleted_at=None)
+            )
+            children = await db.execute(select(KnowledgeFolder.id).where(KnowledgeFolder.parent_id == fid))
+            for (child_id,) in children.all():
+                await restore_subtree(child_id)
+
+        await restore_subtree(folder.id)
         await db.commit()
         return {"ok": True}
-    
+
     raise HTTPException(status_code=404, detail="Item not found")
 
 
 @router.delete("/knowledge-base/trash/folders/{folder_id}")
 async def permanently_delete_knowledge_folder(folder_id: int, db: AsyncSession = Depends(get_db)):
-    """Permanently delete knowledge folder."""
-    from app.domain.models import KnowledgeFolder
+    """Permanently delete knowledge folder and its whole subtree."""
+    from app.domain.models import KnowledgeFolder, KnowledgePage
 
     result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == folder_id))
     folder = result.scalar_one_or_none()
     if not folder:
         raise HTTPException(status_code=404, detail="Folder not found")
-    await db.delete(folder)
+
+    # SQLite FK enforcement is off — delete children explicitly to avoid orphans.
+    async def purge_subtree(fid: int):
+        children = await db.execute(select(KnowledgeFolder.id).where(KnowledgeFolder.parent_id == fid))
+        for (child_id,) in children.all():
+            await purge_subtree(child_id)
+        await db.execute(delete(KnowledgePage).where(KnowledgePage.folder_id == fid))
+        await db.execute(delete(KnowledgeFolder).where(KnowledgeFolder.id == fid))
+
+    await purge_subtree(folder_id)
     await db.commit()
     return {"ok": True}
 

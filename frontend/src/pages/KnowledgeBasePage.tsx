@@ -26,6 +26,18 @@ interface KnowledgePage {
   updated_at: string | null;
 }
 
+interface TrashItem {
+  id: number;
+  title: string;
+  type: 'page' | 'folder';
+  deleted_at: string | null;
+}
+
+interface KnowledgeTrash {
+  pages: TrashItem[];
+  folders: TrashItem[];
+}
+
 export default function KnowledgeBasePage() {
   const queryClient = useQueryClient();
   const invalidate = () => {
@@ -41,6 +53,7 @@ export default function KnowledgeBasePage() {
   const [confirmDeletePage, setConfirmDeletePage] = useState<number | null>(null);
   const [editingContent, setEditingContent] = useState(false);
   const [pageContent, setPageContent] = useState('');
+  const [showTrash, setShowTrash] = useState(false);
 
   const { data: folders = [] } = useQuery<KnowledgeFolder[]>({
     queryKey: ['knowledge-folders'],
@@ -96,7 +109,34 @@ export default function KnowledgeBasePage() {
     mutationFn: async (id: number) => {
       await axios.delete(`${API_URL}/api/knowledge-base/pages/${id}`);
     },
-    onSuccess: () => { invalidate(); setConfirmDeletePage(null); setSelectedPage(null); showToast('Удалено', 'success'); },
+    onSuccess: () => { invalidate(); setConfirmDeletePage(null); setSelectedPage(null); showToast('В корзине', 'success'); },
+    onError: (err: any) => showToast(err?.response?.data?.detail || 'Ошибка', 'error'),
+  });
+
+  const { data: trash } = useQuery<KnowledgeTrash>({
+    queryKey: ['knowledge-trash'],
+    queryFn: async () => (await axios.get(`${API_URL}/api/knowledge-base/trash`)).data,
+    enabled: showTrash,
+  });
+
+  const invalidateTrash = () => queryClient.invalidateQueries({ queryKey: ['knowledge-trash'] });
+
+  const restoreMutation = useMutation({
+    mutationFn: async (item: TrashItem) => {
+      await axios.post(`${API_URL}/api/knowledge-base/trash/${item.id}/restore`, null, { params: { type: item.type } });
+    },
+    onSuccess: () => { invalidate(); invalidateTrash(); showToast('Восстановлено', 'success'); },
+    onError: (err: any) => showToast(err?.response?.data?.detail || 'Ошибка', 'error'),
+  });
+
+  const purgeMutation = useMutation({
+    mutationFn: async (item: TrashItem) => {
+      const path = item.type === 'folder'
+        ? `${API_URL}/api/knowledge-base/trash/folders/${item.id}`
+        : `${API_URL}/api/knowledge-base/trash/${item.id}`;
+      await axios.delete(path);
+    },
+    onSuccess: () => { invalidateTrash(); showToast('Удалено навсегда', 'success'); },
     onError: (err: any) => showToast(err?.response?.data?.detail || 'Ошибка', 'error'),
   });
 
@@ -114,7 +154,6 @@ export default function KnowledgeBasePage() {
 
   const renderFolder = (folder: KnowledgeFolder, level: number = 0) => {
     const childFolders = getChildFolders(folder.id);
-    const folderPages = getPagesInFolder(folder.id);
     const isSelected = selectedFolderId === folder.id;
 
     return (
@@ -150,12 +189,21 @@ export default function KnowledgeBasePage() {
       <div className="w-64 bg-white border rounded-lg flex flex-col">
         <div className="p-3 border-b flex items-center justify-between">
           <h3 className="font-medium">Папки</h3>
-          <button
-            onClick={() => setShowFolderModal({ id: 0, name: '', parent_id: null, order: 0, created_at: null, updated_at: null } as any)}
-            className="text-sm px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            +
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowTrash(true)}
+              title="Корзина"
+              className="text-sm px-2 py-1 border rounded hover:bg-gray-100"
+            >
+              🗑️
+            </button>
+            <button
+              onClick={() => setShowFolderModal({ id: 0, name: '', parent_id: null, order: 0, created_at: null, updated_at: null } as any)}
+              className="text-sm px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
+              +
+            </button>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto p-2">
           <div
@@ -366,7 +414,7 @@ export default function KnowledgeBasePage() {
       {confirmDeleteFolder && (
         <Modal onClose={() => setConfirmDeleteFolder(null)}>
           <h2 className="text-lg font-bold mb-4">Удалить папку?</h2>
-          <p className="text-gray-500 mb-4">Все страницы в этой папке также будут удалены.</p>
+          <p className="text-gray-500 mb-4">Папка и всё её содержимое переместятся в корзину. Можно будет восстановить.</p>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setConfirmDeleteFolder(null)} className="px-3 py-2 text-gray-500">Отмена</button>
             <button
@@ -384,7 +432,7 @@ export default function KnowledgeBasePage() {
       {confirmDeletePage && (
         <Modal onClose={() => setConfirmDeletePage(null)}>
           <h2 className="text-lg font-bold mb-4">Удалить страницу?</h2>
-          <p className="text-gray-500 mb-4">Это действие необратимо.</p>
+          <p className="text-gray-500 mb-4">Страница переместится в корзину. Можно будет восстановить.</p>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setConfirmDeletePage(null)} className="px-3 py-2 text-gray-500">Отмена</button>
             <button
@@ -394,6 +442,51 @@ export default function KnowledgeBasePage() {
             >
               {deletePageMutation.isPending ? '...' : 'Удалить'}
             </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Trash Modal */}
+      {showTrash && (
+        <Modal onClose={() => setShowTrash(false)}>
+          <h2 className="text-lg font-bold mb-4">🗑️ Корзина базы знаний</h2>
+          {(() => {
+            const items: TrashItem[] = [...(trash?.folders || []), ...(trash?.pages || [])];
+            if (items.length === 0) {
+              return <p className="text-gray-400 text-center py-8">Корзина пуста</p>;
+            }
+            return (
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                {items.map(item => (
+                  <div key={`${item.type}-${item.id}`} className="flex items-center gap-2 p-2 border rounded-lg">
+                    <span>{item.type === 'folder' ? '📁' : '📄'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm truncate">{item.title || '(без названия)'}</p>
+                      {item.deleted_at && (
+                        <p className="text-xs text-gray-400">Удалено {timeAgo(item.deleted_at)}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => restoreMutation.mutate(item)}
+                      disabled={restoreMutation.isPending}
+                      className="text-sm px-2 py-1 border rounded hover:bg-green-50 hover:text-green-600 disabled:opacity-50"
+                    >
+                      Восстановить
+                    </button>
+                    <button
+                      onClick={() => purgeMutation.mutate(item)}
+                      disabled={purgeMutation.isPending}
+                      className="text-sm px-2 py-1 border rounded hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                    >
+                      Удалить навсегда
+                    </button>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          <div className="flex justify-end mt-4">
+            <button onClick={() => setShowTrash(false)} className="px-3 py-2 text-gray-500">Закрыть</button>
           </div>
         </Modal>
       )}
