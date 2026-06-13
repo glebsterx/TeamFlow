@@ -12,7 +12,7 @@ from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskStatus, TaskSource
 from app.telegram.keyboards.task_keyboards import get_task_action_keyboard
-from app.config import settings
+from app.config import settings, get_web_url_cached
 from app.core.logging import get_logger
 
 # Accepts: "ДД.ММ ЧЧ:ММ" or "ДД.ММ.ГГГГ ЧЧ:ММ"
@@ -138,7 +138,7 @@ async def cmd_task(message: Message, state: FSMContext):
             )
             await db.commit()  # fix: commit was missing — task was not persisted
 
-            web_url = f"{settings.web_url}/?task={task.id}"
+            web_url = f"{get_web_url_cached()}/?task={task.id}"
             author_line = f"👤 Автор: @{author_name}\n" if author_name else ""
             await message.answer(
                 f"✅ *Задача создана из сообщения!*\n\n"
@@ -208,7 +208,7 @@ async def _create_and_reply(target, state: FSMContext, due_date: datetime | None
 
     await state.clear()
     due_line = f"\n📅 Дедлайн: {_format_dt_msk(due_date)}" if due_date else ""
-    web_url = f"{settings.web_url}/?task={task.id}"
+    web_url = f"{get_web_url_cached()}/?task={task.id}"
     text = (
         f"✅ *Задача создана!*\n\n"
         f"#{task.id} {task.title}{due_line}\n\n"

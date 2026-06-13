@@ -25,17 +25,17 @@ interface IdeasPageProps {
 
 export default function IdeasPage({ tasks, projects }: IdeasPageProps) {
   const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['knowledge'] });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['ideas'] });
 
-  const [editingItem, setEditingItem] = useState<KnowledgeItem | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
-  const [showNewIdea, setShowNewIdea] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
+  const [showNewIdea, setShowNewIdea] = useState(false);
+  const [editingItem, setEditingItem] = useState<KnowledgeItem | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
   const { data: ideas = [], isLoading } = useQuery<KnowledgeItem[]>({
-    queryKey: ['knowledge'],
-    queryFn: async () => (await axios.get(`${API_URL}/api/knowledge`)).data,
+    queryKey: ['ideas'],
+    queryFn: async () => (await axios.get(`${API_URL}/api/ideas`)).data,
   });
 
   const createMutation = useMutation({

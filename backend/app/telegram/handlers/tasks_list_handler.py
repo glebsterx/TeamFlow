@@ -1,4 +1,4 @@
-﻿"""Команда /tasks — список задач кнопками с деталями."""
+"""Команда /tasks — список задач кнопками с деталями."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -7,7 +7,7 @@ from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskStatus
 
-from app.config import settings
+from app.config import settings, get_web_url_cached
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -250,7 +250,7 @@ async def handle_task_detail(callback: CallbackQuery):
         
         assignee_str = f"\n👤 Исполнитель: {task.assignee.display_name}" if task.assignee else "\n👤 Не назначено"
         desc = f"\n\n{task.description}" if task.description else ""
-        web_url = f"{settings.web_url}/?task={task.id}"
+        web_url = f"{get_web_url_cached()}/?task={task.id}"
 
         text = (
             f"{STATUS_EMOJI[task.status]} *Задача #{task.id}*\n"

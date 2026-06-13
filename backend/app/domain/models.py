@@ -530,6 +530,7 @@ class KnowledgeFolder(Base):
     name = Column(String(100), nullable=False)
     parent_id = Column(Integer, ForeignKey("knowledge_folders.id", ondelete="CASCADE"), nullable=True)
     order = Column(Integer, default=0, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=Clock.now)
     updated_at = Column(DateTime, nullable=False, default=Clock.now, onupdate=Clock.now)
 
@@ -546,6 +547,7 @@ class KnowledgePage(Base):
     content = Column(Text, nullable=True)  # Markdown content
     folder_id = Column(Integer, ForeignKey("knowledge_folders.id", ondelete="CASCADE"), nullable=True)
     order = Column(Integer, default=0, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)  # Soft delete
     created_at = Column(DateTime, nullable=False, default=Clock.now)
     updated_at = Column(DateTime, nullable=False, default=Clock.now, onupdate=Clock.now)
 

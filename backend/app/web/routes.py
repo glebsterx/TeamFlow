@@ -7,7 +7,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Query, BackgroundTasks, Depends, HTTPException, Header
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text, delete, func
+from sqlalchemy import select, text, delete, func, or_
 from sqlalchemy.orm import selectinload
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -1129,9 +1129,9 @@ async def create_task_api(
 # ============= KNOWLEDGE / IDEAS API =============
 
 
-@router.get("/knowledge", response_model=list[dict])
-async def get_knowledge(db: AsyncSession = Depends(get_db)):
-    """Return ideas/knowledge items."""
+@router.get("/ideas", response_model=list[dict])
+async def get_ideas(db: AsyncSession = Depends(get_db)):
+    """Return ideas (tasks with is_idea=True)."""
     q = select(Task).where(Task.deleted == False, Task.is_idea == True).order_by(Task.updated_at.desc())
     rows = (await db.execute(q)).scalars().all()
     return [
@@ -1182,7 +1182,7 @@ async def get_knowledge_folders(db: AsyncSession = Depends(get_db)):
     """Get all knowledge folders (tree structure)."""
     from app.domain.models import KnowledgeFolder
 
-    q = select(KnowledgeFolder).order_by(KnowledgeFolder.order, KnowledgeFolder.name)
+    q = select(KnowledgeFolder).where(KnowledgeFolder.deleted_at.is_(None)).order_by(KnowledgeFolder.order, KnowledgeFolder.name)
     result = await db.execute(q)
     folders = result.scalars().all()
     return [
@@ -1243,28 +1243,44 @@ async def update_knowledge_folder(folder_id: int, request: dict, db: AsyncSessio
 
 @router.delete("/knowledge-base/folders/{folder_id}")
 async def delete_knowledge_folder(folder_id: int, db: AsyncSession = Depends(get_db)):
-    """Delete knowledge folder (cascades to pages)."""
-    from app.domain.models import KnowledgeFolder
+    """Soft delete knowledge folder (moves to trash with all children)."""
+    from app.domain.models import KnowledgeFolder, KnowledgePage
+    from datetime import datetime
 
-    result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == folder_id))
-    folder = result.scalar_one_or_none()
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
-    await db.delete(folder)
+    async def soft_delete_folder_recursive(folder_id: int):
+        result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.parent_id == folder_id))
+        child_folders = result.scalars().all()
+        for child in child_folders:
+            await soft_delete_folder_recursive(child.id)
+        
+        pages_result = await db.execute(select(KnowledgePage).where(KnowledgePage.folder_id == folder_id))
+        pages = pages_result.scalars().all()
+        for page in pages:
+            page.deleted_at = datetime.utcnow()
+        
+        folder_result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == folder_id))
+        folder = folder_result.scalar_one_or_none()
+        if folder:
+            folder.deleted_at = datetime.utcnow()
+    
+    await soft_delete_folder_recursive(folder_id)
     await db.commit()
     return {"ok": True}
 
 
 @router.get("/knowledge-base/pages")
-async def get_knowledge_pages(folder_id: Optional[int] = None, db: AsyncSession = Depends(get_db)):
-    """Get knowledge pages (optionally filtered by folder)."""
-    from app.domain.models import KnowledgePage
+async def get_knowledge_pages(db: AsyncSession = Depends(get_db)):
+    """Get all knowledge pages."""
+    from app.domain.models import KnowledgePage, KnowledgeFolder
 
-    q = select(KnowledgePage)
-    if folder_id is not None:
-        q = q.where(KnowledgePage.folder_id == folder_id)
-    q = q.order_by(KnowledgePage.order, KnowledgePage.title)
-    result = await db.execute(q)
+    result = await db.execute(
+        select(KnowledgePage)
+        .where(KnowledgePage.deleted_at.is_(None))
+        .where(or_(KnowledgePage.folder_id == None, KnowledgePage.folder_id.in_(
+            select(KnowledgeFolder.id).where(KnowledgeFolder.deleted_at.is_(None))
+        )))
+        .order_by(KnowledgePage.order)
+    )
     pages = result.scalars().all()
     return [
         {
@@ -1329,7 +1345,131 @@ async def update_knowledge_page(page_id: int, request: dict, db: AsyncSession = 
 
 @router.delete("/knowledge-base/pages/{page_id}")
 async def delete_knowledge_page(page_id: int, db: AsyncSession = Depends(get_db)):
-    """Delete knowledge page."""
+    """Soft delete knowledge page."""
+    from app.domain.models import KnowledgePage
+    from datetime import datetime
+
+    result = await db.execute(select(KnowledgePage).where(KnowledgePage.id == page_id))
+    page = result.scalar_one_or_none()
+    if not page:
+        raise HTTPException(status_code=404, detail="Page not found")
+    page.deleted_at = datetime.utcnow()
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/knowledge-base/trash")
+async def get_knowledge_trash(db: AsyncSession = Depends(get_db)):
+    """Get deleted knowledge pages and folders."""
+    from app.domain.models import KnowledgePage, KnowledgeFolder
+
+    pages_result = await db.execute(
+        select(KnowledgePage)
+        .where(KnowledgePage.deleted_at.isnot(None))
+        .order_by(KnowledgePage.deleted_at.desc())
+    )
+    pages = pages_result.scalars().all()
+
+    folders_result = await db.execute(
+        select(KnowledgeFolder)
+        .where(KnowledgeFolder.deleted_at.isnot(None))
+        .order_by(KnowledgeFolder.deleted_at.desc())
+    )
+    folders = folders_result.scalars().all()
+
+    return {
+        "pages": [
+            {
+                "id": p.id,
+                "title": p.title,
+                "content": p.content,
+                "folder_id": p.folder_id,
+                "deleted_at": p.deleted_at.isoformat() if p.deleted_at else None,
+                "type": "page",
+            }
+            for p in pages
+        ],
+        "folders": [
+            {
+                "id": f.id,
+                "title": f.name,
+                "parent_id": f.parent_id,
+                "deleted_at": f.deleted_at.isoformat() if f.deleted_at else None,
+                "type": "folder",
+            }
+            for f in folders
+        ],
+    }
+
+
+@router.post("/knowledge-base/trash/{item_id}/restore")
+async def restore_knowledge_item(item_id: int, db: AsyncSession = Depends(get_db)):
+    """Restore deleted knowledge page or folder (with all parents path)."""
+    from app.domain.models import KnowledgePage, KnowledgeFolder
+    from sqlalchemy import select, update
+
+    page_result = await db.execute(select(KnowledgePage).where(KnowledgePage.id == item_id))
+    page = page_result.scalar_one_or_none()
+    if page and page.deleted_at:
+        folder_id = page.folder_id
+        await db.execute(
+            update(KnowledgePage).where(KnowledgePage.id == item_id).values(deleted_at=None)
+        )
+        
+        # Restore parents path from bottom to top
+        while folder_id:
+            folder_result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == folder_id))
+            folder = folder_result.scalar_one_or_none()
+            if folder and folder.deleted_at:
+                await db.execute(
+                    update(KnowledgeFolder).where(KnowledgeFolder.id == folder_id).values(deleted_at=None)
+                )
+                folder_id = folder.parent_id
+            else:
+                break
+        
+        await db.commit()
+        return {"ok": True}
+    
+    folder_result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == item_id))
+    folder = folder_result.scalar_one_or_none()
+    if folder and folder.deleted_at:
+        # Restore all parent folders from bottom to top
+        parent_id = folder.parent_id
+        while parent_id:
+            parent_result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == parent_id))
+            parent = parent_result.scalar_one_or_none()
+            if parent and parent.deleted_at:
+                await db.execute(
+                    update(KnowledgeFolder).where(KnowledgeFolder.id == parent_id).values(deleted_at=None)
+                )
+                parent_id = parent.parent_id
+            else:
+                break
+        
+        await db.commit()
+        return {"ok": True}
+    
+    raise HTTPException(status_code=404, detail="Item not found")
+
+
+@router.delete("/knowledge-base/trash/folders/{folder_id}")
+async def permanently_delete_knowledge_folder(folder_id: int, db: AsyncSession = Depends(get_db)):
+    """Permanently delete knowledge folder."""
+    from app.domain.models import KnowledgeFolder
+
+    result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == folder_id))
+    folder = result.scalar_one_or_none()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    await db.delete(folder)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/knowledge-base/trash/{page_id}")
+async def permanently_delete_knowledge_page(page_id: int, db: AsyncSession = Depends(get_db)):
+    """Permanently delete knowledge page."""
     from app.domain.models import KnowledgePage
 
     result = await db.execute(select(KnowledgePage).where(KnowledgePage.id == page_id))
@@ -2236,8 +2376,6 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
     for task in all_tasks:
         if task.assignee:
             name = task.assignee.display_name
-        elif task:
-            name = task
         else:
             continue
         if name not in performers:

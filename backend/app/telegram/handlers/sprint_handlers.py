@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.core.db import AsyncSessionLocal
 from app.domain.models import Sprint, SprintTask, Task
-from app.config import settings
+from app.config import settings, get_web_url_cached
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -109,13 +109,13 @@ def _build_sprint_board(sprint) -> tuple[str, InlineKeyboardMarkup]:
             ),
             InlineKeyboardButton(
                 text=f"↗ #{t.id}",
-                url=f"{settings.web_url}/?task={t.id}"
+                url=f"{get_web_url_cached()}/?task={t.id}"
             ),
         ])
 
     buttons.append([
         InlineKeyboardButton(text="🔄 Обновить", callback_data=f"sp_r:{sprint.id}"),
-        InlineKeyboardButton(text="🌐 Все спринты", url=f"{settings.web_url}/?page=sprints"),
+        InlineKeyboardButton(text="🌐 Все спринты", url=f"{get_web_url_cached()}/?page=sprints"),
     ])
 
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)

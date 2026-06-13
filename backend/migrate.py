@@ -158,6 +158,9 @@ MIGRATIONS = [
     (None, None, "CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at DESC)"),
     # Индекс для бэклога
     (None, None, "CREATE INDEX IF NOT EXISTS idx_tasks_backlog ON tasks(backlog, archived, deleted)"),
+    # Корзина базы знаний — soft delete
+    ("knowledge_folders", "deleted_at", "ALTER TABLE knowledge_folders ADD COLUMN deleted_at DATETIME"),
+    ("knowledge_pages", "deleted_at", "ALTER TABLE knowledge_pages ADD COLUMN deleted_at DATETIME"),
 ]
 
 async def run():

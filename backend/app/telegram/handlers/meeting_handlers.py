@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.core.db import AsyncSessionLocal
 from app.domain.models import Meeting, MeetingParticipant, MeetingTask, Task
 from app.domain.enums import TaskSource
-from app.config import settings
+from app.config import settings, get_web_url_cached
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -131,7 +131,7 @@ async def process_meeting_summary(message: Message, state: FSMContext):
             if item and item not in items:
                 items.append(item)
 
-    web_url = f"{settings.web_url}/?meeting={meeting_id}"
+    web_url = f"{get_web_url_cached()}/?meeting={meeting_id}"
     type_label = MEETING_TYPES.get(meeting_type, "") if meeting_type else ""
 
     if items:
@@ -226,7 +226,7 @@ async def cmd_meetings_list(message: Message):
         }.get(m.meeting_type or "", "🤝")
         participants = ", ".join(p.display_name for p in m.participants) if m.participants else ""
         tasks_count = len(m.meeting_tasks) if m.meeting_tasks else 0
-        url = f"{settings.web_url}/?meeting={m.id}"
+        url = f"{get_web_url_cached()}/?meeting={m.id}"
 
         summary_short = m.summary[:60] + "…" if len(m.summary) > 60 else m.summary
         line = f"{type_label} [{date_str}]({url}) {summary_short}"

@@ -344,7 +344,7 @@ export default function Dashboard() {
     // #260 — Инвалидируем только задачи (stats обновится по своему refetchInterval)
     // Загрузка ВСЕХ задач с relations — самая тяжёлая операция, не умножайте её
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    queryClient.invalidateQueries({ queryKey: ['knowledge'] });
+    queryClient.invalidateQueries({ queryKey: ['ideas'] });
   };
 
   const changeStatusMutation = useMutation({
@@ -690,6 +690,13 @@ const takeTaskMutation = useMutation({
                 </button>
               );
             })()}
+            <a
+              href="/help"
+              className="text-xs px-2 py-1 rounded-lg text-gray-500 hover:bg-gray-100 transition"
+              title="Справка"
+            >
+              ❓
+            </a>
             <button
               onClick={() => { pushHist({ page: 'account' as any }); setCurrentPage('account'); }}
               className="text-xs px-3 py-1 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition flex items-center gap-1"

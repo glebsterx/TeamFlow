@@ -1,4 +1,4 @@
-﻿"""Message handler — умная эвристика для автосоздания задач."""
+"""Message handler — умная эвристика для автосоздания задач."""
 import re
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -9,7 +9,7 @@ from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskSource
 from app.domain.models import Project
 from app.telegram.keyboards.task_keyboards import get_confirmation_keyboard
-from app.config import settings
+from app.config import settings, get_web_url_cached
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -206,7 +206,7 @@ async def handle_confirm_task(callback: CallbackQuery):
 
         await session.commit()
 
-    web_url = f"{settings.web_url}/?task={task.id}"
+    web_url = f"{get_web_url_cached()}/?task={task.id}"
     await callback.message.edit_text(
         f"✅ *Задача создана!*\n\n#{task.id} {task.title}{project_name_hint}\n\n"
         f"🔗 [Открыть в браузере]({web_url})\n\n"

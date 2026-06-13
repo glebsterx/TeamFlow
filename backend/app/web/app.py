@@ -1,10 +1,8 @@
 """FastAPI web application."""
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
 import time
 from app.config import settings, get_base_url_async, get_frontend_port_async
-from app.core.clock import Clock
 from app.core.logging import get_logger
 from app.services.settings_service import SettingsService
 
@@ -109,6 +107,12 @@ async def load_cors_origins():
         if base:
             origins.append(base)
             origins.append(f"{base}:{port}")
+            # Also add without port for convenience (HTTPS = 443, HTTP = 80)
+            clean_base = base.replace("https://", "").replace("http://", "").rstrip("/")
+            origins.append(clean_base)
+            if clean_base:
+                origins.append(f"https://{clean_base}")
+                origins.append(f"http://{clean_base}")
     except Exception as e:
         errors.append(f"Ошибка读取 base_url: {e}")
     
@@ -126,7 +130,8 @@ def get_cors_origins() -> list[str]:
     """Get CORS origins from cache."""
     if _cors_origins_cache:
         return _cors_origins_cache
-    return [settings.web_url, settings.BASE_URL, "http://localhost:5180"]
+    from app.config import get_web_url_cached
+    return [get_web_url_cached(), settings.BASE_URL or "http://localhost", "http://localhost:5180"]
 
 
 async def reload_cors_origins():
@@ -166,7 +171,7 @@ FRONTEND_PATHS = [
     "/api/bot-info",
     "/api/events",
     "/api/events/enabled",
-    "/api/knowledge",
+    "/api/ideas",
     "/api/knowledge-base",
     "/api/bot-info",
     "/api/users",

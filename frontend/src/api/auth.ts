@@ -19,7 +19,6 @@ export interface AccountProfile {
   login?: string | null;
   has_password: boolean;
   is_active: boolean;
-  id?: number | null;
   telegram_username?: string | null;
   linked_providers: { provider: string; email?: string | null; linked_at?: string | null }[];
   created_at?: string | null;

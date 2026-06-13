@@ -16,7 +16,6 @@ interface TeamMember {
   invited_by_id: number | null;
   user?: {
     id: number;
-    id: number;
     username: string | null;
     first_name: string;
     last_name: string | null;
@@ -98,15 +97,20 @@ function BotSettingsSection() {
   const [botStatus, setBotStatus] = React.useState<any>(null);
 
   React.useEffect(() => {
-    axios.get(`${API_URL}/api/settings/proxy`).then(r => {
-      const url = r.data.proxy_url || '';
-      setProxyUrl('');
-    }).catch(() => {});
-    const fetchBotStatus = () => { axios.get(`${API_URL}/api/bot-status`).then(r => setBotStatus(r.data)).catch(() => {}); };
-    fetchBotStatus();
-    const interval = setInterval(fetchBotStatus, 30000);
-    axios.get(`${API_URL}/api/settings/bot-token`).then(r => { setMaskedToken(r.data.token); }).catch(() => {});
-    axios.get(`${API_URL}/api/settings/system`).then(r => { setChatId(r.data.telegram_chat_id || ''); }).catch(() => {});
+    Promise.all([
+      axios.get(`${API_URL}/api/settings/proxy`),
+      axios.get(`${API_URL}/api/bot-status`),
+      axios.get(`${API_URL}/api/settings/bot-token`),
+      axios.get(`${API_URL}/api/settings/system`)
+    ]).then(([proxyRes, statusRes, tokenRes, systemRes]) => {
+      setProxyUrl(proxyRes.data.proxy_url || '');
+      setBotStatus(statusRes.data);
+      setMaskedToken(tokenRes.data.token);
+      setChatId(systemRes.data.telegram_chat_id || '');
+    }).catch(() => {}).finally(() => setLoading(false));
+    const interval = setInterval(() => {
+      axios.get(`${API_URL}/api/bot-status`).then(r => setBotStatus(r.data)).catch(() => {});
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -235,11 +239,18 @@ function BotInfoSection() {
   const [botStatus, setBotStatus] = React.useState<any>(null);
   const [proxyUrl, setProxyUrl] = React.useState('');
   const [proxyCheck, setProxyCheck] = React.useState<{ checking: boolean; reachable?: boolean; error?: string; latency_ms?: number }>({ checking: false });
+  const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
-    axios.get(`${API_URL}/api/settings/bot-token`).then(r => setMaskedToken(r.data.token)).catch(() => {});
-    axios.get(`${API_URL}/api/bot-status`).then(r => setBotStatus(r.data)).catch(() => {});
-    axios.get(`${API_URL}/api/settings/proxy`).then(r => setProxyUrl(r.data.proxy_url || '')).catch(() => {});
+    Promise.all([
+      axios.get(`${API_URL}/api/settings/bot-token`),
+      axios.get(`${API_URL}/api/bot-status`),
+      axios.get(`${API_URL}/api/settings/proxy`)
+    ]).then(([tok, stat, prox]) => {
+      setMaskedToken(tok.data.token);
+      setBotStatus(stat.data);
+      setProxyUrl(prox.data.proxy_url || '');
+    }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   const handleCheckProxy = async () => {
@@ -264,6 +275,10 @@ function BotInfoSection() {
       setMaskedToken(null);
     } catch {}
   };
+
+  if (loading) {
+    return <div className="text-center py-8 text-gray-400">Загрузка...</div>;
+  }
 
   return (
     <section className="bg-white border rounded-xl p-4">
@@ -378,9 +393,6 @@ function SystemSettingsSection() {
       }))
       .catch(() => {})
       .finally(() => setLoading(false));
-    axios.get(`${API_URL}/api/settings/config-status`)
-      .then(r => setConfigStatus(r.data))
-      .catch(() => {});
     // Load VAPID email
     axios.get(`${API_URL}/api/push/config`)
       .then(r => {

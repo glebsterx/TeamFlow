@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 from app.core.db import AsyncSessionLocal
 from app.core.clock import Clock
 from app.core.logging import get_logger
-from app.config import settings
+from app.config import settings, get_web_url_cached
 from app.domain.models import LocalAccount
 
 logger = get_logger(__name__)
@@ -178,7 +178,9 @@ async def check_deadlines(bot):
                         f"⏰ Осталось: ~{int(hours_left)}ч\n"
                     )
                     if task.project_id:
-                        text_msg += f"\n[Открыть задачу]({settings.web_url}/?task={task.id})"
+                        task_link = f"[Открыть задачу]({get_web_url_cached()}/?task={task.id})"
+                    if task.project_id:
+                        text_msg += f"\n{task_link}"
 
                     try:
                         await bot.send_message(

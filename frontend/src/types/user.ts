@@ -26,7 +26,6 @@ export interface TokenResponse {
   token_type: string;
   user: {
     id: number;
-    id: number;
     username?: string;
     first_name: string;
     last_name?: string;

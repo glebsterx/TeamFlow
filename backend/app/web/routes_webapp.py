@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.core.db import get_db
 from app.core.clock import Clock
 from app.domain.models import Task, Sprint, SprintTask
+from app.config import settings, get_web_url_async
 from app.domain.enums import TaskStatus
 from app.web.schemas import TaskResponse
 from app.config import settings
@@ -26,8 +27,9 @@ router = APIRouter(prefix="/webapp", tags=["webapp"])
 @router.get("/config")
 async def get_webapp_config():
     """Вернуть URL и флаги конфигурации Mini App."""
+    web_url = await get_web_url_async()
     return {
-        "webapp_url": settings.WEBAPP_URL or f"{settings.web_url}",
+        "webapp_url": settings.WEBAPP_URL or web_url,
         "app_name": settings.APP_NAME,
         "version": settings.VERSION,
         "enabled": bool(settings.WEBAPP_URL or settings.BASE_URL),

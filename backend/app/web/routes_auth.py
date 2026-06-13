@@ -9,7 +9,7 @@ from datetime import datetime
 from app.core.db import get_db
 from app.core.clock import Clock
 from app.core.logging import get_logger
-from app.config import settings, get_web_url_async
+from app.config import settings, get_web_url_async, get_web_url_cached
 from app.domain.models import LocalAccount, LocalIdentity, UserIdentity, AppSetting, TeamMember
 from sqlalchemy import select
 from app.services.account_service import AccountService
@@ -760,7 +760,8 @@ async def google_callback(
         
         # Проверяем не привязан ли уже к другому аккаунту
         if existing_link and existing_link.local_account_id != existing_account_id:
-            return RedirectResponse(url=f"{settings.web_url}/account?error=already_linked_to_other")
+            web_url = await get_web_url_async()
+            return RedirectResponse(url=f"{web_url}/account?error=already_linked_to_other")
         
         existing = await AccountService.get_by_id(db, existing_account_id)
         if existing:
@@ -776,7 +777,8 @@ async def google_callback(
                 existing_link.access_token = token_data.get("access_token")
                 existing_link.refresh_token = token_data.get("refresh_token")
             await db.commit()
-            return RedirectResponse(url=f"{settings.web_url}/account?success=google_linked")
+            web_url = await get_web_url_async()
+            return RedirectResponse(url=f"{web_url}/account?success=google_linked")
     
     if existing_link:
         # Уже привязан — используем существующий аккаунт
@@ -801,7 +803,8 @@ async def google_callback(
             )
             invite_obj = invite.scalar_one_or_none()
             if not invite_obj:
-                return RedirectResponse(url=f"{settings.web_url}/login?error=invite_required")
+                web_url = await get_web_url_async()
+                return RedirectResponse(url=f"{web_url}/login?error=invite_required")
             # Помечаем приглашение как использованное
             invite_obj.used_at = Clock.now()
         
@@ -823,8 +826,9 @@ async def google_callback(
     
     # Генерируем токены и редиректим
     tokens = AccountService.generate_jwt(account.id, "google")
+    web_url = await get_web_url_async()
     return RedirectResponse(
-        url=f"{settings.web_url}/login#access_token={tokens['access_token']}&refresh_token={tokens['refresh_token']}&account_id={account.id}"
+        url=f"{web_url}/login#access_token={tokens['access_token']}&refresh_token={tokens['refresh_token']}&account_id={account.id}"
     )
 
 
@@ -917,7 +921,8 @@ async def yandex_callback(
         
         # Проверяем не привязан ли уже к другому аккаунту
         if existing_link and existing_link.local_account_id != existing_account_id:
-            return RedirectResponse(url=f"{settings.web_url}/account?error=already_linked_to_other")
+            web_url = await get_web_url_async()
+            return RedirectResponse(url=f"{web_url}/account?error=already_linked_to_other")
         
         existing = await AccountService.get_by_id(db, existing_account_id)
         if existing:
@@ -932,7 +937,8 @@ async def yandex_callback(
                 existing_link.access_token = token_data.get("access_token")
                 existing_link.refresh_token = token_data.get("refresh_token")
             await db.commit()
-            return RedirectResponse(url=f"{settings.web_url}/account?success=yandex_linked")
+            web_url = await get_web_url_async()
+            return RedirectResponse(url=f"{web_url}/account?success=yandex_linked")
     
     if existing_link:
         account = await AccountService.get_by_id(db, existing_link.local_account_id)
@@ -955,7 +961,8 @@ async def yandex_callback(
             )
             invite_obj = invite.scalar_one_or_none()
             if not invite_obj:
-                return RedirectResponse(url=f"{settings.web_url}/login?error=invite_required")
+                web_url = await get_web_url_async()
+                return RedirectResponse(url=f"{web_url}/login?error=invite_required")
             invite_obj.used_at = Clock.now()
         
         account = await AccountService.create_account(
@@ -974,8 +981,9 @@ async def yandex_callback(
         await db.commit()
     
     tokens = AccountService.generate_jwt(account.id, "yandex")
+    web_url = await get_web_url_async()
     return RedirectResponse(
-        url=f"{settings.web_url}/login#access_token={tokens['access_token']}&refresh_token={tokens['refresh_token']}&account_id={account.id}"
+        url=f"{web_url}/login#access_token={tokens['access_token']}&refresh_token={tokens['refresh_token']}&account_id={account.id}"
     )
 
 

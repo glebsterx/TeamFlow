@@ -4,7 +4,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message, CallbackQuery, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from app.config import get_secret_key, settings
+from app.config import get_secret_key, settings, get_web_url_cached
 from app.core.logging import get_logger
 from app.core.clock import Clock
 from datetime import timedelta
@@ -78,7 +78,7 @@ HELP_TEXT = (
         f"*🌐 Mini App:* доступен через кнопку меню\n"
         if settings.WEBAPP_URL and settings.WEBAPP_URL.startswith("https://") else ""
     )
-    + f"*🔗 Web UI:* {settings.web_url}"
+    + f"*🔗 Web UI:* {get_web_url_cached()}"
 )
 
 
