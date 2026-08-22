@@ -1,11 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
+import { API_URL } from '../api/client';
 
 export function ServerRestartGuard() {
   const [isDown, setIsDown] = useState(false);
 
   const checkServer = useCallback(async () => {
     try {
-      const resp = await fetch('/api/health', { method: 'HEAD', cache: 'no-store' });
+      // Absolute URL to the backend — a relative path here hits the Vite dev
+      // server's own SPA fallback (always 200) instead of the real backend,
+      // so it could never detect an actual outage and would reload on any
+      // network blip once it had (incorrectly) flagged itself as down.
+      // GET, not HEAD — the backend's /health route doesn't support HEAD (405).
+      const resp = await fetch(`${API_URL}/health`, { method: 'GET', cache: 'no-store' });
       if (resp.ok && isDown) {
         window.location.reload();
       } else if (resp.ok) {
