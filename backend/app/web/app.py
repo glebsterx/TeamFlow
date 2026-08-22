@@ -8,7 +8,7 @@ from app.core.deps import get_current_account_id
 from app.services.settings_service import SettingsService
 
 logger = get_logger(__name__)
-from app.web.routes import router as api_router
+from app.web.routes import router as api_router, public_router as api_public_router
 from app.web.routes_tags import router as tags_router
 from app.web.routes_templates import router as templates_router
 from app.web.routes_webapp import router as webapp_router
@@ -249,6 +249,7 @@ async def handle_options(path: str):
 # Routers that require a logged-in account (valid JWT access token).
 _auth_dep = [Depends(get_current_account_id)]
 
+app.include_router(api_public_router, prefix="/api")
 app.include_router(api_router, prefix="/api", dependencies=_auth_dep)
 app.include_router(tags_router, prefix="/api", dependencies=_auth_dep)
 app.include_router(templates_router, prefix="/api", dependencies=_auth_dep)

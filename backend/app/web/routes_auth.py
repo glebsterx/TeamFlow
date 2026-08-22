@@ -1050,3 +1050,134 @@ async def get_team_members(
             } if user else None,
         })
     return response
+
+
+# frontend/src/pages/SettingsPage.tsx (Команда tab) calls these — the
+# underlying CRUD already existed in TeamService but was never exposed as
+# routes, so these calls 405'd against the /{path:path} OPTIONS catch-all.
+
+@router.get("/team/invites")
+async def get_team_invites(
+    account_id: int = Depends(get_current_account_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Список активных приглашений (только admin)."""
+    await _require_admin(db, account_id)
+    from app.services.team_service import TeamService
+
+    web_url = await get_web_url_async()
+    invites = await TeamService.get_active_invites(db)
+    return [
+        {
+            "id": inv.id,
+            "invite_token": inv.invite_token,
+            "telegram_username": inv.telegram_username,
+            "email": inv.email,
+            "role": inv.role,
+            "is_active": inv.is_active,
+            "expires_at": inv.expires_at.isoformat() if inv.expires_at else None,
+            "created_at": inv.created_at.isoformat(),
+            "invite_url": f"{web_url}/login?invite={inv.invite_token}",
+        }
+        for inv in invites
+    ]
+
+
+@router.post("/team/invite")
+async def create_team_invite(
+    data: InviteRequest,
+    account_id: int = Depends(get_current_account_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Создать приглашение в команду (только admin)."""
+    admin = await _require_admin(db, account_id)
+    from app.services.team_service import TeamService
+
+    member_result = await db.execute(
+        select(TeamMember).where(TeamMember.telegram_user_id == admin.id)
+    )
+    member = member_result.scalar_one_or_none()
+    if not member:
+        member = TeamMember(telegram_user_id=admin.id, role="owner")
+        db.add(member)
+        await db.flush()
+
+    invite = await TeamService.create_invite(
+        db,
+        created_by_id=member.id,
+        role=data.role,
+        telegram_username=data.telegram_username,
+        email=data.email,
+        expires_days=data.expires_days,
+    )
+    await db.commit()
+    await db.refresh(invite)
+
+    web_url = await get_web_url_async()
+    return {
+        "id": invite.id,
+        "invite_token": invite.invite_token,
+        "telegram_username": invite.telegram_username,
+        "email": invite.email,
+        "role": invite.role,
+        "is_active": invite.is_active,
+        "expires_at": invite.expires_at.isoformat() if invite.expires_at else None,
+        "created_at": invite.created_at.isoformat(),
+        "invite_url": f"{web_url}/login?invite={invite.invite_token}",
+    }
+
+
+@router.delete("/team/invites/{invite_id}")
+async def cancel_team_invite(
+    invite_id: int,
+    account_id: int = Depends(get_current_account_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Отменить приглашение (только admin)."""
+    await _require_admin(db, account_id)
+    from app.domain.models import TeamInvite
+
+    result = await db.execute(select(TeamInvite).where(TeamInvite.id == invite_id))
+    invite = result.scalar_one_or_none()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Приглашение не найдено")
+    invite.is_active = False
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.delete("/team/members/{member_id}")
+async def remove_team_member(
+    member_id: int,
+    account_id: int = Depends(get_current_account_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Удалить участника из команды (только admin). Владельца удалить нельзя."""
+    await _require_admin(db, account_id)
+    from app.services.team_service import TeamService
+
+    ok = await TeamService.remove_member(db, member_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Нельзя удалить участника (не найден или это владелец)")
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.patch("/team/members/{member_id}/role")
+async def update_team_member_role(
+    member_id: int,
+    new_role: str = Query(...),
+    account_id: int = Depends(get_current_account_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Изменить роль участника команды (только admin). Роль владельца менять нельзя."""
+    await _require_admin(db, account_id)
+    from app.services.team_service import TeamService
+
+    if new_role not in ("admin", "member", "viewer"):
+        raise HTTPException(status_code=400, detail="Неверная роль")
+    ok = await TeamService.update_member_role(db, member_id, new_role)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Нельзя изменить роль (участник не найден или это владелец)")
+    await db.commit()
+    return {"status": "ok", "role": new_role}

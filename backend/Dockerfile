@@ -1,4 +1,9 @@
-FROM python:3.11-slim
+# Pinned by digest, not just tag: this host's network to Docker Hub's auth/
+# registry endpoints is unreliable (repeated DNS/TLS-handshake failures) —
+# pinning avoids a fresh `docker build` needing metadata resolution when the
+# layer is already cached locally. Same python:3.11-slim, bump the digest
+# when you actually want to update the base image.
+FROM python:3.11-slim@sha256:9c900dea9e8fb7e16277c179b555cc72d29a352dbc33cff48ad5a0412fd5bfc7
 
 WORKDIR /app
 

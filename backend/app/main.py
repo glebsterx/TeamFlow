@@ -1,5 +1,6 @@
 """Main application entry point."""
 import asyncio
+import time
 import uvicorn
 from multiprocessing import Process
 from app.config import settings
@@ -54,10 +55,25 @@ def main():
     api_process.start()
     
     logger.info("api_server_started", port=settings.API_PORT)
-    
-    # Run bot in main process
+
+    # Run bot in main process. A network blip (DNS, Telegram unreachable,
+    # registry-adjacent outages seen on this host) can raise out of
+    # run_bot()/start_polling() before aiogram's own internal retry loop
+    # ever kicks in (e.g. the initial bot.me() call). That used to be an
+    # uncaught exception here, which fell through to `finally` and killed
+    # the perfectly healthy API process along with it — a single Telegram
+    # hiccup took down the whole web app. Retry the bot with backoff
+    # instead; only a real shutdown (KeyboardInterrupt) tears everything down.
     try:
-        run_bot()
+        while True:
+            try:
+                run_bot()
+                break
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                logger.error("bot_crashed_restarting", error=str(e))
+                time.sleep(5)
     except KeyboardInterrupt:
         logger.info("application_shutting_down")
     finally:

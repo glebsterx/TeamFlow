@@ -32,8 +32,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Public, unauthenticated endpoints shown on the pre-login Welcome/Login page
+# (e.g. the bot username for the "Login via Telegram" button). Mounted in
+# app.py WITHOUT the account-auth dependency — everything else in `router`
+# requires a logged-in session.
+public_router = APIRouter()
 
-@router.get("/bot-info", response_model=BotInfoResponse)
+
+@public_router.get("/bot-info", response_model=BotInfoResponse)
 async def get_bot_info(db: AsyncSession = Depends(get_db)):
     from app.services.settings_service import SettingsService
 
