@@ -11,18 +11,22 @@ export const apiClient = axios.create({
 });
 
 // Request interceptor to add auth token
-apiClient.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
+const attachAuthToken = (config: any) => {
+  const token = localStorage.getItem('access_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
-);
+  return config;
+};
+apiClient.interceptors.request.use(attachAuthToken, (error) => Promise.reject(error));
+
+// Many pages call the bare `axios` module directly instead of `apiClient`
+// (e.g. `axios.get(`${API_URL}/api/...`)`). Attaching the same interceptor
+// to the shared axios singleton covers those too, since every `import axios
+// from 'axios'` in the app resolves to the same module instance — without
+// this, those calls never sent Authorization and started getting 401s once
+// the backend endpoints they hit required auth.
+axios.interceptors.request.use(attachAuthToken, (error) => Promise.reject(error));
 
 // Track connection state
 let isOffline = false;

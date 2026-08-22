@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
-from datetime import datetime
 
 from app.core.db import get_db
 from app.core.clock import Clock
+from app.core.deps import get_current_account_id
 from app.core.logging import get_logger
-from app.config import settings, get_web_url_async, get_web_url_cached
+from app.config import settings, get_web_url_async
 from app.domain.models import LocalAccount, LocalIdentity, UserIdentity, AppSetting, TeamMember
 from sqlalchemy import select
 from app.services.account_service import AccountService
@@ -63,7 +63,7 @@ async def _get_system_default_timezone(db: AsyncSession) -> str:
 
 @router.get("/account/me")
 async def get_my_account(
-    account_id: int = Query(...),
+    account_id: int = Depends(get_current_account_id),
     db: AsyncSession = Depends(get_db),
 ):
     account = await AccountService.get_by_id(db, account_id)
@@ -102,15 +102,13 @@ async def local_register(request: RegisterRequest, db: AsyncSession = Depends(ge
     from app.services.settings_service import SettingsService
     
     # Rate limit: 3 registrations per IP per 5 minutes
-    from app.domain.models import ApiKeyLog
-    from datetime import datetime, timedelta
+    from datetime import timedelta
     five_min_ago = Clock.now() - timedelta(minutes=5)
     
     # Проверяем нужно ли приглашение
     invite_only = await SettingsService.get(db, "registration_by_invite_only")
     if invite_only == "true":
         from app.domain.models import TeamInvite
-        from datetime import datetime
         
         # Try invite_code first, then email
         invite_obj = None
@@ -194,7 +192,7 @@ class LinkLocalRequest(BaseModel):
 
 
 @router.post("/local/link")
-async def link_local_account(request: LinkLocalRequest, account_id: int = Query(...), db: AsyncSession = Depends(get_db)):
+async def link_local_account(request: LinkLocalRequest, account_id: int = Depends(get_current_account_id), db: AsyncSession = Depends(get_db)):
     account = await AccountService.get_by_id(db, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Аккаунт не найден")
@@ -220,7 +218,7 @@ class ChangePasswordRequest(BaseModel):
 
 
 @router.post("/local/change-password")
-async def change_password(request: ChangePasswordRequest, account_id: int = Query(...), db: AsyncSession = Depends(get_db)):
+async def change_password(request: ChangePasswordRequest, account_id: int = Depends(get_current_account_id), db: AsyncSession = Depends(get_db)):
     account = await AccountService.get_by_id(db, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Аккаунт не найден")
@@ -244,7 +242,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # ============= ACCOUNT STATUS =============
 
 @router.get("/local/account-status")
-async def get_account_status(account_id: int = Query(...), db: AsyncSession = Depends(get_db)):
+async def get_account_status(account_id: int = Depends(get_current_account_id), db: AsyncSession = Depends(get_db)):
     account = await AccountService.get_by_id(db, account_id)
     if not account:
         return {"has_local_account": False}
@@ -255,7 +253,7 @@ async def get_account_status(account_id: int = Query(...), db: AsyncSession = De
 # ============= LINKED ACCOUNTS =============
 
 @router.get("/linked-accounts")
-async def get_linked_accounts(account_id: int = Query(...), db: AsyncSession = Depends(get_db)):
+async def get_linked_accounts(account_id: int = Depends(get_current_account_id), db: AsyncSession = Depends(get_db)):
     providers = await AccountService.get_oauth_providers(db, account_id)
     return [{"provider": p.provider, "email": p.email, "linked_at": p.linked_at.isoformat() if p.linked_at else None} for p in providers]
 
@@ -263,7 +261,7 @@ async def get_linked_accounts(account_id: int = Query(...), db: AsyncSession = D
 # ============= UNLINK =============
 
 @router.delete("/unlink-account")
-async def unlink_account(account_id: int = Query(...), provider: str = Query(...), db: AsyncSession = Depends(get_db)):
+async def unlink_account(provider: str = Query(...), account_id: int = Depends(get_current_account_id), db: AsyncSession = Depends(get_db)):
     account = await AccountService.get_by_id(db, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Аккаунт не найден")
@@ -292,7 +290,7 @@ class UpdateProfileRequest(BaseModel):
 
 
 @router.patch("/account/profile")
-async def update_profile(request: UpdateProfileRequest, account_id: int = Query(...), db: AsyncSession = Depends(get_db)):
+async def update_profile(request: UpdateProfileRequest, account_id: int = Depends(get_current_account_id), db: AsyncSession = Depends(get_db)):
     account = await AccountService.get_by_id(db, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Аккаунт не найден")
@@ -305,7 +303,7 @@ async def update_profile(request: UpdateProfileRequest, account_id: int = Query(
 # ============= NOTIFICATION SETTINGS =============
 
 @router.get("/notification-settings")
-async def get_notification_settings(account_id: int = Query(...), db: AsyncSession = Depends(get_db)):
+async def get_notification_settings(account_id: int = Depends(get_current_account_id), db: AsyncSession = Depends(get_db)):
     """Get user's push notification preferences."""
     result = await db.execute(
         select(AppSetting.value).where(AppSetting.key == f"notif_prefs_{account_id}")
@@ -326,7 +324,7 @@ async def get_notification_settings(account_id: int = Query(...), db: AsyncSessi
 
 @router.put("/notification-settings")
 async def save_notification_settings(
-    body: dict, account_id: int = Query(...), db: AsyncSession = Depends(get_db)
+    body: dict, account_id: int = Depends(get_current_account_id), db: AsyncSession = Depends(get_db)
 ):
     """Save user's push notification preferences."""
     import json
@@ -356,7 +354,8 @@ class TelegramAuthData(BaseModel):
 
 @router.post("/telegram")
 async def telegram_auth(data: TelegramAuthData, db: AsyncSession = Depends(get_db)):
-    import hashlib, hmac
+    import hashlib
+    import hmac
     secret = hashlib.sha256(settings.TELEGRAM_BOT_TOKEN.encode()).digest()
     check_string = "\n".join(f"{k}={v}" for k, v in sorted(data.model_dump(exclude={"hash"}).items(), key=lambda x: x[0]))
     computed_hash = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
@@ -422,8 +421,13 @@ async def get_oauth_settings(db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/oauth-settings")
-async def save_oauth_settings(data: OAuthSettings, db: AsyncSession = Depends(get_db)):
-    """Сохранить OAuth настройки."""
+async def save_oauth_settings(
+    data: OAuthSettings,
+    account_id: int = Depends(get_current_account_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Сохранить OAuth настройки (только admin)."""
+    await _require_admin(db, account_id)
     from app.services.settings_service import SettingsService
     mapping = {
         "google_client_id": data.google_client_id,
@@ -461,8 +465,13 @@ async def get_registration_settings(db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/registration-settings")
-async def save_registration_settings(data: dict, db: AsyncSession = Depends(get_db)):
-    """Сохранить настройки регистрации."""
+async def save_registration_settings(
+    data: dict,
+    account_id: int = Depends(get_current_account_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Сохранить настройки регистрации (только admin)."""
+    await _require_admin(db, account_id)
     from app.services.settings_service import SettingsService
     await SettingsService.set(db, "registration_by_invite_only", "true" if data.get("invite_only") else "false")
     await db.commit()
@@ -478,9 +487,22 @@ class InviteRequest(BaseModel):
     expires_days: int = 30
 
 
+async def _require_admin(db: AsyncSession, account_id: int) -> LocalAccount:
+    """Raise 403 unless account_id belongs to a system admin."""
+    result = await db.execute(select(LocalAccount).where(LocalAccount.id == account_id))
+    account = result.scalar_one_or_none()
+    if not account or account.system_role != "admin":
+        raise HTTPException(status_code=403, detail="Нет прав администратора")
+    return account
+
+
 @router.get("/invitations")
-async def get_invitations(db: AsyncSession = Depends(get_db)):
-    """Получить список приглашений."""
+async def get_invitations(
+    account_id: int = Depends(get_current_account_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Получить список приглашений (только admin — содержит invite_token)."""
+    await _require_admin(db, account_id)
     from app.domain.models import TeamInvite
     result = await db.execute(
         select(TeamInvite).order_by(TeamInvite.created_at.desc()).limit(50)
@@ -503,10 +525,15 @@ async def get_invitations(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/invitations")
-async def create_invitation(data: InviteRequest, db: AsyncSession = Depends(get_db)):
-    """Создать приглашение."""
+async def create_invitation(
+    data: InviteRequest,
+    account_id: int = Depends(get_current_account_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Создать приглашение (только admin)."""
+    await _require_admin(db, account_id)
     import secrets
-    from datetime import datetime, timedelta
+    from datetime import timedelta
     from app.domain.models import TeamInvite, TeamMember
     
     # Находим первого участника (owner) для created_by_id
@@ -544,8 +571,13 @@ async def create_invitation(data: InviteRequest, db: AsyncSession = Depends(get_
 
 
 @router.delete("/invitations/{invite_id}")
-async def delete_invitation(invite_id: int, db: AsyncSession = Depends(get_db)):
-    """Удалить/деактивировать приглашение."""
+async def delete_invitation(
+    invite_id: int,
+    account_id: int = Depends(get_current_account_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Удалить/деактивировать приглашение (только admin)."""
+    await _require_admin(db, account_id)
     from app.domain.models import TeamInvite
     result = await db.execute(select(TeamInvite).where(TeamInvite.id == invite_id))
     invite = result.scalar_one_or_none()
@@ -579,7 +611,7 @@ async def check_pending_login(session_token: str, db: AsyncSession = Depends(get
 
 @router.get("/users/manage")
 async def get_users_for_management(
-    account_id: int = Query(...),
+    account_id: int = Depends(get_current_account_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Получить список пользователей для управления (только admin)."""
@@ -613,7 +645,7 @@ async def get_users_for_management(
 async def update_user_role(
     user_id: int,
     data: dict,
-    account_id: int = Query(...),
+    account_id: int = Depends(get_current_account_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Изменить системную роль пользователя (только admin)."""
@@ -641,7 +673,7 @@ async def update_user_role(
 @router.delete("/users/{user_id}")
 async def deactivate_user(
     user_id: int,
-    account_id: int = Query(...),
+    account_id: int = Depends(get_current_account_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Деактивировать пользователя (только owner)."""
@@ -792,7 +824,6 @@ async def google_callback(
         if invite_only == "true":
             # Ищем активное приглашение по email
             from app.domain.models import TeamInvite
-            from datetime import datetime
             invite = await db.execute(
                 select(TeamInvite).where(
                     TeamInvite.email == email,
@@ -950,7 +981,6 @@ async def yandex_callback(
         invite_only = await SettingsService.get(db, "registration_by_invite_only")
         if invite_only == "true":
             from app.domain.models import TeamInvite
-            from datetime import datetime
             invite = await db.execute(
                 select(TeamInvite).where(
                     TeamInvite.email == email,
@@ -990,7 +1020,10 @@ async def yandex_callback(
 # ============= TEAM ENDPOINTS =============
 
 @router.get("/team")
-async def get_team_members(db: AsyncSession = Depends(get_db)):
+async def get_team_members(
+    account_id: int = Depends(get_current_account_id),
+    db: AsyncSession = Depends(get_db),
+):
     """Получить список участников команды."""
     result = await db.execute(
         select(TeamMember).order_by(TeamMember.joined_at)

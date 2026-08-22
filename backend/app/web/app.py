@@ -1,9 +1,10 @@
 """FastAPI web application."""
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.responses import JSONResponse
 import time
 from app.config import settings, get_base_url_async, get_frontend_port_async
 from app.core.logging import get_logger
+from app.core.deps import get_current_account_id
 from app.services.settings_service import SettingsService
 
 logger = get_logger(__name__)
@@ -38,7 +39,7 @@ class DynamicCORSMiddleware:
         
         try:
             origins = get_cors_origins()
-        except:
+        except Exception:
             origins = ["http://localhost:5180"]
         headers = {k.decode(): v.decode() for k, v in scope.get("headers", [])}
         origin = headers.get("origin", "")
@@ -79,7 +80,6 @@ async def load_cors_origins():
     """Load CORS origins from DB with smart fallbacks."""
     global _cors_origins_cache
     from app.core.db import AsyncSessionLocal
-    from app.services.settings_service import SettingsService
     
     # Default origins for fallback
     origins = ["http://localhost:5180", "https://localhost:5180"]
@@ -246,14 +246,27 @@ async def handle_options(path: str):
     return Response(status_code=200)
 
 
-app.include_router(api_router, prefix="/api")
-app.include_router(tags_router, prefix="/api")
-app.include_router(templates_router, prefix="/api")
+# Routers that require a logged-in account (valid JWT access token).
+_auth_dep = [Depends(get_current_account_id)]
+
+app.include_router(api_router, prefix="/api", dependencies=_auth_dep)
+app.include_router(tags_router, prefix="/api", dependencies=_auth_dep)
+app.include_router(templates_router, prefix="/api", dependencies=_auth_dep)
+# webapp_router: Telegram Mini App bootstrap — used inside Telegram before any
+# web session/JWT exists (auth is done via telegram_id / Telegram WebApp
+# context, not a Bearer token). Left public on purpose.
 app.include_router(webapp_router, prefix="/api")
-app.include_router(webhooks_router, prefix="/api")
+# webhooks_router only exposes webhook *management* CRUD (no public inbound
+# delivery/receiver endpoint here) — require login for all of it.
+app.include_router(webhooks_router, prefix="/api", dependencies=_auth_dep)
+# auth_router is mixed public (login/register/oauth) + private (profile,
+# settings, admin) — gated per-route inside routes_auth.py instead.
 app.include_router(auth_router, prefix="/api/auth")
+# system_settings_router is mixed public (startup-check, used by the Setup
+# Wizard/Welcome page before any account exists) + private (bot token, system
+# config) — gated per-route inside routes_system_settings.py instead.
 app.include_router(system_settings_router, prefix="/api/settings")
-app.include_router(events_router, prefix="/api/events")
+app.include_router(events_router, prefix="/api/events", dependencies=_auth_dep)
 
 
 @app.get("/")

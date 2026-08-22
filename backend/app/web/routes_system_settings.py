@@ -2,13 +2,13 @@
 import os
 import re
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.db import get_db
-from app.domain.models import AppSetting
+from app.core.deps import get_current_account_id
 from app.services.settings_service import SettingsService
 
 router = APIRouter()
@@ -34,7 +34,7 @@ class BotTokenRequest(BaseModel):
 
 
 @router.get("/bot-token")
-async def get_bot_token(db: AsyncSession = Depends(get_db)):
+async def get_bot_token(db: AsyncSession = Depends(get_db), account_id: int = Depends(get_current_account_id)):
     """Получить маскированный токен бота."""
     val = await SettingsService.get(db, "telegram_bot_token")
     if not val:
@@ -45,7 +45,7 @@ async def get_bot_token(db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/bot-token")
-async def save_bot_token(data: BotTokenRequest, db: AsyncSession = Depends(get_db)):
+async def save_bot_token(data: BotTokenRequest, db: AsyncSession = Depends(get_db), account_id: int = Depends(get_current_account_id)):
     """Сохранить или удалить токен бота (пустая строка = удалить из БД, использовать .env)."""
     token = data.token.strip()
     
@@ -83,7 +83,7 @@ class SystemSettings(BaseModel):
 
 
 @router.get("/system", response_model=SystemSettings)
-async def get_system_settings(db: AsyncSession = Depends(get_db)):
+async def get_system_settings(db: AsyncSession = Depends(get_db), account_id: int = Depends(get_current_account_id)):
     """Получить системные настройки из БД."""
     keys = [
         "deadline_notify_hours", "webapp_url", "frontend_url",
@@ -106,7 +106,7 @@ async def get_system_settings(db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/system")
-async def save_system_settings(data: SystemSettings, db: AsyncSession = Depends(get_db)):
+async def save_system_settings(data: SystemSettings, db: AsyncSession = Depends(get_db), account_id: int = Depends(get_current_account_id)):
     """Сохранить системные настройки в БД."""
     mapping = {
         "deadline_notify_hours": data.deadline_notify_hours,
