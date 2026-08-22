@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { authApi } from '../api/auth';
 import { API_URL } from '../constants/taskDisplay';
 import { useTheme } from '../hooks/useTheme';
@@ -36,6 +36,16 @@ export const Login: React.FC = () => {
   const [regRateLimit, setRegRateLimit] = useState({ count: 0, lastAttempt: 0 });
 
   // Polling для Telegram авторизации
+  const telegramPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const telegramTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (telegramPollRef.current) clearInterval(telegramPollRef.current);
+      if (telegramTimeoutRef.current) clearTimeout(telegramTimeoutRef.current);
+    };
+  }, []);
+
   const startTelegramLogin = () => {
     const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
     localStorage.setItem('tg_login_token', sessionToken);
@@ -43,13 +53,14 @@ export const Login: React.FC = () => {
     window.open(`https://t.me/${botUsername}?start=weblogin_${sessionToken}`, '_blank');
     setTelegramWaiting(true);
 
-    const poll = setInterval(async () => {
+    telegramPollRef.current = setInterval(async () => {
       try {
         const resp = await fetch(`${API_URL}/api/auth/pending-login/${sessionToken}`);
         if (resp.ok) {
           const data = await resp.json();
           if (data && data.access_token) {
-            clearInterval(poll);
+            if (telegramPollRef.current) clearInterval(telegramPollRef.current);
+            if (telegramTimeoutRef.current) clearTimeout(telegramTimeoutRef.current);
             setTelegramWaiting(false);
             localStorage.removeItem('tg_login_token');
             localStorage.setItem('access_token', data.access_token);
@@ -62,8 +73,8 @@ export const Login: React.FC = () => {
       } catch {}
     }, 2000);
 
-    setTimeout(() => {
-      clearInterval(poll);
+    telegramTimeoutRef.current = setTimeout(() => {
+      if (telegramPollRef.current) clearInterval(telegramPollRef.current);
       setTelegramWaiting(false);
       localStorage.removeItem('tg_login_token');
     }, 60000);

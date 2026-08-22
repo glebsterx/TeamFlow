@@ -226,19 +226,30 @@ export default function AccountPage() {
   };
 
   // Telegram привязка через бота
+  const telegramPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const telegramTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (telegramPollRef.current) clearInterval(telegramPollRef.current);
+      if (telegramTimeoutRef.current) clearTimeout(telegramTimeoutRef.current);
+    };
+  }, []);
+
   const startTelegramLink = () => {
     const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
     localStorage.setItem('tg_bind_token', sessionToken);
     window.open(`https://t.me/${botUsername}?start=bind_${sessionToken}`, '_blank');
     setTelegramWaiting(true);
 
-    const poll = setInterval(async () => {
+    telegramPollRef.current = setInterval(async () => {
       try {
         const resp = await fetch(`${API_URL}/api/auth/pending-login/${sessionToken}`);
         if (resp.ok) {
           const data = await resp.json();
           if (data && data.access_token) {
-            clearInterval(poll);
+            if (telegramPollRef.current) clearInterval(telegramPollRef.current);
+            if (telegramTimeoutRef.current) clearTimeout(telegramTimeoutRef.current);
             setTelegramWaiting(false);
             localStorage.removeItem('tg_bind_token');
             queryClient.invalidateQueries({ queryKey: ['linked-accounts', myAccountId] });
@@ -249,10 +260,10 @@ export default function AccountPage() {
       } catch {}
     }, 2000);
 
-    setTimeout(() => {
-      clearInterval(poll);
+    telegramTimeoutRef.current = setTimeout(() => {
+      if (telegramPollRef.current) clearInterval(telegramPollRef.current);
       setTelegramWaiting(false);
-      localStorage.removeItem('tg_login_token');
+      localStorage.removeItem('tg_bind_token');
     }, 60000);
   };
 

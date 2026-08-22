@@ -10,6 +10,12 @@ import aiohttp
 from app.core.db import AsyncSessionLocal
 from app.domain.models import Webhook, WebhookLog
 
+# Keep strong refs to fire-and-forget webhook tasks so they aren't garbage
+# collected mid-flight (asyncio only holds a weak ref otherwise); discard
+# once each one finishes. Each task opens its own DB session, so this is
+# independent of the request-scoped session that triggered it.
+_background_webhook_tasks: set[asyncio.Task] = set()
+
 
 async def trigger_webhooks(event: str, task_data: Dict[str, Any]) -> None:
     """
@@ -39,9 +45,11 @@ async def trigger_webhooks(event: str, task_data: Dict[str, Any]) -> None:
                 continue
             
             # Trigger webhook asynchronously
-            asyncio.create_task(
+            task = asyncio.create_task(
                 _trigger_single_webhook(webhook, event, task_data)
             )
+            _background_webhook_tasks.add(task)
+            task.add_done_callback(_background_webhook_tasks.discard)
 
 
 async def _trigger_single_webhook(

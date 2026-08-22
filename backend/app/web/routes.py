@@ -298,21 +298,18 @@ async def change_task_status(
         # #260 — Reuse the same task object (already in session, fields updated)
         # Trigger webhook for status change
         if old_status and old_status != request.status:
-            try:
-                from app.services.webhook_service import trigger_task_status_changed
+            from app.services.webhook_service import trigger_task_status_changed
 
-                task_data = {
-                    "id": task.id,
-                    "title": task.title,
-                    "status": task.status,
-                    "project_id": task.project_id,
-                    "assignee_id": task.assignee_id,
-                }
-                asyncio.create_task(
-                    trigger_task_status_changed(old_status, request.status, task_data)
-                )
-            except Exception as e:
-                print(f"[WEBHOOK] Error triggering status change webhook: {e}")
+            task_data = {
+                "id": task.id,
+                "title": task.title,
+                "status": task.status,
+                "project_id": task.project_id,
+                "assignee_id": task.assignee_id,
+            }
+            background_tasks.add_task(
+                trigger_task_status_changed, old_status, request.status, task_data
+            )
 
         # #260 — Reuse the same task object for recurrence (no additional SELECT)
         if request.status == TaskStatus.DONE.value:

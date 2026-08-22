@@ -39,7 +39,17 @@ class BoardService:
     
     async def get_user_tasks(self, telegram_id: int) -> Dict[str, List[Task]]:
         """Get tasks for specific user grouped by status."""
-        tasks = await self.task_repository.get_all(assignee_id = assignee_id)
+        from app.services.account_service import AccountService
+
+        account = await AccountService.get_by_telegram_id(self.session, telegram_id)
+        if not account:
+            return {
+                TaskStatus.TODO.value: [],
+                TaskStatus.DOING.value: [],
+                TaskStatus.DONE.value: [],
+                TaskStatus.BLOCKED.value: [],
+            }
+        tasks = await self.task_repository.get_all(assignee_id=account.id, limit=1000)
         
         board = {
             TaskStatus.TODO.value: [],
