@@ -4,7 +4,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from sqlalchemy import select
 from app.core.db import AsyncSessionLocal
-from app.domain.models import Task, UserIdentity, LocalAccount
+from app.domain.models import Task, UserIdentity
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -44,7 +44,6 @@ async def get_my_tasks_text(tg_id: int, username: str | None, display: str) -> s
                 return f"👤 *Мои задачи — {display}*\n\nАккаунт не найден. Войдите через веб или напишите /start."
 
             account_id = identity_row
-            at_username = f"@{username}" if username else None
 
             # Get tasks assigned to this account
             stmt = (

@@ -4,7 +4,7 @@
 Mini App открывается через WebApp-кнопку в боте и показывает
 персональную доску пользователя прямо внутри Telegram.
 """
-from typing import List, Optional
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -15,8 +15,6 @@ from app.core.clock import Clock
 from app.domain.models import Task, Sprint, SprintTask
 from app.config import settings, get_web_url_async
 from app.domain.enums import TaskStatus
-from app.web.schemas import TaskResponse
-from app.config import settings
 
 router = APIRouter(prefix="/webapp", tags=["webapp"])
 
@@ -102,7 +100,6 @@ async def get_my_tasks(
 @router.get("/sprint")
 async def get_active_sprint_summary(db: AsyncSession = Depends(get_db)):
     """Сводка активного спринта для Mini App."""
-    from app.domain.models import Sprint
     from app.domain.enums import TaskStatus
 
     result = await db.execute(
@@ -188,7 +185,6 @@ async def update_task_status_webapp(
         if account_id and task.assignee_id and task.assignee_id != account_id:
             raise HTTPException(status_code=403, detail="Not your task")
 
-    from app.core.clock import Clock
     task.status = new_status
     task.updated_at = Clock.now()
     if new_status == TaskStatus.DONE:

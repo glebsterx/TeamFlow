@@ -1,6 +1,6 @@
 """Pydantic schemas for Web API."""
 from datetime import datetime
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List
 from pydantic import BaseModel, ConfigDict
 
 

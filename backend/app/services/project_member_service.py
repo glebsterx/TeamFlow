@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.domain.models import ProjectMember, Project, LocalAccount
+from app.domain.models import ProjectMember
 
 
 class ProjectMemberService:

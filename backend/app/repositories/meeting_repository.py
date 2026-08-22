@@ -1,6 +1,6 @@
 """Meeting repository for data access."""
 from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.models import Meeting

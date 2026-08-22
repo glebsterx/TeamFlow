@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import AsyncSessionLocal, get_db
+from app.core.db import AsyncSessionLocal
 from app.domain.models import Webhook, WebhookLog
 from app.web.schemas import (
     WebhookCreate,
@@ -136,7 +136,7 @@ async def test_webhook(
                 log_entry.status_code = resp.status
                 try:
                     log_entry.response = await resp.text()
-                except:
+                except Exception:
                     log_entry.response = None
     except Exception as e:
         log_entry.error = str(e)

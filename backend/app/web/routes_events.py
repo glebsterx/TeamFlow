@@ -1,8 +1,7 @@
 """Domain events API."""
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
-from app.core.db import get_db
 from app.domain import events as events_module
 
 router = APIRouter()

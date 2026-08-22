@@ -74,7 +74,8 @@ async def _read_proxy_url_async() -> str | None:
 
 def _docker_request(method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
      """Минимальный HTTP-клиент для Docker Unix socket."""
-     import socket, json
+     import socket
+     import json
      sock_path = "/var/run/docker.sock"
      try:
          sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -244,7 +245,6 @@ async def start_bot():
         me = await asyncio.wait_for(bot.get_me(), timeout=10)
         from app.core.db import AsyncSessionLocal
         from app.services.settings_service import SettingsService
-        from datetime import datetime
         async with AsyncSessionLocal() as db:
             await SettingsService.set(db, "bot_username", me.username)
             await db.commit()

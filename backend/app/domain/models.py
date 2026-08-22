@@ -1,10 +1,9 @@
 """Domain models."""
-from datetime import datetime
 from app.core.clock import Clock
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, BigInteger, Boolean, Table
-from sqlalchemy.orm import relationship, backref, Mapped, mapped_column
+from sqlalchemy.orm import relationship, backref
 from app.core.db import Base
-from app.domain.enums import TaskStatus, TaskSource, TaskPriority
+from app.domain.enums import TaskStatus, TaskPriority
 
 # M2M table: task ↔ tag
 task_tags = Table(

@@ -3,7 +3,7 @@ import asyncio
 import json
 import hmac
 import hashlib
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import aiohttp
 
@@ -38,7 +38,7 @@ async def trigger_webhooks(event: str, task_data: Dict[str, Any]) -> None:
             # Check if webhook subscribes to this event
             try:
                 events = json.loads(webhook.events)
-            except:
+            except Exception:
                 continue
             
             if event not in events:
@@ -101,7 +101,7 @@ async def _trigger_single_webhook(
                         log_entry.status_code = resp.status
                         try:
                             log_entry.response = await resp.text()
-                        except:
+                        except Exception:
                             log_entry.response = None
                         
                         # Success - 2xx status

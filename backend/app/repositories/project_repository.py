@@ -2,7 +2,6 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 from app.domain.models import Project, Task
 
 

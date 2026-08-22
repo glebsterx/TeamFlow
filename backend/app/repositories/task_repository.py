@@ -4,7 +4,7 @@ from sqlalchemy import select, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.domain.models import Task, TaskDependency
-from app.domain.enums import TaskStatus, TaskSource
+from app.domain.enums import TaskStatus
 
 class TaskRepository:
     """Repository for Task entity."""

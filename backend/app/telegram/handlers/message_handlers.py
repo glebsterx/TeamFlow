@@ -9,7 +9,7 @@ from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskSource
 from app.domain.models import Project
 from app.telegram.keyboards.task_keyboards import get_confirmation_keyboard
-from app.config import settings, get_web_url_cached
+from app.config import get_web_url_cached
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)

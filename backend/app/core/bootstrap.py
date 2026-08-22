@@ -3,8 +3,6 @@ import os
 import secrets
 import shutil
 import logging
-from datetime import datetime
-from pathlib import Path
 from app.core.clock import Clock
 
 logger = logging.getLogger(__name__)
@@ -59,7 +57,6 @@ async def bootstrap_secret_key():
     
     Priority: .env -> DB -> generate new
     """
-    import secrets
     from app.config import set_secret_key_cache
     
     # Check .env first

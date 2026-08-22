@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 from app.core.db import AsyncSessionLocal
 from app.core.clock import Clock
 from app.core.logging import get_logger
-from app.config import settings, get_web_url_cached
+from app.config import get_web_url_cached
 from app.domain.models import LocalAccount
 
 logger = get_logger(__name__)

@@ -12,7 +12,7 @@ from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskStatus, TaskSource
 from app.telegram.keyboards.task_keyboards import get_task_action_keyboard
-from app.config import settings, get_web_url_cached
+from app.config import get_web_url_cached
 from app.core.logging import get_logger
 
 # Accepts: "ДД.ММ ЧЧ:ММ" or "ДД.ММ.ГГГГ ЧЧ:ММ"
@@ -353,7 +353,7 @@ async def handle_task_action(callback: CallbackQuery):
         if len(parts) != 3:
             try:
                 await callback.answer("❌ Неверный формат команды")
-            except:
+            except Exception:
                 pass
             return
         
@@ -380,7 +380,7 @@ async def handle_task_action(callback: CallbackQuery):
             else:
                 try:
                     await callback.answer("❌ Неизвестная команда")
-                except:
+                except Exception:
                     pass
                 return
             
@@ -405,12 +405,12 @@ async def handle_task_action(callback: CallbackQuery):
         logger.error("invalid_task_id", error=str(e), data=callback.data)
         try:
             await callback.answer("❌ Неверный ID задачи")
-        except:
+        except Exception:
             pass
             
     except Exception as e:
         logger.error("callback_error", error=str(e), data=callback.data)
         try:
             await callback.answer(f"❌ Ошибка: {str(e)[:50]}")
-        except:
+        except Exception:
             pass

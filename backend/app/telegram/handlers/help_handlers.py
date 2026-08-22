@@ -7,7 +7,6 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from app.config import get_secret_key, settings, get_web_url_cached
 from app.core.logging import get_logger
 from app.core.clock import Clock
-from datetime import timedelta
 
 router = Router()
 logger = get_logger(__name__)
@@ -75,7 +74,7 @@ HELP_TEXT = (
     "менять статусы задач прямо из Telegram на телефоне.\n\n"
 
     + (
-        f"*🌐 Mini App:* доступен через кнопку меню\n"
+        "*🌐 Mini App:* доступен через кнопку меню\n"
         if settings.WEBAPP_URL and settings.WEBAPP_URL.startswith("https://") else ""
     )
     + f"*🔗 Web UI:* {get_web_url_cached()}"
@@ -87,7 +86,6 @@ async def cmd_start(message: Message):
     # Обработка deep link для авторизации через веб
     args = message.text.split() if message.text else []
     if len(args) > 1 and (args[1].startswith("weblogin") or args[1].startswith("bind")):
-        import hashlib
         import jwt
         from app.domain.models import LocalAccount, UserIdentity
         from app.core.db import AsyncSessionLocal
@@ -174,20 +172,20 @@ async def cmd_start(message: Message):
         # Разные сообщения для weblogin и bind
         if is_bind:
             await message.answer(
-                f"✅ Telegram привязан к аккаунту!"
+                "✅ Telegram привязан к аккаунту!"
             )
         else:
             await message.answer(
-                f"✅ Вход выполнен! Вернитесь в браузер."
+                "✅ Вход выполнен! Вернитесь в браузер."
             )
         return
 
     await message.answer(
-        f"👋 *Привет!* Я TeamFlow — бот для управления задачами команды.\n\n"
-        f"• /task — создать задачу\n"
-        f"• /my — мои задачи\n"
-        f"• /sprint — текущий спринт\n"
-        f"• /help — полная справка",
+        "👋 *Привет!* Я TeamFlow — бот для управления задачами команды.\n\n"
+        "• /task — создать задачу\n"
+        "• /my — мои задачи\n"
+        "• /sprint — текущий спринт\n"
+        "• /help — полная справка",
         reply_markup=get_main_menu_keyboard(),
         parse_mode="Markdown"
     )

@@ -1,5 +1,5 @@
 """Simple password-based authentication."""
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 import jwt
 import bcrypt

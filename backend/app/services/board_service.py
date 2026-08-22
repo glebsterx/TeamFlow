@@ -1,6 +1,6 @@
 """Board service for weekly task board."""
 from typing import Dict, List
-from datetime import datetime, timedelta
+from datetime import timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.models import Task
 from app.domain.enums import TaskStatus

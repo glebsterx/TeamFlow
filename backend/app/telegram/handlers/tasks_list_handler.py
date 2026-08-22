@@ -7,7 +7,7 @@ from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskStatus
 
-from app.config import settings, get_web_url_cached
+from app.config import get_web_url_cached
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -291,7 +291,7 @@ async def handle_take_task(callback: CallbackQuery):
                 await callback.answer("❌ Пользователь не найден")
                 return
             
-            task = await service.take_task(task_id, user)
+            await service.take_task(task_id, user)
             await session.commit()
         
         await callback.answer("✅ Задача взята в работу")
@@ -366,7 +366,7 @@ async def handle_assign(callback: CallbackQuery):
                 await callback.answer("❌ Пользователь не найден")
                 return
             
-            task = await service.assign_task(task_id, user)
+            await service.assign_task(task_id, user)
             await session.commit()
         
         await callback.answer(f"✅ Назначено на {user.display_name}")

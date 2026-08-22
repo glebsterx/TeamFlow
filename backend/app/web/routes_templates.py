@@ -4,7 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, Column, Integer, String, Text, DateTime, Boolean
+from sqlalchemy import select, Column, Integer, String, Text, DateTime
 from app.core.db import Base, get_db
 from app.core.clock import Clock
 

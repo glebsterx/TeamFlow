@@ -1,5 +1,5 @@
 """Digest service."""
-from datetime import datetime, timedelta
+from datetime import date, timedelta
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.models import Task, Meeting

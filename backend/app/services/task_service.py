@@ -4,7 +4,6 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.models import Task, Blocker
 from app.domain.enums import TaskStatus, TaskSource
-from app.domain.events import TaskCreated, TaskStatusChanged, TaskBlocked
 from app.repositories.task_repository import TaskRepository
 from app.core.logging import get_logger
 from app.core.clock import Clock
@@ -142,7 +141,6 @@ class TaskService:
 
         #260 — Accepts pre-fetched task object to avoid redundant SELECT.
         """
-        from app.domain.models import Blocker
 
         # Change status to BLOCKED
         task.status = TaskStatus.BLOCKED.value

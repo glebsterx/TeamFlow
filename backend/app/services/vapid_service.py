@@ -90,7 +90,6 @@ def generate_vapid_keys() -> tuple[str, str]:
     #272 — FIX: pywebpush → py_vapid.from_string() uses b64urldecode,
     so the private key MUST be URL-safe base64 (not standard base64).
     """
-    import base64
     from py_vapid import Vapid
     from cryptography.hazmat.primitives.serialization import (
         Encoding, PrivateFormat, NoEncryption,

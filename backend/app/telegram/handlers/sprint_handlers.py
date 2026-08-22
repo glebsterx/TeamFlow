@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.core.db import AsyncSessionLocal
 from app.domain.models import Sprint, SprintTask, Task
-from app.config import settings, get_web_url_cached
+from app.config import get_web_url_cached
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)

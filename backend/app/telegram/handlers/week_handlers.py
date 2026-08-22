@@ -4,7 +4,6 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from app.core.db import AsyncSessionLocal
 from app.services.board_service import BoardService
-from app.telegram.keyboards.task_keyboards import get_task_action_keyboard
 
 router = Router()
 

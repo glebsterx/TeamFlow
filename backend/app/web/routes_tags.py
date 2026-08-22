@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.core.db import get_db
-from app.domain.models import Tag, Task, task_tags, TaskDependency
+from app.domain.models import Tag, Task, TaskDependency
 
 router = APIRouter()
 

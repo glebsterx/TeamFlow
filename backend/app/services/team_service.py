@@ -3,7 +3,7 @@ from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from datetime import datetime, timedelta
+from datetime import timedelta
 import secrets
 
 from app.domain.models import TeamMember, TeamInvite, LocalAccount

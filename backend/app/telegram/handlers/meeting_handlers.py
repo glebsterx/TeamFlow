@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.core.db import AsyncSessionLocal
 from app.domain.models import Meeting, MeetingParticipant, MeetingTask, Task
 from app.domain.enums import TaskSource
-from app.config import settings, get_web_url_cached
+from app.config import get_web_url_cached
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -95,7 +95,6 @@ async def process_meeting_summary(message: Message, state: FSMContext):
     data = await state.get_data()
     summary = message.text or ""
     meeting_type = data.get("meeting_type")
-    tg_id = message.from_user.id
     username = message.from_user.username
     display = f"@{username}" if username else message.from_user.first_name
 

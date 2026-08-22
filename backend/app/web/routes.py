@@ -11,14 +11,14 @@ from sqlalchemy import select, text, delete, func, or_
 from sqlalchemy.orm import selectinload
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, field_validator
-from datetime import datetime, date
+from datetime import date
 import secrets
 from app.core.db import get_db
 from app.core.clock import Clock
 from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskStatus
-from app.domain.models import Task, Project, Meeting, Comment, Blocker, LocalAccount
+from app.domain.models import Task, Project, Meeting, Comment, LocalAccount
 from app.web import schemas
 from app.web.schemas import (
     TaskResponse,
@@ -276,7 +276,6 @@ async def change_task_status(
     """
     from app.domain.enums import TaskStatus
     from fastapi import HTTPException
-    from sqlalchemy import select as sa_select
     from app.domain.models import Task as TaskModel
 
     service = TaskService(db)
@@ -781,10 +780,7 @@ def _meeting_to_response(m) -> dict:
 def _meeting_opts():
     from sqlalchemy.orm import selectinload
     from app.domain.models import (
-        MeetingProject,
-        MeetingParticipant,
         MeetingTask,
-        Task as TaskModel,
     )
 
     return [
@@ -801,7 +797,7 @@ async def get_meetings(
     db: AsyncSession = Depends(get_db),
 ):
     """Получить встречи v2 с фильтрами."""
-    from app.domain.models import Meeting, MeetingProject, MeetingTask
+    from app.domain.models import Meeting
 
     query = (
         select(Meeting)
@@ -1877,7 +1873,6 @@ async def send_push(title: str, body: str, url: str = "/", task_id: int = None) 
     #317 — Conditional: only send to users who have relevant notifications enabled.
     """
     import asyncio
-    import json
     from app.core.db import AsyncSessionLocal
     from app.domain.models import PushSubscription as PushSubscriptionModel, AppSetting
     from app.services.vapid_service import (
@@ -2178,7 +2173,7 @@ async def update_sprint_status(
     sprint_id: int, req: dict, db: AsyncSession = Depends(get_db)
 ):
     """Сменить статус спринта (activate/complete/archive)."""
-    from app.domain.models import Sprint, SprintTask, Task, Project
+    from app.domain.models import Sprint
     from sqlalchemy import update
 
     valid_statuses = ["planned", "active", "completed", "archived"]
@@ -2245,7 +2240,7 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
     """Данные для страницы дайджеста."""
     from app.repositories.project_repository import ProjectRepository
     from app.domain.enums import TaskStatus as TS, TaskPriority as TP
-    from datetime import datetime, timedelta
+    from datetime import timedelta
 
     service = TaskService(db)
     all_tasks = await service.get_all_tasks()
@@ -2453,7 +2448,7 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
     }
 
     # Прогресс активных спринтов (#91)
-    from app.domain.models import Sprint, SprintTask
+    from app.domain.models import Sprint
     from sqlalchemy.orm import selectinload
 
     sprints_result = await db.execute(
@@ -3098,7 +3093,7 @@ async def get_bot_status_endpoint():
 @router.post("/settings/restart/{service}")
 async def restart_service(service: str):
     """Перезапустить контейнер backend или frontend через Docker socket API."""
-    import socket, json as _json
+    import socket
 
     allowed = {"backend": "teamflow-backend", "frontend": "teamflow-frontend"}
     if service not in allowed:
@@ -3158,7 +3153,7 @@ async def get_proxy_settings():
 
     # Сначала пробуем из БД
     try:
-        from sqlalchemy import select, text
+        from sqlalchemy import select
         from app.domain.models import AppSetting
         from app.core.db import AsyncSessionLocal
 
@@ -3191,79 +3186,14 @@ async def get_proxy_settings():
 @router.post("/settings/proxy")
 async def set_proxy_settings(req: dict):
     """Сохранить прокси в БД и .env. Принимает только SOCKS5/HTTP прокси."""
-    import re, os
+    import re
+    import os
 
     raw = (req.get("proxy_url") or "").strip()
     proxy_url = raw if raw else None
 
     # Читаем старый прокси из БД перед изменением
     old_proxy_url = None
-
-
-# ============= SETTINGS: AI =============
-
-@router.get("/settings/ai")
-async def get_ai_settings():
-    """Получить текущие AI настройки."""
-    try:
-        from sqlalchemy import select
-        from app.domain.models import AppSetting
-        from app.core.db import AsyncSessionLocal
-
-        keys = ["ai_api_key", "ai_provider", "ai_model", "ai_custom_endpoint"]
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(AppSetting).where(AppSetting.key.in_(keys))
-            )
-            settings = {s.key: s.value for s in result.scalars().all()}
-        return {
-            "ai_api_key": settings.get("ai_api_key", ""),
-            "ai_provider": settings.get("ai_provider", "openrouter"),
-            "ai_model": settings.get("ai_model", "openrouter/free"),
-            "ai_custom_endpoint": settings.get("ai_custom_endpoint", ""),
-        }
-    except Exception as e:
-        return {
-            "ai_api_key": "",
-            "ai_provider": "openrouter",
-            "ai_model": "openrouter/free",
-            "ai_custom_endpoint": "",
-        }
-
-
-@router.post("/settings/ai")
-async def set_ai_settings(req: dict):
-    """Сохранить AI настройки в БД."""
-    try:
-        from sqlalchemy import select
-        from app.domain.models import AppSetting
-        from app.core.db import AsyncSessionLocal
-
-        ai_api_key = req.get("ai_api_key", "")
-        ai_provider = req.get("ai_provider", "openrouter")
-        ai_model = req.get("ai_model", "openrouter/free")
-        ai_custom_endpoint = req.get("ai_custom_endpoint", "")
-
-        async with AsyncSessionLocal() as session:
-            for key, value in [
-                ("ai_api_key", ai_api_key),
-                ("ai_provider", ai_provider),
-                ("ai_model", ai_model),
-                ("ai_custom_endpoint", ai_custom_endpoint),
-            ]:
-                result = await session.execute(
-                    select(AppSetting).where(AppSetting.key == key)
-                )
-                setting = result.scalar_one_or_none()
-                if setting:
-                    setting.value = value
-                else:
-                    setting = AppSetting(key=key, value=value)
-                    session.add(setting)
-            await session.commit()
-        return {"ok": True}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
     try:
         from sqlalchemy import select
         from app.domain.models import AppSetting
@@ -3297,7 +3227,6 @@ async def set_ai_settings(req: dict):
         from sqlalchemy import select
         from app.domain.models import AppSetting
         from app.core.db import AsyncSessionLocal
-        from datetime import datetime
 
         async with AsyncSessionLocal() as session:
             result = await session.execute(
@@ -3346,6 +3275,72 @@ async def set_ai_settings(req: dict):
     }
 
 
+# ============= SETTINGS: AI =============
+
+@router.get("/settings/ai")
+async def get_ai_settings():
+    """Получить текущие AI настройки."""
+    try:
+        from sqlalchemy import select
+        from app.domain.models import AppSetting
+        from app.core.db import AsyncSessionLocal
+
+        keys = ["ai_api_key", "ai_provider", "ai_model", "ai_custom_endpoint"]
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key.in_(keys))
+            )
+            settings = {s.key: s.value for s in result.scalars().all()}
+        return {
+            "ai_api_key": settings.get("ai_api_key", ""),
+            "ai_provider": settings.get("ai_provider", "openrouter"),
+            "ai_model": settings.get("ai_model", "openrouter/free"),
+            "ai_custom_endpoint": settings.get("ai_custom_endpoint", ""),
+        }
+    except Exception:
+        return {
+            "ai_api_key": "",
+            "ai_provider": "openrouter",
+            "ai_model": "openrouter/free",
+            "ai_custom_endpoint": "",
+        }
+
+
+@router.post("/settings/ai")
+async def set_ai_settings(req: dict):
+    """Сохранить AI настройки в БД."""
+    try:
+        from sqlalchemy import select
+        from app.domain.models import AppSetting
+        from app.core.db import AsyncSessionLocal
+
+        ai_api_key = req.get("ai_api_key", "")
+        ai_provider = req.get("ai_provider", "openrouter")
+        ai_model = req.get("ai_model", "openrouter/free")
+        ai_custom_endpoint = req.get("ai_custom_endpoint", "")
+
+        async with AsyncSessionLocal() as session:
+            for key, value in [
+                ("ai_api_key", ai_api_key),
+                ("ai_provider", ai_provider),
+                ("ai_model", ai_model),
+                ("ai_custom_endpoint", ai_custom_endpoint),
+            ]:
+                result = await session.execute(
+                    select(AppSetting).where(AppSetting.key == key)
+                )
+                setting = result.scalar_one_or_none()
+                if setting:
+                    setting.value = value
+                else:
+                    setting = AppSetting(key=key, value=value)
+                    session.add(setting)
+            await session.commit()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/settings/proxy/check")
 async def check_proxy_connectivity():
     """Проверить доступность Telegram через текущий прокси.
@@ -3353,7 +3348,10 @@ async def check_proxy_connectivity():
     ВАЖНО: читает TELEGRAM_PROXY_URL напрямую из /app/.env (не из кэша settings),
     чтобы отражать последнее сохранённое значение без перезапуска.
     """
-    import aiohttp, time, re, os
+    import aiohttp
+    import time
+    import re
+    import os
 
     # Читаем актуальный прокси из БД, с fallback на .env
     proxy_url: str | None = None
@@ -3626,7 +3624,7 @@ class SprintResponse(BaseModel):
 @router.get("/sprints", response_model=List[SprintResponse])
 async def get_sprints(db: AsyncSession = Depends(get_db)):
     """Получить все спринты."""
-    from app.domain.models import Sprint, SprintTask, Task, Project
+    from app.domain.models import Sprint, SprintTask, Task
 
     result = await db.execute(
         select(Sprint)
@@ -3718,7 +3716,7 @@ async def create_sprint(
 @router.get("/sprints/{sprint_id}", response_model=SprintResponse)
 async def get_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
     """Получить спринт по ID."""
-    from app.domain.models import Sprint, SprintTask, Task, Project
+    from app.domain.models import Sprint, SprintTask, Project
 
     result = await db.execute(
         select(Sprint)
@@ -3774,7 +3772,7 @@ async def update_sprint(
     sprint_id: int, request: SprintUpdateRequest, db: AsyncSession = Depends(get_db)
 ):
     """Обновить спринт."""
-    from app.domain.models import Sprint, SprintTask, Task, Project
+    from app.domain.models import Sprint, SprintTask, Project
 
     result = await db.execute(select(Sprint).where(Sprint.id == sprint_id))
     sprint = result.scalar_one_or_none()
