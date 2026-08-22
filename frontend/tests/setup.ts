@@ -25,16 +25,25 @@ const localStorageMock = {
 };
 Object.defineProperty(window, 'localStorage', { value: localStorageMock });
 
-// Mock axios
-vi.mock('axios', () => ({
-  default: {
+// Mock axios. Includes `create()` and `interceptors` so that importing
+// `src/api/client.ts` (which calls both at module load time) doesn't throw.
+function makeAxiosInstance() {
+  return {
     get: vi.fn(),
     post: vi.fn(),
     patch: vi.fn(),
+    put: vi.fn(),
     delete: vi.fn(),
-  },
-  get: vi.fn(),
-  post: vi.fn(),
-  patch: vi.fn(),
-  delete: vi.fn(),
-}));
+    interceptors: {
+      request: { use: vi.fn() },
+      response: { use: vi.fn() },
+    },
+  };
+}
+vi.mock('axios', () => {
+  const instance = makeAxiosInstance();
+  return {
+    default: { ...instance, create: vi.fn(() => makeAxiosInstance()) },
+    ...instance,
+  };
+});

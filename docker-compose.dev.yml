@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
 
   backend:
@@ -17,6 +15,12 @@ services:
       - "${BACKEND_PORT:-8180}:8000"
     restart: unless-stopped
     command: python -m app.main
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - teamflow-network
 
@@ -35,6 +39,12 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5173/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - teamflow-network
 
