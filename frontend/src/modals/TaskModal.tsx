@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Task } from '../types/dashboard';
-import { API_URL, STATUS_EMOJI, STATUS_LABELS, STATUS_COLOR, DUE_BADGE, PRIORITY_LABELS, PRIORITY_COLOR, PRIORITY_EMOJI } from '../constants/taskDisplay';
+import { API_URL, STATUS_EMOJI, STATUS_LABELS, STATUS_COLOR, DUE_BADGE, PRIORITY_LABELS, PRIORITY_COLOR } from '../constants/taskDisplay';
 import { getDueStatus, toDateInputValue, toISOString, formatDueDate, formatDatetime, plural, parseUTC, formatTime } from '../utils/dateUtils';
 import Modal from '../components/Modal';
 import MarkdownContent from '../components/MarkdownContent';

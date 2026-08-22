@@ -88,6 +88,7 @@ async def _run_migrations():
             ("project_id", "ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id)", cols),
             ("timezone", "ALTER TABLE local_accounts ADD COLUMN timezone VARCHAR(64)", local_accounts_cols),
             ("key_prefix", "ALTER TABLE api_keys ADD COLUMN key_prefix VARCHAR(12)", api_keys_cols),
+            ("is_idea", "ALTER TABLE tasks ADD COLUMN is_idea BOOLEAN DEFAULT 0", cols),
         ]
         for col, sql, existing_cols in migrations:
             if col not in existing_cols:

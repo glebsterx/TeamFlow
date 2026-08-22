@@ -226,7 +226,7 @@ export default function NewTaskModal({
   }
 
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={handleClose}>
       <h2 className="text-lg sm:text-xl font-bold mb-4">Новая задача</h2>
       <div className="space-y-3 mb-4">
         <div>
@@ -371,7 +371,7 @@ export default function NewTaskModal({
       />
 
       <div className="flex gap-2">
-        <button onClick={onClose} className="flex-1 py-2 bg-gray-100 rounded-lg text-sm">Отмена</button>
+        <button onClick={handleClose} className="flex-1 py-2 bg-gray-100 rounded-lg text-sm">Отмена</button>
         <button
           onClick={handleSubmit}
           disabled={createTaskMutation.isPending}

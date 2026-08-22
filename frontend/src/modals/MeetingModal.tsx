@@ -6,7 +6,7 @@ import MarkdownContent from '../components/MarkdownContent';
 import { parseUTC } from '../utils/dateUtils';
 import { showToast } from '../utils/toast';
 import { API_URL } from '../constants/taskDisplay';
-import { MEETING_TYPES, MEETING_TYPE_LABELS } from '../constants/meetingTypes';
+import { MEETING_TYPES } from '../constants/meetingTypes';
 
 export default function MeetingModal({ meeting, onClose, updateMeetingMutation, setConfirmDelete, projects, onOpenTask, tasks }: any) {
   const [summary, setSummary] = useState(meeting.summary || '');
@@ -23,7 +23,7 @@ export default function MeetingModal({ meeting, onClose, updateMeetingMutation, 
   const [summaryTab, setSummaryTab] = useState<'write' | 'preview'>('write');
   const [actionItems, setActionItems] = useState<string[]>([]);
   const [showActionItems, setShowActionItems] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [aiTasks, setAiTasks] = useState<{title: string; description?: string; priority?: string}[]>([]);
   const [showAiTasks, setShowAiTasks] = useState(false);
   const descRef = useRef<HTMLTextAreaElement>(null);

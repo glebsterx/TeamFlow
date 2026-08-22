@@ -24,6 +24,7 @@ export interface Sprint {
   end_date: string;
   created_at: string;
   tasks: SprintTask[];
+  is_deleted?: boolean;
 }
 
 export interface SprintCreateRequest {

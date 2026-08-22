@@ -1,23 +1,31 @@
 """Pytest configuration and fixtures."""
-import pytest
-import os
-from typing import AsyncGenerator
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from app.config import settings
 import os
 
-# Use local database (tests run locally, not in container)
-TEST_DATABASE_URL = "sqlite+aiosqlite:///./data/teamflow.db"
+# Must be set before any `app.*` module is imported — app.core.db builds its
+# engine from settings.DATABASE_URL at import time (module-level singleton).
+TEST_DB_FILE = os.path.join(os.path.dirname(__file__), "test_teamflow.db")
+os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DB_FILE}"
+
+import pytest
+from typing import AsyncGenerator
+from httpx import AsyncClient, ASGITransport
 
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_db():
-    """Use production database (backup already made)."""
-    # We use settings.DATABASE_URL (production DB)
-    # Tests run on real data
+    """Create a fresh, isolated sqlite file for the test session; remove it after."""
+    if os.path.exists(TEST_DB_FILE):
+        os.remove(TEST_DB_FILE)
+
+    import asyncio
+    from app.core.db import init_db
+
+    asyncio.get_event_loop_policy().new_event_loop().run_until_complete(init_db())
+
     yield
+
+    if os.path.exists(TEST_DB_FILE):
+        os.remove(TEST_DB_FILE)
 
 
 @pytest.fixture(scope="session")
@@ -31,13 +39,10 @@ def event_loop():
 @pytest.fixture(scope="function")
 async def test_db_session(setup_test_db):
     """Create test database session."""
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    
-    async with async_session() as session:
+    from app.core.db import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as session:
         yield session
-    
-    await engine.dispose()
 
 
 @pytest.fixture(scope="function")

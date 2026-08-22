@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { authApi } from '../api/auth';
-import { useAuthStore } from '../stores/authStore';
 import { API_URL } from '../constants/taskDisplay';
 import { useTheme } from '../hooks/useTheme';
 import { ToastContainer } from '../components/Toast';
 
 export const Login: React.FC = () => {
-  const setUser = useAuthStore((state) => state.setUser);
   const { theme, toggleTheme } = useTheme();
 
   // Redirect to main if already authenticated
@@ -18,10 +16,6 @@ export const Login: React.FC = () => {
     }
   }, []);
 
-  const [myUserId, setMyUserId] = React.useState<number | null>(() => {
-    const saved = localStorage.getItem('teamflow_my_user_id');
-    return saved ? Number(saved) : null;
-  });
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -82,7 +76,6 @@ export const Login: React.FC = () => {
       const params = new URLSearchParams(hash.substring(1));
       const access = params.get('access_token');
       const refresh = params.get('refresh_token');
-      const tgId = params.get('account_id');
 
       if (access && refresh) {
         localStorage.setItem('access_token', access);

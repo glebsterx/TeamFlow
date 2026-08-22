@@ -19,6 +19,12 @@ export interface Blocker {
   created_at: string;
 }
 
+export interface Tag {
+  id: number;
+  name: string;
+  color: string;
+}
+
 export interface Task {
   id: number;
   title: string;
@@ -37,6 +43,7 @@ export interface Task {
   started_at?: string;
   completed_at?: string;
   blockers?: Blocker[];
+  tags?: Tag[];
   backlog?: boolean;
   is_idea?: boolean;
   backlog_added_at?: string;

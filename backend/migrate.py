@@ -161,6 +161,8 @@ MIGRATIONS = [
     # Корзина базы знаний — soft delete
     ("knowledge_folders", "deleted_at", "ALTER TABLE knowledge_folders ADD COLUMN deleted_at DATETIME"),
     ("knowledge_pages", "deleted_at", "ALTER TABLE knowledge_pages ADD COLUMN deleted_at DATETIME"),
+    # Идеи (Task.is_idea)
+    ("tasks", "is_idea", "ALTER TABLE tasks ADD COLUMN is_idea BOOLEAN DEFAULT 0"),
 ]
 
 async def run():

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Modal from '../components/Modal';
 import { showToast } from '../utils/toast';
 import { API_URL } from '../constants/taskDisplay';
@@ -26,12 +26,6 @@ interface ProjectMembersModalProps {
   projectName: string;
   onClose: () => void;
 }
-
-const ROLE_LABELS: Record<string, string> = {
-  admin: '🔹 Админ',
-  editor: '✏️ Редактор',
-  viewer: '👁 Наблюдатель',
-};
 
 const ROLE_COLORS: Record<string, string> = {
   admin: 'bg-purple-100 text-purple-700',

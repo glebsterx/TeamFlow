@@ -35,9 +35,9 @@ async def test_sprint_tasks(test_client: AsyncClient, test_db_session: AsyncSess
 
 @pytest.mark.asyncio
 async def test_reorder_sprint(test_client: AsyncClient, test_db_session: AsyncSession):
-    """Test sprint task reorder."""
-    response = await test_client.post(
-        "/api/sprints/1/reorder",
+    """Real endpoint is PATCH /sprints/{id}/tasks/reorder, not POST /sprints/{id}/reorder."""
+    response = await test_client.patch(
+        "/api/sprints/1/tasks/reorder",
         json={"task_ids": [1, 2, 3]}
     )
     assert response.status_code in [200, 401, 404, 422]

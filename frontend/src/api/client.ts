@@ -26,7 +26,6 @@ apiClient.interceptors.request.use(
 
 // Track connection state
 let isOffline = false;
-let offlineToastShown = false;
 
 // Response interceptor to handle errors
 apiClient.interceptors.response.use(
@@ -34,7 +33,6 @@ apiClient.interceptors.response.use(
     // Connection restored
     if (isOffline) {
       isOffline = false;
-      offlineToastShown = false;
       showToast('Соединение восстановлено', 'success');
     }
     return response;

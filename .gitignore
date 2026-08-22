@@ -39,3 +39,4 @@ backups/
 
 # Obsidian
 .obsidian/
+backend/tests/test_teamflow.db

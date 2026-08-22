@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { API_URL } from '../constants/taskDisplay';
-import { parseUTC, formatTime, formatDueDate } from '../utils/dateUtils';
+import { formatTime, formatDueDate } from '../utils/dateUtils';
 
 interface DigestPageProps {
   onOpenTask?: (task: any) => void;
@@ -28,13 +28,6 @@ export default function DigestPage({ onOpenTask }: DigestPageProps) {
     queryKey: ['projects'],
     queryFn: () => axios.get(`${API_URL}/api/projects`).then(r => r.data),
   });
-
-  const getPeriodStart = () => {
-    const now = new Date();
-    if (timePeriod === 'week') return new Date(now.setDate(now.getDate() - 7));
-    if (timePeriod === 'month') return new Date(now.setMonth(now.getMonth() - 1));
-    return new Date(now.setMonth(now.getMonth() - 3));
-  };
 
   const timeTasks = tasks.filter((t: any) => 
     t.time_spent > 0

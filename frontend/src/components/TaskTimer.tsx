@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { showToast } from '../utils/toast';
 
 interface TaskTimerProps {
@@ -46,7 +46,7 @@ export function TaskTimer({ taskId, onStop }: TaskTimerProps) {
   }, [taskId]);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
+    let interval: ReturnType<typeof setInterval> | null = null;
     if (isRunning && !isPaused) {
       interval = setInterval(() => {
         setSeconds(s => s + 1);

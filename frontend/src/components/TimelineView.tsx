@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
-import type { Task, Project, Assignee } from '../types/dashboard';
-import { STATUS_COLOR, PRIORITY_COLOR } from '../constants/taskDisplay';
+import type { Task, Project } from '../types/dashboard';
+import { STATUS_COLOR } from '../constants/taskDisplay';
 import { formatDatetime } from '../utils/dateUtils';
 
 interface TimelineViewProps {

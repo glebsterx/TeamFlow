@@ -7,7 +7,7 @@ import { showToast } from '../utils/toast';
 interface AITaskModalProps {
   onClose: () => void;
   onTaskCreated: () => void;
-  projects: { id: number; name: string; emoji: string }[];
+  projects: { id: number; name: string; emoji?: string }[];
 }
 
 export default function AITaskModal({ onClose, onTaskCreated, projects }: AITaskModalProps) {

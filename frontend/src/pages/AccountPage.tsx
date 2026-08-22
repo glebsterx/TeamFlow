@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import axios from 'axios';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -30,25 +30,6 @@ const TIMEZONES = [
   { value: 'Asia/Tashkent', label: 'Tashkent (UTC+5)' },
   { value: 'Asia/Almaty', label: 'Almaty (UTC+6)' },
 ];
-
-interface TelegramUser {
-  id: number;
-  id: number;
-  username: string | null;
-  first_name: string;
-  last_name: string | null;
-  display_name: string;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-interface TeamMember {
-  id: number;
-  telegram_user_id: number;
-  role: string;
-  joined_at: string;
-}
 
 // ========== NOTIFICATION SETTINGS SECTION ==========
 const PUSH_OPTIONS = [

@@ -5,7 +5,7 @@ import { API_URL, STATUS_COLOR, STATUS_BORDER, STATUS_EMOJI, STATUS_LABELS, PRIO
 import { showToast } from '../utils/toast';
 import { BacklogTaskRow } from './BacklogPage';
 
-export default function ProjectNavPage({ projects, tasks, navProject, navProjectPath, navTaskPath, onSelectProject, onPushTask, onEditProject, onOpenTask, onNewProject, onNewTask, changeStatusMutation, takeTaskMutation, myUserId, invalidate, ancestorBlockedIds, onDeleteTask, onShowMembers, onGoBack }: any) {
+export default function ProjectNavPage({ projects, tasks, navProject, navTaskPath, onSelectProject, onPushTask, onEditProject, onOpenTask, onNewProject, onNewTask, changeStatusMutation, takeTaskMutation, myUserId, invalidate, ancestorBlockedIds, onDeleteTask, onShowMembers, onGoBack }: any) {
   const [statusFilter, setStatusFilter] = React.useState<string | null>(null);
 
   // Build project path dynamically from parent_project_id
@@ -169,7 +169,7 @@ export default function ProjectNavPage({ projects, tasks, navProject, navProject
             className="font-medium hover:text-blue-600 transition"
           >📁 Проекты</button>
           <span className="text-gray-300">›</span>
-          {computedProjectPath.map((p: any, i: number) => (
+          {computedProjectPath.map((p: any) => (
             <React.Fragment key={p.id}>
               <button
                 onClick={() => onSelectProject(p)}

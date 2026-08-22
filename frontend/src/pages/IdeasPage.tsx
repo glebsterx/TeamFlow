@@ -23,7 +23,7 @@ interface IdeasPageProps {
   projects: Project[];
 }
 
-export default function IdeasPage({ tasks, projects }: IdeasPageProps) {
+export default function IdeasPage({ projects }: IdeasPageProps) {
   const queryClient = useQueryClient();
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['ideas'] });
 

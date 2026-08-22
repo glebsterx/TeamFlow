@@ -4,7 +4,7 @@ import axios from 'axios';
 
 import type { Task, Project, Meeting, Stats, TelegramUser } from '../types/dashboard';
 import { API_URL, STATUS_COLOR, STATUS_BORDER, STATUS_EMOJI, STATUS_LABELS, DUE_BADGE, PRIORITY_LABELS, PRIORITY_COLOR, PRIORITY_ORDER, PRIORITY_EMOJI, cardBg } from '../constants/taskDisplay';
-import { timeAgo, getDueStatus, formatDueDate, formatDuration, formatDatetime, parseUTC } from '../utils/dateUtils';
+import { timeAgo, getDueStatus, formatDueDate, formatDatetime, parseUTC } from '../utils/dateUtils';
 import { getAncestorBlockedIds } from '../utils/taskUtils';
 import { showToast } from '../utils/toast';
 import { useTaskChangeDetector } from '../hooks/useTaskChangeDetector';
@@ -23,7 +23,6 @@ import SprintsPage from './SprintsPage';
 import MeetingsPage from './MeetingsPage';
 import ArchivePage from './ArchivePage';
 import DigestPage from './DigestPage';
-import ProjectNavPage from './ProjectNavPage';
 import AccountPage from './AccountPage';
 import TaskModal from '../modals/TaskModal';
 import MeetingModal from '../modals/MeetingModal';
@@ -192,7 +191,7 @@ export default function Dashboard() {
     : showNewMeeting ? () => setShowNewMeeting(false)
     : confirmDelete ? () => setConfirmDelete(null)
     : null;
-  const [myUserId, setMyUserId] = useState<number | null>(() => {
+  const [myUserId] = useState<number | null>(() => {
     const saved = localStorage.getItem('teamflow_my_user_id');
     return saved ? Number(saved) : null;
   });
@@ -1145,12 +1144,11 @@ const takeTaskMutation = useMutation({
               <div className="space-y-1">
                 <div className="flex gap-2 mb-2">
                   <button onClick={() => setTreeExpanded(new Set(
-                    sortedTasks.filter(t => t.subtasks?.length > 0).map(t => t.id)
+                    sortedTasks.filter(t => (t.subtasks?.length ?? 0) > 0).map(t => t.id)
                   ))} className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200">Развернуть все</button>
                   <button onClick={() => setTreeExpanded(new Set())} className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200">Свернуть все</button>
                 </div>
                 {(() => {
-                  const MAX_LEVEL = 5;
                   const projectMap = new Map<number, Project & { children: Project[], tasks: Task[] }>();
                   projects.forEach(p => projectMap.set(p.id, { ...p, children: [], tasks: [] }));
                   projects.forEach(p => {
@@ -1179,15 +1177,14 @@ const takeTaskMutation = useMutation({
                           <span className="text-sm truncate">{proj.name}</span>
                         </div>
                         {(proj.tasks || []).map(task => renderTask(task, level + 1))}
-                        {(proj.children || []).map(child => renderProject(child, level + 1))}
+                        {(proj.children || []).map(child => renderProject(projectMap.get(child.id) || { ...child, children: [], tasks: [] }, level + 1))}
                       </div>
                     );
                   };
-                  const renderTask = (task: Task & { subtasks?: Task[] }, level: number, path: number[] = []) => {
+                  const renderTask = (task: Task, level: number, path: number[] = []) => {
                     const currentPath = [...path, task.id];
                     const subtasks = task.subtasks || [];
                     const hasSubtasks = subtasks.length > 0;
-                    const isMaxLevel = level >= MAX_LEVEL;
                     const isExpanded = treeExpanded.has(task.id);
                     const expandBtn = hasSubtasks ? (
                       <button onClick={(e) => toggleTreeExpand(task.id, e)} className="text-gray-400 text-xs hover:text-gray-600 w-4">

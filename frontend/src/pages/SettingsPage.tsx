@@ -60,7 +60,7 @@ interface SettingsPageProps {
   takeTaskMutation?: any;
   myUserId?: number | null;
   invalidate?: () => void;
-  ancestorBlockedIds?: number[];
+  ancestorBlockedIds?: Set<number>;
   onDeleteTask?: (id: number) => void;
   onShowMembers?: (p: any) => void;
   navProjectPath?: any[];
@@ -357,7 +357,7 @@ function SystemSettingsSection() {
   const [vapidEmail, setVapidEmail] = React.useState('');
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  const [configStatus, setConfigStatus] = React.useState<{issues: string[], warnings: string[], is_configured: boolean} | null>(null);
+  const [configStatus] = React.useState<{issues: string[], warnings: string[], is_configured: boolean} | null>(null);
   const [eventStoreEnabled, setEventStoreEnabled] = React.useState(false);
 
   const allSections = [
@@ -1236,13 +1236,6 @@ function UsersSection() {
     );
   }
 
-  const ROLE_LABELS: Record<string, string> = {
-    owner: '👑 Владелец',
-    admin: '🔹 Админ',
-    member: '👤 Участник',
-    viewer: '👁 Наблюдатель',
-  };
-
   return (
     <section className="bg-white border rounded-xl p-6">
       <h3 className="text-lg font-semibold text-gray-800 mb-4">👥 Пользователи ({users.length})</h3>
@@ -1304,7 +1297,7 @@ function TeamManagementSection() {
   const [inviteEmail, setInviteEmail] = React.useState('');
   const [inviteRole, setInviteRole] = React.useState('member');
   const [generatedInvite, setGeneratedInvite] = React.useState<TeamInvite | null>(null);
-  const [myUserId, setMyUserId] = React.useState<number | null>(() => {
+  const [myUserId] = React.useState<number | null>(() => {
     const saved = localStorage.getItem('teamflow_my_user_id');
     return saved ? Number(saved) : null;
   });
@@ -1608,8 +1601,6 @@ export default function SettingsPage(props: SettingsPageProps) {
     }
   };
 
-  const queryClient = useQueryClient();
-  
   // Check permissions
   const [myAccountId] = React.useState<number | null>(() => {
     const saved = localStorage.getItem('teamflow_account_id');
@@ -1635,23 +1626,6 @@ export default function SettingsPage(props: SettingsPageProps) {
   const [importMode, setImportMode] = React.useState<'merge' | 'full'>('merge');
   const [importResult, setImportResult] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
-
-  // Bot status
-  const [botStatus, setBotStatus] = React.useState<{ok: boolean, username: string|null, last_seen: string|null, uptime_sec: number|null, error: string|null} | null>(null);
-  React.useEffect(() => {
-    const fetchBotStatus = () => { axios.get(`${API_URL}/api/bot-status`).then(r => setBotStatus(r.data)).catch(() => setBotStatus({ ok: false, username: null, last_seen: null, uptime_sec: null, error: 'API недоступен' })); };
-    fetchBotStatus();
-    const interval = setInterval(fetchBotStatus, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Proxy
-  const [proxyUrl, setProxyUrl] = React.useState('');
-  const [proxyStatus, setProxyStatus] = React.useState<'idle'|'saving'|'saved'|'error'>('idle');
-  const [proxyCheck, setProxyCheck] = React.useState<{ checking: boolean; reachable?: boolean; latency_ms?: number; error?: string }>({ checking: false });
-  React.useEffect(() => { axios.get(`${API_URL}/api/settings/proxy`).then(r => setProxyUrl(r.data.proxy_url || '')).catch(() => {}); }, []);
-  const handleSaveProxy = async () => { setProxyStatus('saving'); try { await axios.post(`${API_URL}/api/settings/proxy`, { proxy_url: proxyUrl || null }); setProxyStatus('saved'); setTimeout(() => setProxyStatus('idle'), 2500); } catch { setProxyStatus('error'); setTimeout(() => setProxyStatus('idle'), 2500); } };
-  const handleCheckProxy = async () => { setProxyCheck({ checking: true }); try { const r = await axios.get(`${API_URL}/api/settings/proxy/check`, { timeout: 20000 }); setProxyCheck({ checking: false, ...r.data }); } catch (e: any) { setProxyCheck({ checking: false, reachable: false, error: e?.message || 'Ошибка' }); } };
 
   // Webhooks
   const [webhooks, setWebhooks] = React.useState<{id: number, url: string, events: string, secret: string|null, is_active: boolean, created_at: string, last_triggered_at: string|null}[]>([]);
