@@ -137,7 +137,12 @@ BASE_URL=${BASE_URL}
 EOF
 
 cat > frontend/.env << EOF
-VITE_API_URL=${BASE_URL}:${BACKEND_PORT}
+# Пусто = относительные пути /api и /health, которые vite.config.ts
+# проксирует на backend внутри docker-сети. Не задавайте абсолютный
+# URL с портом BACKEND_PORT — если страница открыта по HTTPS через
+# внешний reverse-proxy/tunnel (а backend слушает голый HTTP), браузер
+# заблокирует такие запросы как mixed content.
+VITE_API_URL=
 EOF
 
 cat > frontend/vite.config.ts << EOFVITE
@@ -150,7 +155,11 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     strictPort: true,
-    allowedHosts: true
+    allowedHosts: true,
+    proxy: {
+      '/api': { target: 'http://backend:8000', changeOrigin: true },
+      '/health': { target: 'http://backend:8000', changeOrigin: true },
+    }
   }
 })
 EOFVITE

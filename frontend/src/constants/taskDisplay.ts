@@ -1,10 +1,9 @@
-export const API_URL = (() => {
-  const env = (import.meta as any).env.VITE_API_URL;
-  if (env) return env;
-  // Derive from current page URL: same host, port 8180
-  const { protocol, hostname } = window.location;
-  return `${protocol}//${hostname}:8180`;
-})();
+// Same-origin by default — vite (dev server) and the prod reverse proxy both
+// forward /api and /health to the backend container, which avoids guessing a
+// port and avoids mixed-content blocking when the page is served over HTTPS
+// but the backend isn't. Set VITE_API_URL only for cases where the backend
+// really is on a different origin (e.g. local dev without the proxy set up).
+export const API_URL = (import.meta as any).env.VITE_API_URL || '';
 
 export const STATUS_COLOR: Record<string, string> = {
   TODO: 'bg-gray-100 text-gray-700 border-gray-300',

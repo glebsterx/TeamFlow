@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { showToast } from '../utils/toast';
 
-export const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
+export const API_URL = (import.meta as any).env.VITE_API_URL || '';
 
 export const apiClient = axios.create({
   baseURL: `${API_URL}/api`,
