@@ -3152,11 +3152,50 @@ async def restart_service(service: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _read_proxy_from_env_file(env_path: str = "/app/.env") -> Optional[str]:
+    """Sync helper — always run via asyncio.to_thread from a route, never
+    called directly from async code (blocks the event loop otherwise)."""
+    import os
+    import re
+
+    if not os.path.exists(env_path):
+        return None
+    with open(env_path) as f:
+        content = f.read()
+    m = re.search(r"^TELEGRAM_PROXY_URL=(.+)$", content, re.MULTILINE)
+    if not m:
+        return None
+    return m.group(1).strip() or None
+
+
+def _write_proxy_to_env_file(proxy_url: Optional[str], env_path: str = "/app/.env") -> None:
+    """Sync helper — always run via asyncio.to_thread from a route."""
+    import os
+    import re
+
+    if not os.path.exists(env_path):
+        return
+    with open(env_path) as f:
+        content = f.read()
+    if re.search(r"^TELEGRAM_PROXY_URL=.*$", content, re.MULTILINE):
+        if proxy_url:
+            content = re.sub(
+                r"^TELEGRAM_PROXY_URL=.*$",
+                f"TELEGRAM_PROXY_URL={proxy_url}",
+                content,
+                flags=re.MULTILINE,
+            )
+        else:
+            content = re.sub(r"^TELEGRAM_PROXY_URL=.*\n?", "", content, flags=re.MULTILINE)
+    elif proxy_url:
+        content = content.rstrip("\n") + f"\nTELEGRAM_PROXY_URL={proxy_url}\n"
+    with open(env_path, "w") as f:
+        f.write(content)
+
+
 @router.get("/settings/proxy")
 async def get_proxy_settings():
     """Получить текущий URL прокси — из БД."""
-    import os
-
     # Сначала пробуем из БД
     try:
         from sqlalchemy import select
@@ -3174,16 +3213,10 @@ async def get_proxy_settings():
         pass
 
     # Fallback: читаем из .env (для обратной совместимости)
-    env_path = "/app/.env"
     try:
-        if os.path.exists(env_path):
-            import re
-
-            with open(env_path) as f:
-                content = f.read()
-            m = re.search(r"^TELEGRAM_PROXY_URL=(.+)$", content, re.MULTILINE)
-            if m:
-                return {"proxy_url": m.group(1).strip()}
+        proxy_url = await asyncio.to_thread(_read_proxy_from_env_file)
+        if proxy_url:
+            return {"proxy_url": proxy_url}
     except Exception:
         pass
     return {"proxy_url": None}
@@ -3192,9 +3225,6 @@ async def get_proxy_settings():
 @router.post("/settings/proxy")
 async def set_proxy_settings(req: dict):
     """Сохранить прокси в БД и .env. Принимает только SOCKS5/HTTP прокси."""
-    import re
-    import os
-
     raw = (req.get("proxy_url") or "").strip()
     proxy_url = raw if raw else None
 
@@ -3217,14 +3247,8 @@ async def set_proxy_settings(req: dict):
 
     # Fallback: читаем из .env
     if not old_proxy_url:
-        env_path = "/app/.env"
         try:
-            if os.path.exists(env_path):
-                with open(env_path) as f:
-                    content = f.read()
-                m = re.search(r"^TELEGRAM_PROXY_URL=(.+)$", content, re.MULTILINE)
-                if m:
-                    old_proxy_url = m.group(1).strip() or None
+            old_proxy_url = await asyncio.to_thread(_read_proxy_from_env_file)
         except Exception:
             pass
 
@@ -3250,27 +3274,8 @@ async def set_proxy_settings(req: dict):
         logger.warning("proxy_save_to_db_failed", error=str(e))
 
     # Также сохраняем в .env (для обратной совместимости)
-    env_path = "/app/.env"
     try:
-        if os.path.exists(env_path):
-            with open(env_path) as f:
-                content = f.read()
-            if re.search(r"^TELEGRAM_PROXY_URL=.*$", content, re.MULTILINE):
-                if proxy_url:
-                    content = re.sub(
-                        r"^TELEGRAM_PROXY_URL=.*$",
-                        f"TELEGRAM_PROXY_URL={proxy_url}",
-                        content,
-                        flags=re.MULTILINE,
-                    )
-                else:
-                    content = re.sub(
-                        r"^TELEGRAM_PROXY_URL=.*\n?", "", content, flags=re.MULTILINE
-                    )
-            elif proxy_url:
-                content = content.rstrip("\n") + f"\nTELEGRAM_PROXY_URL={proxy_url}\n"
-            with open(env_path, "w") as f:
-                f.write(content)
+        await asyncio.to_thread(_write_proxy_to_env_file, proxy_url)
     except Exception as e:
         logger.warning("proxy_save_to_env_failed", error=str(e))
 
@@ -3356,11 +3361,9 @@ async def check_proxy_connectivity():
     """
     import aiohttp
     import time
-    import re
-    import os
 
     # Читаем актуальный прокси из БД, с fallback на .env
-    proxy_url: str | None = None
+    proxy_url: Optional[str] = None
     try:
         from sqlalchemy import select
         from app.domain.models import AppSetting
@@ -3378,14 +3381,8 @@ async def check_proxy_connectivity():
 
     # Fallback: читаем из .env
     if not proxy_url:
-        env_path = "/app/.env"
         try:
-            if os.path.exists(env_path):
-                with open(env_path) as f:
-                    content = f.read()
-                m = re.search(r"^TELEGRAM_PROXY_URL=(.+)$", content, re.MULTILINE)
-                if m:
-                    proxy_url = m.group(1).strip() or None
+            proxy_url = await asyncio.to_thread(_read_proxy_from_env_file)
         except Exception:
             pass
 
