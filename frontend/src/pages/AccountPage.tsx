@@ -215,14 +215,22 @@ export default function AccountPage() {
       .catch(() => {});
   }, [myAccountId]);
 
-  const handleLinkGoogle = () => {
-    const accountId = myAccountId || '';
-    window.location.href = `${API_URL}/api/auth/google/link?account_id=${accountId}`;
+  const handleLinkGoogle = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/auth/oauth-link-token`, { params: { provider: 'google' } });
+      window.location.href = `${API_URL}/api/auth/google/link?link_token=${encodeURIComponent(res.data.link_token)}`;
+    } catch {
+      showToast('Не удалось начать привязку Google', 'error');
+    }
   };
 
-  const handleLinkYandex = () => {
-    const accountId = myAccountId || '';
-    window.location.href = `${API_URL}/api/auth/yandex/link?account_id=${accountId}`;
+  const handleLinkYandex = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/auth/oauth-link-token`, { params: { provider: 'yandex' } });
+      window.location.href = `${API_URL}/api/auth/yandex/link?link_token=${encodeURIComponent(res.data.link_token)}`;
+    } catch {
+      showToast('Не удалось начать привязку Yandex', 'error');
+    }
   };
 
   // Telegram привязка через бота

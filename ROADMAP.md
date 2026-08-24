@@ -337,7 +337,7 @@ Login Widget (тот требует HTTPS, которого пока нет на
 
 - Нет E2E тестов для фронтенда (Playwright/Cypress) — только unit/component (Vitest) и backend (pytest)
 - Нет HTTPS на проде (`tf.glebsterx.ru` резолвится не туда — вне контроля агента, нужен доступ к DNS/роутеру)
-- IDOR в `GET /auth/google/link` и `/auth/yandex/link` (`account_id` всё ещё через query, а не токен) — это редирект по `window.location.href`, приложить заголовок нельзя без signed-link механизма на фронте
+- [x] IDOR в `GET /auth/google/link`/`yandex/link` — закрыто 24.08. Было хуже, чем IDOR: любой мог привязать свой Google/Yandex-аккаунт к чужому `account_id` через query и потом залогиниться под жертвой. Теперь фронтенд сначала получает подписанный короткоживущий `link_token` через авторизованный `GET /auth/oauth-link-token` (5 мин, привязан к provider), редирект идёт с ним вместо сырого `account_id`.
 - Нет IP-based rate limit на `/auth/local/register` — заглушка (`five_min_ago`, ничего не проверяла) убрана 24.08, сам лимит не реализован (нужна миграция схемы — где-то хранить IP+timestamp попыток)
 - #310 (AUDIT.md) — streaming JSON export для больших датасетов (сейчас всё в память)
 - #313 (AUDIT.md) — routes.py: вперемешку service/repo/raw SQL, единого стиля нет (признано приемлемым для команды 2-5 чел, но не переоценивалось с 04.06)

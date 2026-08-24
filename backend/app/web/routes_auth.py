@@ -9,7 +9,7 @@ from app.core.db import get_db
 from app.core.clock import Clock
 from app.core.deps import get_current_account_id
 from app.core.logging import get_logger
-from app.config import settings, get_web_url_async
+from app.config import settings, get_web_url_async, get_secret_key
 from app.domain.models import LocalAccount, LocalIdentity, UserIdentity, AppSetting, TeamMember
 from sqlalchemy import select
 from app.services.account_service import AccountService
@@ -696,9 +696,65 @@ async def deactivate_user(
 
 # ============= OAUTH ROUTES =============
 
+# /google/link and /yandex/link kick off a browser redirect (window.location.href
+# on the frontend), so no Authorization header can be attached — a plain
+# `?account_id=` query param would let anyone link an attacker-controlled
+# Google/Yandex identity to an arbitrary victim account_id (an account
+# takeover vector, not just an IDOR). Instead the frontend first calls this
+# authenticated endpoint to mint a short-lived signed token proving the link
+# request really came from that account's active session, then passes that
+# token — not a raw account_id — to /google/link or /yandex/link.
+import time as _time
+import jwt as _pyjwt
+
+_OAUTH_LINK_TOKEN_TTL_SECONDS = 300
+
+
+@router.get("/oauth-link-token")
+async def get_oauth_link_token(
+    provider: str = Query(...),
+    account_id: int = Depends(get_current_account_id),
+):
+    """Mint a short-lived token authorizing `account_id` to link `provider`."""
+    if provider not in ("google", "yandex"):
+        raise HTTPException(status_code=400, detail="Неизвестный провайдер")
+    payload = {
+        "sub": str(account_id),
+        "type": "oauth_link",
+        "provider": provider,
+        # NOT Clock.now().timestamp() — Clock.now() is a naive-but-UTC
+        # datetime, and .timestamp() on a naive datetime assumes the
+        # system's LOCAL timezone, not UTC. On this server (MSK, UTC+3)
+        # that silently shifted `exp` ~3h into the past — harmless for
+        # AccountService's 30-day session tokens, but instantly expired
+        # this endpoint's 5-minute one. time.time() is always true UTC epoch.
+        "exp": _time.time() + _OAUTH_LINK_TOKEN_TTL_SECONDS,
+    }
+    token = _pyjwt.encode(payload, get_secret_key(), algorithm="HS256")
+    return {"link_token": token}
+
+
+def _verify_oauth_link_token(link_token: Optional[str], provider: str) -> Optional[int]:
+    """Decode a link_token minted above; return the account_id or None if
+    missing/invalid/expired/wrong-provider (caller falls back to unlinked
+    OAuth login, same as if no account_id had been supplied at all)."""
+    if not link_token:
+        return None
+    try:
+        payload = _pyjwt.decode(link_token, get_secret_key(), algorithms=["HS256"])
+    except _pyjwt.PyJWTError:
+        return None
+    if payload.get("type") != "oauth_link" or payload.get("provider") != provider:
+        return None
+    try:
+        return int(payload["sub"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 @router.get("/google/link")
 async def google_link(
-    account_id: Optional[int] = Query(None),
+    link_token: Optional[str] = Query(None),
     state: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -707,11 +763,14 @@ async def google_link(
     vals = await SettingsService.get_many(db, ["google_client_id", "google_redirect_uri"])
     client_id = vals.get("google_client_id")
     redirect_uri = vals.get("google_redirect_uri") or f"{settings.api_url}/api/auth/google/callback"
-    
+
     if not client_id:
         raise HTTPException(status_code=400, detail="Google OAuth не настроен")
-    
-    # Сохраняем account_id в state если есть
+
+    # Сохраняем account_id в state если есть — только из подписанного
+    # link_token (см. комментарий выше get_oauth_link_token), не из
+    # клиентского ввода напрямую.
+    account_id = _verify_oauth_link_token(link_token, "google")
     state_data = state or ""
     if account_id:
         state_data = f"account_{account_id}"
@@ -861,7 +920,7 @@ async def google_callback(
 
 @router.get("/yandex/link")
 async def yandex_link(
-    account_id: Optional[int] = Query(None),
+    link_token: Optional[str] = Query(None),
     state: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -870,10 +929,11 @@ async def yandex_link(
     vals = await SettingsService.get_many(db, ["yandex_client_id", "yandex_redirect_uri"])
     client_id = vals.get("yandex_client_id")
     redirect_uri = vals.get("yandex_redirect_uri") or f"{settings.api_url}/api/auth/yandex/callback"
-    
+
     if not client_id:
         raise HTTPException(status_code=400, detail="Yandex OAuth не настроен")
-    
+
+    account_id = _verify_oauth_link_token(link_token, "yandex")
     state_data = state or ""
     if account_id:
         state_data = f"account_{account_id}"
