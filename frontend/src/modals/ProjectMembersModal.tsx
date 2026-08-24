@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Modal from '../components/Modal';
 import { showToast } from '../utils/toast';
 import { API_URL } from '../constants/taskDisplay';
@@ -40,12 +40,7 @@ export default function ProjectMembersModal({ projectId, projectName, onClose }:
   const [selectedUserId, setSelectedUserId] = useState<number | ''>('');
   const [selectedRole, setSelectedRole] = useState('viewer');
 
-  useEffect(() => {
-    loadMembers();
-    loadUsers();
-  }, [projectId]);
-
-  const loadMembers = async () => {
+  const loadMembers = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/projects/${projectId}/members`);
       if (res.ok) {
@@ -57,9 +52,9 @@ export default function ProjectMembersModal({ projectId, projectName, onClose }:
     } finally {
       setLoading(false);
     }
-  };
+  }, [projectId]);
 
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/users`);
       if (res.ok) {
@@ -69,7 +64,12 @@ export default function ProjectMembersModal({ projectId, projectName, onClose }:
     } catch {
       // ignore
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadMembers();
+    loadUsers();
+  }, [loadMembers, loadUsers]);
 
   const handleAddMember = async () => {
     if (!selectedUserId) {

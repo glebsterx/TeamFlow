@@ -1,0 +1,5 @@
+#!/bin/bash
+# Enabled per-clone via: git config core.hooksPath .githooks
+# Blocks `git push` if backend/frontend checks fail — see scripts/check.sh.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "$ROOT/scripts/check.sh"

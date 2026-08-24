@@ -70,6 +70,34 @@ curl http://localhost:8180/api/tasks | python3 -m json.tool
 
 ---
 
+## Локальный CI (без GitHub Actions)
+
+GitHub здесь используется только как хранилище кода — Actions не запускаются.
+Вместо этого проверки (`ruff`, `pytest`, `tsc --noEmit`, `eslint`, `vitest run`)
+гоняются локально, при желании — как git-хук перед `push`.
+
+```bash
+# Прогнать все проверки вручную в любой момент:
+./scripts/check.sh
+
+# Включить блокирующий pre-push хук в своём клоне (разово):
+git config core.hooksPath .githooks
+```
+
+`core.hooksPath` — настройка per-clone, git её не коммитит и не включает
+автоматически при клонировании — каждому, кто хочет блокировку `push`,
+нужно один раз выполнить команду выше самому.
+
+`ruff` не входит в `requirements.txt` (это dev-инструмент, не рантайм-зависимость
+приложения) — если не установлен, `check.sh` его пропускает с предупреждением,
+а не падает. Ставится: `pip install --user ruff`.
+
+`E711`/`E712`/`E402` намеренно выключены в `backend/pyproject.toml`
+(`[tool.ruff.lint].ignore`) — см. комментарий там: `Column == True/False/None`
+в SQLAlchemy-запросах ruff предлагает заменить на `is`/`not`, что тихо сломает
+генерацию SQL; часть импортов намеренно не в начале файла — чтобы не ловить
+circular import между handler-модулями бота.
+
 ## Структура Dashboard.tsx
 
 Один файл, все компоненты:

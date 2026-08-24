@@ -100,11 +100,7 @@ class TokenResponse(BaseModel):
 @router.post("/local/register", response_model=TokenResponse)
 async def local_register(request: RegisterRequest, db: AsyncSession = Depends(get_db)):
     from app.services.settings_service import SettingsService
-    
-    # Rate limit: 3 registrations per IP per 5 minutes
-    from datetime import timedelta
-    five_min_ago = Clock.now() - timedelta(minutes=5)
-    
+
     # Проверяем нужно ли приглашение
     invite_only = await SettingsService.get(db, "registration_by_invite_only")
     if invite_only == "true":

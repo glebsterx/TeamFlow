@@ -763,10 +763,13 @@ function AISettingsSection() {
     }
   };
 
+  // Deliberately excludes ai.ai_api_key/loadModels: this should refetch when
+  // switching provider/endpoint, not on every keystroke while typing the key.
   React.useEffect(() => {
     if ((ai.ai_api_key || ai.ai_provider === 'custom') && (ai.ai_provider !== 'custom' || ai.ai_custom_endpoint)) {
       loadModels();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ai.ai_provider, ai.ai_custom_endpoint]);
 
   const handleSave = async () => {

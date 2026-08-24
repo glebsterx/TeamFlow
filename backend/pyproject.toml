@@ -1,3 +1,18 @@
+[tool.ruff.lint]
+ignore = [
+    # Column.__eq__ is overloaded by SQLAlchemy to build SQL WHERE clauses
+    # (`Model.field == True/False/None`) — `is`/`not` don't work the same
+    # way on ORM columns, so ruff's suggested fix here would silently change
+    # query semantics rather than just satisfy the linter.
+    "E711", # none-comparison
+    "E712", # true-false-comparison
+    # Several handler modules deliberately import after their own
+    # module-level code (helpers, TYPE_CHECKING guards, other handler
+    # modules) to avoid circular imports between aiogram routers — moving
+    # these to the top would reintroduce the cycle they're avoiding.
+    "E402", # module-import-not-at-top-of-file
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
