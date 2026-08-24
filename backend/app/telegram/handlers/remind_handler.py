@@ -21,9 +21,24 @@ HELP_TEXT = (
     "• /remind 123 30m — через 30 минут\n"
     "• /remind 123 2h — через 2 часа\n"
     "• /remind 123 1d — через 1 день\n"
-    "• /remind 123 18:00 — сегодня в 18:00\n\n"
+    "• /remind 123 18:00 — сегодня в 18:00 (в вашем часовом поясе из аккаунта)\n\n"
     " ID задачи можно узнать командой /tasks"
 )
+
+
+async def _get_account_timezone(telegram_id: int) -> str:
+    """Resolve the caller's timezone: their account setting, else the
+    system default, else UTC."""
+    from app.core.db import AsyncSessionLocal
+    from app.services.account_service import AccountService
+    from app.services.settings_service import SettingsService
+
+    async with AsyncSessionLocal() as session:
+        account = await AccountService.get_by_telegram_id(session, telegram_id)
+        if account and account.timezone:
+            return account.timezone
+        default_tz = await SettingsService.get(session, "default_timezone")
+        return default_tz or "UTC"
 
 
 @router.message(Command("remind"))
@@ -56,11 +71,16 @@ async def cmd_remind(message: Message):
     if ":" in time_arg:
         try:
             hour, minute = map(int, time_arg.split(":"))
-            now_msk = Clock.now() + timedelta(hours=3)  # MSK = UTC+3
-            target = now_msk.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if target <= now_msk:
+            # #319 — was hardcoded MSK (UTC+3) for everyone regardless of the
+            # account's actual timezone setting (AccountPage already lets
+            # users pick one, LocalAccount.timezone already stores it — this
+            # was the one place still ignoring it, AUD-4).
+            tz_name = await _get_account_timezone(message.from_user.id)
+            now_local = Clock.now_tz(tz_name)
+            target = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if target <= now_local:
                 target += timedelta(days=1)
-            delay_sec = int((target - now_msk).total_seconds())
+            delay_sec = int((target - now_local).total_seconds())
         except Exception:
             await message.answer("❌ Неверный формат времени\n" + HELP_TEXT, parse_mode="Markdown")
             return

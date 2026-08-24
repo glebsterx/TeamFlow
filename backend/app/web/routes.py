@@ -1253,7 +1253,6 @@ async def update_knowledge_folder(folder_id: int, request: dict, db: AsyncSessio
 async def delete_knowledge_folder(folder_id: int, db: AsyncSession = Depends(get_db)):
     """Soft delete knowledge folder (moves to trash with all children)."""
     from app.domain.models import KnowledgeFolder, KnowledgePage
-    from datetime import datetime
 
     async def soft_delete_folder_recursive(folder_id: int):
         result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.parent_id == folder_id))
@@ -1264,12 +1263,12 @@ async def delete_knowledge_folder(folder_id: int, db: AsyncSession = Depends(get
         pages_result = await db.execute(select(KnowledgePage).where(KnowledgePage.folder_id == folder_id))
         pages = pages_result.scalars().all()
         for page in pages:
-            page.deleted_at = datetime.utcnow()
+            page.deleted_at = Clock.now()
         
         folder_result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == folder_id))
         folder = folder_result.scalar_one_or_none()
         if folder:
-            folder.deleted_at = datetime.utcnow()
+            folder.deleted_at = Clock.now()
     
     await soft_delete_folder_recursive(folder_id)
     await db.commit()
@@ -1355,13 +1354,12 @@ async def update_knowledge_page(page_id: int, request: dict, db: AsyncSession = 
 async def delete_knowledge_page(page_id: int, db: AsyncSession = Depends(get_db)):
     """Soft delete knowledge page."""
     from app.domain.models import KnowledgePage
-    from datetime import datetime
 
     result = await db.execute(select(KnowledgePage).where(KnowledgePage.id == page_id))
     page = result.scalar_one_or_none()
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
-    page.deleted_at = datetime.utcnow()
+    page.deleted_at = Clock.now()
     await db.commit()
     return {"ok": True}
 
