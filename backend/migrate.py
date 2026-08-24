@@ -163,6 +163,15 @@ MIGRATIONS = [
     ("knowledge_pages", "deleted_at", "ALTER TABLE knowledge_pages ADD COLUMN deleted_at DATETIME"),
     # Идеи (Task.is_idea)
     ("tasks", "is_idea", "ALTER TABLE tasks ADD COLUMN is_idea BOOLEAN DEFAULT 0"),
+    # Персистентные напоминания /remind (PLAN.md FIX-26)
+    ("reminders", None, """CREATE TABLE IF NOT EXISTS reminders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        chat_id BIGINT NOT NULL,
+        remind_at DATETIME NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )"""),
+    (None, None, "CREATE INDEX IF NOT EXISTS idx_reminders_remind_at ON reminders(remind_at)"),
 ]
 
 async def run():

@@ -105,6 +105,17 @@ async def cmd_remind(message: Message):
 
     chat_id = message.chat.id
     task_title = task.title
+    remind_at = Clock.now() + timedelta(seconds=delay_sec)
+
+    from app.core.db import AsyncSessionLocal
+    from app.domain.models import Reminder
+
+    async with AsyncSessionLocal() as session:
+        reminder_row = Reminder(task_id=task_id, chat_id=chat_id, remind_at=remind_at)
+        session.add(reminder_row)
+        await session.commit()
+        await session.refresh(reminder_row)
+        reminder_id = reminder_row.id
 
     await message.answer(
         f"✅ Напомню о задаче *#{task_id}* через *{human}*\n"
@@ -112,11 +123,23 @@ async def cmd_remind(message: Message):
         parse_mode="Markdown",
     )
 
+    _schedule_reminder(reminder_id, task_id, task_title, chat_id, delay_sec)
+    logger.info("reminder_set", task_id=task_id, delay_sec=delay_sec, chat_id=chat_id)
+
+
+def _schedule_reminder(reminder_id: int, task_id: int, task_title: str, chat_id: int, delay_sec: float) -> None:
+    """Schedule an in-process delivery task and drop the DB row once it fires.
+
+    The DB row (persisted by the caller before this runs) is what survives a
+    restart — see restore_reminders(), called at bot startup — this in-memory
+    task is just the timer for the common case where the process stays up.
+    """
     web_url = get_web_url_cached()
     task_link = f"[Открыть задачу]({web_url}/?task={task_id})"
 
     async def _send_reminder():
-        await asyncio.sleep(delay_sec)
+        if delay_sec > 0:
+            await asyncio.sleep(delay_sec)
         from app.telegram.bot import bot
         try:
             await bot.send_message(
@@ -130,8 +153,42 @@ async def cmd_remind(message: Message):
             )
         except Exception as e:
             logger.warning("remind_send_failed", task_id=task_id, error=str(e))
+        finally:
+            from app.core.db import AsyncSessionLocal
+            from app.domain.models import Reminder
+            async with AsyncSessionLocal() as session:
+                row = await session.get(Reminder, reminder_id)
+                if row:
+                    await session.delete(row)
+                    await session.commit()
 
     reminder_task = asyncio.create_task(_send_reminder())
     _pending_reminders.add(reminder_task)
     reminder_task.add_done_callback(_pending_reminders.discard)
-    logger.info("reminder_set", task_id=task_id, delay_sec=delay_sec, chat_id=chat_id)
+
+
+async def restore_reminders() -> None:
+    """Re-schedule reminders left in the DB from before a restart.
+
+    Called once at bot startup. Anything whose remind_at already passed while
+    the process was down fires immediately instead of being silently dropped.
+    """
+    from sqlalchemy import select
+    from app.core.db import AsyncSessionLocal
+    from app.domain.models import Reminder, Task
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Reminder, Task.title).join(Task, Task.id == Reminder.task_id)
+        )
+        rows = result.all()
+
+    if not rows:
+        return
+
+    now = Clock.now()
+    for reminder_row, task_title in rows:
+        delay_sec = max(0, (reminder_row.remind_at - now).total_seconds())
+        _schedule_reminder(reminder_row.id, reminder_row.task_id, task_title, reminder_row.chat_id, delay_sec)
+
+    logger.info("reminders_restored", count=len(rows))

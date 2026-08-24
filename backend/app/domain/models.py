@@ -448,6 +448,17 @@ class DeadlineNotification(Base):
     )
 
 
+class Reminder(Base):
+    """Отложенное напоминание о задаче (/remind) — переживает рестарт процесса."""
+    __tablename__ = "reminders"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    chat_id = Column(BigInteger, nullable=False)
+    remind_at = Column(DateTime, nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=Clock.now)
+
+
 class BotHeartbeat(Base):
     """Heartbeat бота — пишется ботом, читается API. Одна запись с id=1."""
     __tablename__ = "bot_heartbeat"

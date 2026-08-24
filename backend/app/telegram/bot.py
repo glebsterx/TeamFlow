@@ -252,6 +252,12 @@ async def start_bot():
     except Exception as e:
         logger.warning("bot_username_save_failed", error=str(e))
 
+    from app.telegram.handlers.remind_handler import restore_reminders
+    try:
+        await restore_reminders()
+    except Exception as e:
+        logger.warning("reminders_restore_failed", error=str(e))
+
     checker_task = None
     try:
         checker_task = asyncio.create_task(run_deadline_checker(bot))
