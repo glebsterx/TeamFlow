@@ -16,6 +16,12 @@ from app.web.routes_webhooks import router as webhooks_router
 from app.web.routes_auth import router as auth_router
 from app.web.routes_system_settings import router as system_settings_router
 from app.web.routes_events import router as events_router
+from app.web.routes_knowledge_base import router as knowledge_base_router
+from app.web.routes_meetings import router as meetings_router
+from app.web.routes_projects import router as projects_router
+from app.web.routes_sprints import router as sprints_router
+from app.web.routes_push import router as push_router
+from app.web.routes_ai import router as ai_router
 
 app = FastAPI(
     title="TeamFlow API",
@@ -253,6 +259,12 @@ app.include_router(api_public_router, prefix="/api")
 app.include_router(api_router, prefix="/api", dependencies=_auth_dep)
 app.include_router(tags_router, prefix="/api", dependencies=_auth_dep)
 app.include_router(templates_router, prefix="/api", dependencies=_auth_dep)
+app.include_router(knowledge_base_router, prefix="/api", dependencies=_auth_dep)
+app.include_router(meetings_router, prefix="/api", dependencies=_auth_dep)
+app.include_router(projects_router, prefix="/api", dependencies=_auth_dep)
+app.include_router(sprints_router, prefix="/api", dependencies=_auth_dep)
+app.include_router(push_router, prefix="/api", dependencies=_auth_dep)
+app.include_router(ai_router, prefix="/api", dependencies=_auth_dep)
 # webapp_router: Telegram Mini App bootstrap — used inside Telegram before any
 # web session/JWT exists (auth is done via telegram_id / Telegram WebApp
 # context, not a Bearer token). Left public on purpose.
