@@ -5,9 +5,9 @@
 > Дополняет AUDIT.md (13.06) и PROPOSALS.md. Нумерация: FIX-N.
 >
 > **Обновление 24.08.2026:** Этапы 1-5 закрыты полностью (FIX-1..25), FIX-26 и FIX-29 из Этапа 6 — тоже.
-> Открыто: FIX-27 (разбить гигантские файлы), FIX-28 (sync I/O — хардкод порта закрыт другим
-> способом, см. пункт). FIX-19 (CI) сделан без GitHub Actions — GitHub тут только хранилище
-> кода; вместо workflow — `scripts/check.sh` + `.githooks/pre-push`.
+> Открыто: только FIX-27 (разбить гигантские файлы, L — крупный рефакторинг, не квартальная
+> мелочь). FIX-19 (CI) сделан без GitHub Actions — GitHub тут только хранилище кода; вместо
+> workflow — `scripts/check.sh` + `.githooks/pre-push`.
 > При деплое найдены и закрыты 3 регресса, не входившие в изначальный список: краш-луп
 > backend при сетевых сбоях (бот ронял API-процесс через `main.py`), публичный `/bot-info`
 > сломался после включения авторизации, отсутствующие `/team/*` роуты — см. git log.
@@ -86,7 +86,7 @@ Frontend:
 
 - [x] **FIX-26 (M)** — Персистентные напоминания `/remind` (AUD-8, единственный незакрытый пункт прошлого аудита): таблица `reminders` + восстановление при старте. Сейчас теряются при каждом рестарте.
 - [ ] **FIX-27 (L)** — Разбить гигантов: `SettingsPage.tsx` (1905 строк), `Dashboard.tsx` (1343), `TaskModal.tsx` (1256) — по образцу прошлого рефакторинга Dashboard.
-- [ ] **FIX-28 (S)** — Sync file I/O в async-роутах (`routes.py:3184+`, bootstrap.py) → `asyncio.to_thread` — **не сделано**. Хардкод порта в `constants/taskDisplay.ts` — **сделано** по-другому: вместо fallback-порта теперь везде относительный путь + vite/nginx-прокси на backend (заодно чинит mixed-content между HTTPS-страницей и HTTP-бэкендом, см. коммит `b557ca8`).
+- [x] **FIX-28 (S)** — Sync file I/O в `/settings/proxy*` (`routes.py`) → `asyncio.to_thread`, заодно убрано тройное дублирование regex-парсинга `.env` (коммит `3333077`). `bootstrap.py` намеренно не тронут — бежит в отдельном процессе до spawn API, event loop воркера не блокирует. Хардкод порта в `constants/taskDisplay.ts` — сделано по-другому: вместо fallback-порта теперь везде относительный путь + vite/nginx-прокси на backend (заодно чинит mixed-content между HTTPS-страницей и HTTP-бэкендом, см. коммит `b557ca8`).
 - [x] **FIX-29 (S)** — Docker healthcheck на `/health` в compose (из PROPOSALS.md). Заодно добавлен healthcheck для frontend (не было и его) и убран obsolete `version:`.
 
 ---
