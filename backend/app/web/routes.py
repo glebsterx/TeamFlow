@@ -15,6 +15,7 @@ from datetime import date
 import secrets
 from app.core.db import get_db
 from app.core.clock import Clock
+from app.core.rate_limit import rate_limiter
 from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskStatus
@@ -104,8 +105,15 @@ async def get_users(db: AsyncSession = Depends(get_db)):
     return users
 
 
+# AI endpoints call an external, billed LLM (or, for /ai/models, the
+# provider's API) — rate-limited per account so a runaway frontend loop or
+# a malicious/careless caller can't silently burn through the API budget.
+_ai_generate_rate_limit = rate_limiter("ai_generate", max_requests=10, window_seconds=60)
+_ai_models_rate_limit = rate_limiter("ai_models", max_requests=20, window_seconds=60)
+
+
 @router.post("/ai/parse")
-async def parse_tasks_with_ai(request: dict, db: AsyncSession = Depends(get_db)):
+async def parse_tasks_with_ai(request: dict, db: AsyncSession = Depends(get_db), _rl: int = Depends(_ai_generate_rate_limit)):
     """Parse free-form text into tasks using AI."""
     from app.services.ai_service import AIService
     from app.services.settings_service import SettingsService
@@ -131,7 +139,7 @@ async def parse_tasks_with_ai(request: dict, db: AsyncSession = Depends(get_db))
 
 
 @router.post("/ai/suggest-tags")
-async def suggest_tags_with_ai(request: dict, db: AsyncSession = Depends(get_db)):
+async def suggest_tags_with_ai(request: dict, db: AsyncSession = Depends(get_db), _rl: int = Depends(_ai_generate_rate_limit)):
     """Suggest tags for a task using AI."""
     from app.services.ai_service import AIService
     from app.services.settings_service import SettingsService
@@ -167,6 +175,7 @@ async def get_ai_models(
     include_paid: bool = Query(True),
     x_api_key: str = Header(None),
     db: AsyncSession = Depends(get_db),
+    _rl: int = Depends(_ai_models_rate_limit),
 ):
     """Get models from AI provider. Accepts query params for dynamic configuration."""
     if not api_key and provider != "custom":

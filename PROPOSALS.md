@@ -38,7 +38,7 @@
 
 - [x] 🔴 **M — Закрыть запись без авторизации.** Закрыто 24.08 — JWT на всех API-роутах кроме login/register/OAuth/health/webapp (PLAN.md FIX-2). Остаточный IDOR: `GET /auth/google/link`/`yandex/link` всё ещё принимают `account_id` через query (редирект по `window.location.href`, приложить заголовок нельзя без signed-link на фронте) — см. ROADMAP.md «Технический долг».
 
-- 🟠 **S — Rate-limit на AI-эндпоинты.** Не начато. `/api/ai/*` ходят во внешний LLM за деньги — реальный риск слива бюджета без лимита.
+- [x] 🟠 **S — Rate-limit на AI-эндпоинты.** Закрыто 24.08 — `app/core/rate_limit.py`, in-memory sliding window per-account (10/мин на `/ai/parse` и `/ai/suggest-tags`, 20/мин на `/ai/models`; 429 + `Retry-After`). Тесты в `tests/test_ai.py`.
 
 - [x] 🟡 **S — Аудит секретов в логах.** Закрыто 24.08 — `proxy_applied`/`unknown_proxy_scheme` маскируют `user:pass@` перед логированием (`_mask_proxy_creds` в `bot.py`).
 
