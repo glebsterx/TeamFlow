@@ -2,7 +2,57 @@
 
 ---
 
-## v0.8.24 — Идеи и База знаний (2026-04-21)
+## v0.8.26 — Аудит PLAN.md, авторизация, локальный CI (2026-08-24)
+
+> Обе даты записей ниже проставлены агентом по факту работы в сессии, не по факту
+> обнаружения проблемы.
+
+### Backend
+- Серверная авторизация: JWT (`Authorization: Bearer`) обязателен на всех
+  API-роутах кроме login/register/OAuth/health/webapp-bootstrap; закрыт IDOR
+  (`account_id` бралось из query, теперь только из проверенного токена)
+- Миграция `tasks.is_idea` (ломала create/list задач на старой БД)
+- **Критичный фикс краш-лупа**: сетевой сбой при старте Telegram-бота ронял
+  весь backend-процесс (включая уже работающий API) — `main.py` теперь
+  ретраит бота с backoff вместо `finally: api_process.terminate()` на любое
+  исключение
+- `POST /settings/proxy` не сохранял ничего — тело функции было оборвано,
+  реальная логика по ошибке приклеилась недостижимым кодом в другую функцию
+- Вебхуки: `asyncio.create_task` без ссылки → `BackgroundTasks`/strong-ref set
+- Удалён неиспользуемый дубль-рефакторинг #333 (`services/auth|tasks/`,
+  `repositories/auth|tasks/`) и legacy v1-backend (`app/api`, `app/models`,
+  `app/schemas`, `core/security.py`, `core/database.py`)
+- Добавлены `/team/invites`, `/team/invite`, `/team/members/{id}(/role)` —
+  вкладка «Команда» дёргала их, а на бэкенде их не было
+- ruff-чистка (bare except → except Exception, unused imports/vars, F821)
+
+### Frontend
+- `npx tsc --noEmit` починен (было ~50 ошибок, `npm run build` не работал)
+- Убран mixed-content между HTTPS-страницей (за внешним reverse-proxy) и
+  голым HTTP backend — API теперь всегда через относительный путь +
+  vite/nginx-прокси на backend, вместо абсолютного URL с портом
+- `ServerRestartGuard` стучался в несуществующий прокси-путь — не мог
+  отличить реальный даун от spa-fallback, зацикливал `location.reload()`
+- Удалён мёртвый v1-слой (`api/tasks.ts`, `api/users.ts`, `types/task.ts`,
+  `components/TaskCard/`, `TreeView.tsx`)
+- `NewTaskModal`: подключена защита от потери данных при закрытии (была
+  написана, но не вызывалась)
+- ESLint конфиг с нуля (`npm run lint` падал — плагины стояли, конфига не было)
+- Vitest: заглушки (`expect(true).toBe(true)`) заменены реальными тестами
+  (dateUtils — 19 тестов, confirm-close модалки — 4 теста)
+
+### Инфраструктура
+- Локальный CI без GitHub Actions (тут только хранилище кода):
+  `scripts/check.sh` + `.githooks/pre-push`, см. DEVELOPMENT.md
+- Docker healthcheck для frontend (был только у backend)
+- Base-образы (`python:3.11-slim`, `node:20-alpine`) закреплены по digest —
+  сеть до Docker Hub с прод-сервера систематически рвётся на DNS/TLS
+
+Подробности и что осталось открытым — `PLAN.md` в корне репозитория.
+
+---
+
+## v0.8.25 — Идеи и База знаний (2026-04-21)
 
 ### Frontend
 

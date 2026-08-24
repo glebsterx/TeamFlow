@@ -108,7 +108,7 @@ export const Welcome: React.FC = () => {
           {/* Credits */}
           <div className="pt-12 border-t border-gray-200 dark:border-gray-700 mt-12">
             <p className="text-xs text-gray-400 dark:text-gray-500">
-              TeamFlow © 2026 | v0.9.0
+              TeamFlow © 2026 | v0.8.26
             </p>
           </div>
         </div>

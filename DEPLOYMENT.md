@@ -33,7 +33,7 @@ BASE_URL=http://tf.example.com
 ### `backend/.env` — для приложения
 ```env
 APP_NAME=TeamFlow
-VERSION=0.8.21
+VERSION=0.8.26
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_BOT_USERNAME=...
 TELEGRAM_PROXY_URL=          # socks5://user:pass@host:port  (MTProxy не поддерживается)
