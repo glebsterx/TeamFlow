@@ -49,7 +49,13 @@ async def test_db_session(setup_test_db):
 async def test_client() -> AsyncGenerator[AsyncClient, None]:
     """Create test HTTP client."""
     from app.web.app import app
-    
+    from app.core.rate_limit import _buckets
+
+    # In-memory rate-limit buckets are a module-level singleton shared across
+    # the whole test session — clear between tests so one test's requests
+    # don't trip another test's limiter (same synthetic client IP/account).
+    _buckets.clear()
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client

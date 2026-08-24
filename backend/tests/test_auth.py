@@ -40,3 +40,21 @@ async def test_register_endpoint(test_client: AsyncClient):
     )
     # Just check endpoint is accessible
     assert response.status_code in [200, 201, 400, 422, 500, 502]
+
+
+@pytest.mark.asyncio
+async def test_register_rate_limited_after_5_attempts(test_client: AsyncClient):
+    """6th register attempt from the same IP within the window is 429'd."""
+    for i in range(5):
+        response = await test_client.post(
+            "/api/auth/local/register",
+            json={"login": f"ratelimit_user_{i}", "password": "test1234"},
+        )
+        assert response.status_code != 429
+
+    response = await test_client.post(
+        "/api/auth/local/register",
+        json={"login": "ratelimit_user_6th", "password": "test1234"},
+    )
+    assert response.status_code == 429
+    assert "Retry-After" in response.headers

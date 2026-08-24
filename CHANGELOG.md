@@ -2,6 +2,16 @@
 
 ---
 
+## v0.8.28 — IP rate limit на регистрацию (2026-08-24)
+
+### Backend
+- `POST /auth/local/register`: 5 попыток / 10 минут на IP (`ip_rate_limiter`
+  в `app/core/rate_limit.py`, тот же sliding-window подход, что у
+  AI-эндпоинтов, но ключ — client IP, т.к. до регистрации аккаунта ещё нет)
+- Тесты: очистка `_buckets` между тестами (autouse-фикстура в conftest.py),
+  иначе один тест мог случайно триггерить лимит другого — общий in-memory
+  singleton на весь процесс pytest
+
 ## v0.8.27 — E2E-тесты (Playwright) (2026-08-24)
 
 ### Backend/Frontend

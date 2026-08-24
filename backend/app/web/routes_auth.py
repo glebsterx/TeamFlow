@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.core.db import get_db
 from app.core.clock import Clock
 from app.core.deps import get_current_account_id
+from app.core.rate_limit import ip_rate_limiter
 from app.core.logging import get_logger
 from app.config import settings, get_web_url_async, get_secret_key
 from app.domain.models import LocalAccount, LocalIdentity, UserIdentity, AppSetting, TeamMember
@@ -97,8 +98,15 @@ class TokenResponse(BaseModel):
     user: dict
 
 
+# Незалогиненный эндпоинт — лимит по IP, а не по account_id (его ещё нет).
+_register_rate_limit = ip_rate_limiter(
+    "register", max_requests=5, window_seconds=600,
+    message="Слишком много попыток регистрации",
+)
+
+
 @router.post("/local/register", response_model=TokenResponse)
-async def local_register(request: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def local_register(request: RegisterRequest, db: AsyncSession = Depends(get_db), _rl: None = Depends(_register_rate_limit)):
     from app.services.settings_service import SettingsService
 
     # Проверяем нужно ли приглашение
