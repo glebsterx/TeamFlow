@@ -5,7 +5,7 @@ import asyncio
 import logging
 from typing import Optional, List
 from fastapi import APIRouter, Query, BackgroundTasks, Depends, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text, delete, or_
 from sqlalchemy.orm import selectinload
@@ -13,7 +13,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, field_validator
 from datetime import date
 import secrets
-from app.core.db import get_db
+from app.core.db import get_db, AsyncSessionLocal
 from app.core.clock import Clock
 from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
@@ -1269,13 +1269,36 @@ def _dt(v) -> str | None:
     return v.isoformat() if v else None
 
 
+async def _stream_json_array(items):
+    """Yield '[item, item, ...]' incrementally from an async iterator of dicts.
+
+    Keeps at most one serialized item in memory at a time, instead of building
+    the whole list (and then its JSON string) before writing anything out —
+    matters for tables (tasks, comments) that can grow unbounded over time.
+    """
+    yield "["
+    first = True
+    async for item in items:
+        if not first:
+            yield ","
+        first = False
+        yield json.dumps(item, ensure_ascii=False)
+    yield "]"
+
+
 @router.get("/export")
 async def export_data(
     project_id: Optional[int] = None,
     include: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
 ):
-    """Export all data as JSON."""
+    """Export all data as JSON, streamed chunk-by-chunk to keep peak memory bounded.
+
+    Opens its own DB session inside the generator rather than using the usual
+    `Depends(get_db)` — a `yield`-dependency's session is closed as soon as
+    the route handler returns the response object, which for a
+    StreamingResponse happens before the generator (and its DB queries) has
+    even started running.
+    """
     parts = (
         set(include.split(","))
         if include
@@ -1292,243 +1315,286 @@ async def export_data(
     )
     today = Clock.now().strftime("%Y-%m-%d")
 
-    payload: dict = {
-        "version": settings.VERSION,
-        "exported_at": Clock.now().isoformat(),
-        "filters": {"project_id": project_id, "include": sorted(parts)},
-        "projects": [],
-        "tasks": [],
-        "meetings": [],
-        "comments": [],
-        "sprints": [],
-        "sprint_tasks": [],
-        "tags": [],
-        "task_tags": [],
-        "task_dependencies": [],
-        "task_templates": [],
-    }
+    async def generate():
+        async with AsyncSessionLocal() as db:
+            yield "{"
+            yield f'"version":{json.dumps(settings.VERSION)},'
+            yield f'"exported_at":{json.dumps(Clock.now().isoformat())},'
+            yield f'"filters":{json.dumps({"project_id": project_id, "include": sorted(parts)})},'
 
-    if "projects" in parts:
-        q = select(Project)
-        if project_id:
-            q = q.where(Project.id == project_id)
-        rows = (await db.execute(q)).scalars().all()
-        payload["projects"] = [
-            {
-                "id": r.id,
-                "name": r.name,
-                "description": r.description,
-                "emoji": r.emoji,
-                "is_active": r.is_active,
-                "parent_project_id": r.parent_project_id,
-                "deleted": getattr(r, "deleted", False),
-                "created_at": _dt(r.created_at),
-            }
-            for r in rows
-        ]
-
-    if "tasks" in parts:
-        q = select(Task).where(Task.deleted == False)  # noqa: E712
-        if project_id:
-            q = q.where(Task.project_id == project_id)
-        rows = (await db.execute(q)).scalars().all()
-        payload["tasks"] = [
-            {
-                "id": r.id,
-                "title": r.title,
-                "description": r.description,
-                "status": r.status,
-                "priority": r.priority,
-                "project_id": r.project_id,
-                "parent_task_id": r.parent_task_id,
-                "assignee_id": r.assignee_id,
-                "source": r.source,
-                "source_message_id": r.source_message_id,
-                "source_chat_id": r.source_chat_id,
-                "due_date": _dt(r.due_date),
-                "definition_of_done": r.definition_of_done,
-                "archived": r.archived,
-                "deleted": r.deleted,
-                "backlog": r.backlog,
-                "backlog_added_at": _dt(r.backlog_added_at),
-                "recurrence": getattr(r, "recurrence", None),
-                "recurrence_end_date": _dt(getattr(r, "recurrence_end_date", None)),
-                "created_at": _dt(r.created_at),
-                "updated_at": _dt(r.updated_at),
-                "started_at": _dt(r.started_at),
-                "completed_at": _dt(r.completed_at),
-            }
-            for r in rows
-        ]
-        task_ids = [t["id"] for t in payload["tasks"]]
-
-        # Tags per task
-        if "tags" in parts and task_ids:
-            from app.domain.models import Tag, TaskTag
-
-            tag_rows = (await db.execute(select(Tag))).scalars().all()
-            payload["tags"] = [
-                {"id": t.id, "name": t.name, "color": t.color} for t in tag_rows
-            ]
-            tt_rows = (
-                await db.execute(select(TaskTag).where(TaskTag.task_id.in_(task_ids)))
-            ).scalars().all()
-            payload["task_tags"] = [
-                {"task_id": tt.task_id, "tag_id": tt.tag_id} for tt in tt_rows
-            ]
-
-        # Dependencies
-        if "dependencies" in parts and task_ids:
-            from app.domain.models import TaskDependency
-
-            dep_rows = (
-                (
-                    await db.execute(
-                        select(TaskDependency).where(
-                            TaskDependency.task_id.in_(task_ids)
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            payload["task_dependencies"] = [
-                {
-                    "task_id": d.task_id,
-                    "depends_on_id": d.depends_on_id,
-                    "created_at": _dt(d.created_at),
-                }
-                for d in dep_rows
-            ]
-    else:
-        task_ids = []
-
-    if "comments" in parts:
-        q = select(Comment)
-        if project_id and task_ids:
-            q = q.where(Comment.task_id.in_(task_ids))
-        elif project_id:
-            payload["comments"] = []
-            q = None
-        if q is not None:
-            rows = (await db.execute(q)).scalars().all()
-            payload["comments"] = [
-                {
-                    "id": r.id,
-                    "task_id": r.task_id,
-                    "text": r.text,
-                    "author_name": r.author_name,
-                    "author_telegram_id": r.author_telegram_id,
-                    "created_at": _dt(r.created_at),
-                }
-                for r in rows
-            ]
-
-    if "meetings" in parts:
-        from app.domain.models import MeetingParticipant
-
-        q = select(Meeting)
-        if project_id:
-            from app.domain.models import MeetingProject
-
-            mp_sub = select(MeetingProject.meeting_id).where(
-                MeetingProject.project_id == project_id
-            )
-            q = q.where(Meeting.id.in_(mp_sub))
-        rows = (await db.execute(q)).scalars().all()
-        meeting_list = []
-        for r in rows:
-            parts_rows = (
-                (
-                    await db.execute(
-                        select(MeetingParticipant).where(
-                            MeetingParticipant.meeting_id == r.id
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            meeting_list.append(
-                {
-                    "id": r.id,
-                    "meeting_date": _dt(r.meeting_date),
-                    "summary": r.summary,
-                    "title": getattr(r, "title", None),
-                    "meeting_type": getattr(r, "meeting_type", None),
-                    "duration_min": getattr(r, "duration_min", None),
-                    "agenda": getattr(r, "agenda", None),
-                    "created_at": _dt(r.created_at),
-                    "participants": [
+            yield '"projects":'
+            if "projects" in parts:
+                q = select(Project)
+                if project_id:
+                    q = q.where(Project.id == project_id)
+                rows = (await db.execute(q)).scalars().all()
+                yield json.dumps(
+                    [
                         {
-                            "display_name": p.display_name,
-                            "telegram_user_id": p.telegram_user_id,
+                            "id": r.id,
+                            "name": r.name,
+                            "description": r.description,
+                            "emoji": r.emoji,
+                            "is_active": r.is_active,
+                            "parent_project_id": r.parent_project_id,
+                            "deleted": getattr(r, "deleted", False),
+                            "created_at": _dt(r.created_at),
                         }
-                        for p in parts_rows
+                        for r in rows
                     ],
-                }
-            )
-        payload["meetings"] = meeting_list
-
-    if "sprints" in parts:
-        from app.domain.models import Sprint, SprintTask
-
-        q = select(Sprint).where(Sprint.is_deleted == False)  # noqa: E712
-        if project_id:
-            q = q.where(Sprint.project_id == project_id)
-        rows = (await db.execute(q)).scalars().all()
-        sprint_ids = []
-        payload["sprints"] = []
-        for r in rows:
-            sprint_ids.append(r.id)
-            payload["sprints"].append(
-                {
-                    "id": r.id,
-                    "name": r.name,
-                    "description": r.description,
-                    "project_id": r.project_id,
-                    "status": r.status,
-                    "position": r.position,
-                    "start_date": _dt(r.start_date),
-                    "end_date": _dt(r.end_date),
-                    "created_at": _dt(r.created_at),
-                }
-            )
-        if sprint_ids:
-            st_rows = (
-                (
-                    await db.execute(
-                        select(SprintTask).where(SprintTask.sprint_id.in_(sprint_ids))
-                    )
+                    ensure_ascii=False,
                 )
-                .scalars()
-                .all()
-            )
-            payload["sprint_tasks"] = [
-                {
-                    "sprint_id": st.sprint_id,
-                    "task_id": st.task_id,
-                    "position": st.position,
-                }
-                for st in st_rows
-            ]
+            else:
+                yield "[]"
 
-    if "templates" in parts:
-        from app.domain.models import TaskTemplate
+            task_ids: list[int] = []
+            yield ',"tasks":'
+            if "tasks" in parts:
+                q = select(Task).where(Task.deleted == False)  # noqa: E712
+                if project_id:
+                    q = q.where(Task.project_id == project_id)
 
-        rows = (await db.execute(select(TaskTemplate))).scalars().all()
-        payload["task_templates"] = [
-            {
-                "id": r.id,
-                "name": r.name,
-                "fields_json": r.fields_json,
-                "created_at": _dt(r.created_at),
-            }
-            for r in rows
-        ]
+                async def _tasks():
+                    result = await db.stream_scalars(q)
+                    async for r in result:
+                        task_ids.append(r.id)
+                        yield {
+                            "id": r.id,
+                            "title": r.title,
+                            "description": r.description,
+                            "status": r.status,
+                            "priority": r.priority,
+                            "project_id": r.project_id,
+                            "parent_task_id": r.parent_task_id,
+                            "assignee_id": r.assignee_id,
+                            "source": r.source,
+                            "source_message_id": r.source_message_id,
+                            "source_chat_id": r.source_chat_id,
+                            "due_date": _dt(r.due_date),
+                            "definition_of_done": r.definition_of_done,
+                            "archived": r.archived,
+                            "deleted": r.deleted,
+                            "backlog": r.backlog,
+                            "backlog_added_at": _dt(r.backlog_added_at),
+                            "recurrence": getattr(r, "recurrence", None),
+                            "recurrence_end_date": _dt(getattr(r, "recurrence_end_date", None)),
+                            "created_at": _dt(r.created_at),
+                            "updated_at": _dt(r.updated_at),
+                            "started_at": _dt(r.started_at),
+                            "completed_at": _dt(r.completed_at),
+                        }
 
-    return JSONResponse(
-        content=payload,
+                async for chunk in _stream_json_array(_tasks()):
+                    yield chunk
+            else:
+                yield "[]"
+
+            # Tags per task
+            yield ',"tags":'
+            if "tags" in parts and task_ids:
+                from app.domain.models import Tag
+
+                tag_rows = (await db.execute(select(Tag))).scalars().all()
+                yield json.dumps(
+                    [{"id": t.id, "name": t.name, "color": t.color} for t in tag_rows],
+                    ensure_ascii=False,
+                )
+            else:
+                yield "[]"
+
+            yield ',"task_tags":'
+            if "tags" in parts and task_ids:
+                from app.domain.models import task_tags as task_tags_table
+
+                tt_rows = (
+                    await db.execute(
+                        select(task_tags_table).where(task_tags_table.c.task_id.in_(task_ids))
+                    )
+                ).all()
+                yield json.dumps(
+                    [{"task_id": tt.task_id, "tag_id": tt.tag_id} for tt in tt_rows],
+                    ensure_ascii=False,
+                )
+            else:
+                yield "[]"
+
+            # Dependencies
+            yield ',"task_dependencies":'
+            if "dependencies" in parts and task_ids:
+                from app.domain.models import TaskDependency
+
+                dep_rows = (
+                    (
+                        await db.execute(
+                            select(TaskDependency).where(TaskDependency.task_id.in_(task_ids))
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                yield json.dumps(
+                    [
+                        {
+                            "task_id": d.task_id,
+                            "depends_on_id": d.depends_on_id,
+                            "created_at": _dt(d.created_at),
+                        }
+                        for d in dep_rows
+                    ],
+                    ensure_ascii=False,
+                )
+            else:
+                yield "[]"
+
+            yield ',"comments":'
+            if "comments" in parts and not (project_id and not task_ids):
+                q = select(Comment)
+                if project_id and task_ids:
+                    q = q.where(Comment.task_id.in_(task_ids))
+
+                async def _comments():
+                    result = await db.stream_scalars(q)
+                    async for r in result:
+                        yield {
+                            "id": r.id,
+                            "task_id": r.task_id,
+                            "text": r.text,
+                            "author_name": r.author_name,
+                            "author_telegram_id": r.author_telegram_id,
+                            "created_at": _dt(r.created_at),
+                        }
+
+                async for chunk in _stream_json_array(_comments()):
+                    yield chunk
+            else:
+                yield "[]"
+
+            yield ',"meetings":'
+            if "meetings" in parts:
+                from app.domain.models import MeetingParticipant
+
+                q = select(Meeting)
+                if project_id:
+                    from app.domain.models import MeetingProject
+
+                    mp_sub = select(MeetingProject.meeting_id).where(
+                        MeetingProject.project_id == project_id
+                    )
+                    q = q.where(Meeting.id.in_(mp_sub))
+                rows = (await db.execute(q)).scalars().all()
+                meeting_list = []
+                for r in rows:
+                    parts_rows = (
+                        (
+                            await db.execute(
+                                select(MeetingParticipant).where(
+                                    MeetingParticipant.meeting_id == r.id
+                                )
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    meeting_list.append(
+                        {
+                            "id": r.id,
+                            "meeting_date": _dt(r.meeting_date),
+                            "summary": r.summary,
+                            "title": getattr(r, "title", None),
+                            "meeting_type": getattr(r, "meeting_type", None),
+                            "duration_min": getattr(r, "duration_min", None),
+                            "agenda": getattr(r, "agenda", None),
+                            "created_at": _dt(r.created_at),
+                            "participants": [
+                                {
+                                    "display_name": p.display_name,
+                                    "telegram_user_id": p.telegram_user_id,
+                                }
+                                for p in parts_rows
+                            ],
+                        }
+                    )
+                yield json.dumps(meeting_list, ensure_ascii=False)
+            else:
+                yield "[]"
+
+            sprint_ids: list[int] = []
+            yield ',"sprints":'
+            if "sprints" in parts:
+                from app.domain.models import Sprint
+
+                q = select(Sprint).where(Sprint.is_deleted == False)  # noqa: E712
+                if project_id:
+                    q = q.where(Sprint.project_id == project_id)
+                rows = (await db.execute(q)).scalars().all()
+                sprint_list = []
+                for r in rows:
+                    sprint_ids.append(r.id)
+                    sprint_list.append(
+                        {
+                            "id": r.id,
+                            "name": r.name,
+                            "description": r.description,
+                            "project_id": r.project_id,
+                            "status": r.status,
+                            "position": r.position,
+                            "start_date": _dt(r.start_date),
+                            "end_date": _dt(r.end_date),
+                            "created_at": _dt(r.created_at),
+                        }
+                    )
+                yield json.dumps(sprint_list, ensure_ascii=False)
+            else:
+                yield "[]"
+
+            yield ',"sprint_tasks":'
+            if "sprints" in parts and sprint_ids:
+                from app.domain.models import SprintTask
+
+                st_rows = (
+                    (
+                        await db.execute(
+                            select(SprintTask).where(SprintTask.sprint_id.in_(sprint_ids))
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                yield json.dumps(
+                    [
+                        {"sprint_id": st.sprint_id, "task_id": st.task_id, "position": st.position}
+                        for st in st_rows
+                    ],
+                    ensure_ascii=False,
+                )
+            else:
+                yield "[]"
+
+            yield ',"task_templates":'
+            if "templates" in parts:
+                from app.web.routes_templates import TaskTemplate
+
+                rows = (await db.execute(select(TaskTemplate))).scalars().all()
+                yield json.dumps(
+                    [
+                        {
+                            "id": r.id,
+                            "name": r.name,
+                            "fields_json": r.fields_json,
+                            "created_at": _dt(r.created_at),
+                        }
+                        for r in rows
+                    ],
+                    ensure_ascii=False,
+                )
+            else:
+                yield "[]"
+
+            yield "}"
+
+    return StreamingResponse(
+        generate(),
+        media_type="application/json",
         headers={
             "Content-Disposition": f"attachment; filename=teamflow-export-{today}.json"
         },
@@ -1642,7 +1708,10 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
     await db.flush()
 
     # Tags
-    from app.domain.models import Tag, TaskTag, TaskDependency, TaskTemplate
+    from app.domain.models import Tag, TaskDependency
+    from app.domain.models import task_tags as task_tags_table
+    from app.web.routes_templates import TaskTemplate
+    from sqlalchemy import insert
 
     for tg in data.get("tags", []):
         if req.mode == "merge":
@@ -1657,15 +1726,15 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
     # Task-tag relations
     for tt in data.get("task_tags", []):
         if req.mode == "merge":
-            if (
-                await db.execute(
-                    select(TaskTag).where(
-                        TaskTag.task_id == tt["task_id"], TaskTag.tag_id == tt["tag_id"]
-                    )
+            existing = await db.execute(
+                select(task_tags_table).where(
+                    task_tags_table.c.task_id == tt["task_id"],
+                    task_tags_table.c.tag_id == tt["tag_id"],
                 )
-            ).scalar_one_or_none():
+            )
+            if existing.first():
                 continue
-        db.add(TaskTag(task_id=tt["task_id"], tag_id=tt["tag_id"]))
+        await db.execute(insert(task_tags_table).values(task_id=tt["task_id"], tag_id=tt["tag_id"]))
         counts["task_tags"] += 1
 
     # Dependencies

@@ -124,6 +124,11 @@ async def init_db():
     """Initialize database — create all tables + run migrations."""
     from app.domain.models import Task, Blocker, Meeting, Comment, PushSubscription  # noqa
     from app.domain.user import User  # noqa
+    # TaskTemplate lives in web/routes_templates.py, not domain/models.py — its
+    # table only ends up in Base.metadata if this module has been imported.
+    # In prod that happens as a side effect of importing app.web.app before
+    # init_db() runs; tests call init_db() directly, so import it explicitly.
+    from app.web.routes_templates import TaskTemplate  # noqa
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

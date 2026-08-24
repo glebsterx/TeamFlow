@@ -2,6 +2,22 @@
 
 ---
 
+## v0.8.29 — Streaming JSON export + фикс /export /import (2026-08-24)
+
+### Backend
+- `GET /export` переведён на `StreamingResponse` — JSON пишется чанками по
+  мере запроса к БД (tasks/comments — `db.stream_scalars()` батчами) вместо
+  накопления всего датасета в Python-словарь и его сериализации целиком
+  (AUDIT.md #310)
+- По ходу найдены и починены два латентных бага в `/export`/`/import`,
+  ни разу не покрытых тестами: импорт несуществующего класса `TaskTag`
+  (реально — plain `Table` `task_tags`, м2м без ORM-класса) и `TaskTemplate`
+  из `app.domain.models` (модель определена в `app/web/routes_templates.py`);
+  `init_db()` не импортировал `TaskTemplate`, поэтому его таблица не
+  создавалась в тестовой БД
+- Тесты: `tests/test_export.py` (5 тестов — экспорт, теги, roundtrip
+  export→import, include-фильтр)
+
 ## v0.8.28 — IP rate limit на регистрацию (2026-08-24)
 
 ### Backend
