@@ -264,12 +264,17 @@ async def start_bot():
         logger.warning("reminders_restore_failed", error=str(e))
 
     checker_task = None
+    backup_task = None
     try:
         checker_task = asyncio.create_task(run_deadline_checker(bot))
+        from app.telegram.backup_scheduler import run_backup_checker
+        backup_task = asyncio.create_task(run_backup_checker(bot))
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         if checker_task:
             checker_task.cancel()
+        if backup_task:
+            backup_task.cancel()
         await bot.session.close()
 
 

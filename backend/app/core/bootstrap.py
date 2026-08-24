@@ -179,8 +179,14 @@ def bootstrap_vapid_keys():
     pass  # Keys are managed via vapid_service and settings UI
 
 
-def backup_database():
-    """Auto-backup SQLite database at startup. Keeps last MAX_BACKUPS."""
+def backup_database(raise_on_error: bool = False):
+    """Backup SQLite database, keeping the last MAX_BACKUPS.
+
+    Called once at startup (raise_on_error=False — a backup hiccup must
+    never block the app from booting) and daily by
+    app/telegram/backup_scheduler.py (raise_on_error=True there, so a
+    failure can actually reach the admin alert instead of only a log line).
+    """
     if not os.path.exists(DB_FILE):
         logger.info("[bootstrap] No database file found, skipping backup")
         return
@@ -202,3 +208,5 @@ def backup_database():
             logger.info(f"[bootstrap] Removed old backup: {old}")
     except Exception as e:
         logger.warning(f"[bootstrap] Database backup failed: {e}")
+        if raise_on_error:
+            raise
