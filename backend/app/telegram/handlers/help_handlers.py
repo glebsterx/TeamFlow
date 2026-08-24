@@ -1,12 +1,24 @@
 """Help and menu handlers."""
+import json
+from datetime import timedelta
+import jwt
 from aiogram import Router, F
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message, CallbackQuery, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.base import StorageKey
+from sqlalchemy import select
 from app.config import get_secret_key, settings, get_web_url_cached
 from app.core.logging import get_logger
 from app.core.clock import Clock
+from app.core.db import AsyncSessionLocal
+from app.domain.models import LocalAccount, UserIdentity
+from app.services.settings_service import SettingsService
+from app.telegram.handlers.my_handler import get_my_tasks_text
+from app.telegram.handlers.sprint_handlers import _cmd_sprint_current
+from app.telegram.handlers.tasks_list_handler import cmd_tasks
 
 router = Router()
 logger = get_logger(__name__)
@@ -86,10 +98,6 @@ async def cmd_start(message: Message):
     # Обработка deep link для авторизации через веб
     args = message.text.split() if message.text else []
     if len(args) > 1 and (args[1].startswith("weblogin") or args[1].startswith("bind")):
-        import jwt
-        from app.domain.models import LocalAccount, UserIdentity
-        from app.core.db import AsyncSessionLocal
-        from sqlalchemy import select
 
         user = message.from_user
         if not user:
@@ -143,7 +151,6 @@ async def cmd_start(message: Message):
             await db.commit()
 
         # Создаём JWT токены
-        from datetime import timedelta
         token_data = {"sub": str(account.id), "type": "telegram"}
 
         access_token = jwt.encode(
@@ -158,8 +165,6 @@ async def cmd_start(message: Message):
         )
 
         # Сохраняем токены в pending-login чтобы веб мог забрать
-        from app.services.settings_service import SettingsService
-        import json
         async with AsyncSessionLocal() as db2:
             await SettingsService.set(db2, f"pending_login_{session_token}", json.dumps({
                 "account_id": account.id,
@@ -225,34 +230,31 @@ async def handle_menu_callback(callback: CallbackQuery):
     message = callback.message
 
     if action == "task":
-        from aiogram.fsm.context import FSMContext
-        from aiogram.fsm.storage.base import StorageKey
+        # local import: avoids circular import with app.telegram.bot
+        # (bot.py imports this module at module level)
         from app.telegram.bot import dp, bot
         key = StorageKey(bot_id=bot.id, chat_id=message.chat.id, user_id=callback.from_user.id)
         state = FSMContext(storage=dp.storage, key=key)
         await task_handlers.cmd_task(message, state)
 
     elif action == "my":
-        from app.telegram.handlers.my_handler import get_my_tasks_text
         user = callback.from_user
         display = f"@{user.username}" if user.username else user.first_name
         text = await get_my_tasks_text(user.id, user.username, display)
         await message.answer(text, parse_mode="Markdown")
 
     elif action == "sprint":
-        from app.telegram.handlers.sprint_handlers import _cmd_sprint_current
         await _cmd_sprint_current(message)
 
     elif action == "tasks":
-        from app.telegram.handlers.tasks_list_handler import cmd_tasks
         await cmd_tasks(message)
 
     elif action == "week":
         await week_handlers.cmd_week(message)
 
     elif action == "meeting":
-        from aiogram.fsm.context import FSMContext
-        from aiogram.fsm.storage.base import StorageKey
+        # local import: see the "task" branch above — avoids circular import
+        # with app.telegram.bot
         from app.telegram.bot import dp, bot
         key = StorageKey(bot_id=bot.id, chat_id=message.chat.id, user_id=callback.from_user.id)
         state = FSMContext(storage=dp.storage, key=key)

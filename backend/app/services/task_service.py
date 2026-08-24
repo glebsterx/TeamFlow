@@ -7,6 +7,7 @@ from app.domain.enums import TaskStatus, TaskSource
 from app.repositories.task_repository import TaskRepository
 from app.core.logging import get_logger
 from app.core.clock import Clock
+from app.domain import events as events_module
 
 logger = get_logger(__name__)
 
@@ -49,7 +50,6 @@ class TaskService:
         
         # Log to domain events
         try:
-            from app.domain import events as events_module
             await events_module.save_event(
                 "task.created",
                 {"title": title, "source": source.value},
@@ -113,7 +113,6 @@ class TaskService:
         
         # Log to domain events
         try:
-            from app.domain import events as events_module
             await events_module.save_event(
                 "task.status_changed",
                 {"old_status": old_status.value, "new_status": new_status.value},

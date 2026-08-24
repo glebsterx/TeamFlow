@@ -8,6 +8,7 @@ from app.core.logging import configure_logging, get_logger
 from app.core.db import init_db
 from app.core.bootstrap import bootstrap_secret_key, bootstrap_vapid_keys, bootstrap_default_settings, backup_database
 from app.telegram.bot import run_bot
+from app.web.app import app
 
 logger = get_logger(__name__)
 
@@ -34,8 +35,6 @@ async def startup():
 
 def run_api():
     """Run FastAPI server."""
-    from app.web.app import app
-    
     uvicorn.run(
         app,
         host=settings.API_HOST,

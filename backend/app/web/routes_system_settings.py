@@ -3,16 +3,21 @@ import os
 import re
 import asyncio
 import logging
+import socket
+import time
 from typing import Optional
+import aiohttp
+from aiohttp_socks import ProxyConnector
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.core.db import get_db
+from app.core.db import get_db, AsyncSessionLocal
 from app.core.deps import get_current_account_id
 from app.core.clock import Clock
 from app.config import settings
+from app.domain.models import LocalAccount, AppSetting
 from app.services.settings_service import SettingsService
 
 logger = logging.getLogger(__name__)
@@ -136,7 +141,6 @@ async def startup_check(db: AsyncSession = Depends(get_db)):
     Возвращает что настроено, а что требует внимания.
     Используется Setup Wizard для определения шагов.
     """
-    from app.domain.models import LocalAccount
     
     result = await db.execute(select(LocalAccount).where(LocalAccount.is_active == True).limit(1))
     has_users = result.scalar_one_or_none() is not None
@@ -163,7 +167,6 @@ async def get_version():
 @router.post("/restart/{service}")
 async def restart_service(service: str):
     """Перезапустить контейнер backend или frontend через Docker socket API."""
-    import socket
 
     allowed = {"backend": "teamflow-backend", "frontend": "teamflow-frontend"}
     if service not in allowed:
@@ -219,8 +222,6 @@ async def restart_service(service: str):
 def _read_proxy_from_env_file(env_path: str = "/app/.env") -> Optional[str]:
     """Sync helper — always run via asyncio.to_thread from a route, never
     called directly from async code (blocks the event loop otherwise)."""
-    import os
-    import re
 
     if not os.path.exists(env_path):
         return None
@@ -234,8 +235,6 @@ def _read_proxy_from_env_file(env_path: str = "/app/.env") -> Optional[str]:
 
 def _write_proxy_to_env_file(proxy_url: Optional[str], env_path: str = "/app/.env") -> None:
     """Sync helper — always run via asyncio.to_thread from a route."""
-    import os
-    import re
 
     if not os.path.exists(env_path):
         return
@@ -262,9 +261,6 @@ async def get_proxy_settings():
     """Получить текущий URL прокси — из БД."""
     # Сначала пробуем из БД
     try:
-        from sqlalchemy import select
-        from app.domain.models import AppSetting
-        from app.core.db import AsyncSessionLocal
 
         async with AsyncSessionLocal() as session:
             result = await session.execute(
@@ -295,9 +291,6 @@ async def set_proxy_settings(req: dict):
     # Читаем старый прокси из БД перед изменением
     old_proxy_url = None
     try:
-        from sqlalchemy import select
-        from app.domain.models import AppSetting
-        from app.core.db import AsyncSessionLocal
 
         async with AsyncSessionLocal() as session:
             result = await session.execute(
@@ -318,9 +311,6 @@ async def set_proxy_settings(req: dict):
 
     # Сохраняем новый прокси в БД
     try:
-        from sqlalchemy import select
-        from app.domain.models import AppSetting
-        from app.core.db import AsyncSessionLocal
 
         async with AsyncSessionLocal() as session:
             result = await session.execute(
@@ -356,9 +346,6 @@ async def set_proxy_settings(req: dict):
 async def get_ai_settings():
     """Получить текущие AI настройки."""
     try:
-        from sqlalchemy import select
-        from app.domain.models import AppSetting
-        from app.core.db import AsyncSessionLocal
 
         keys = ["ai_api_key", "ai_provider", "ai_model", "ai_custom_endpoint"]
         async with AsyncSessionLocal() as session:
@@ -385,9 +372,6 @@ async def get_ai_settings():
 async def set_ai_settings(req: dict):
     """Сохранить AI настройки в БД."""
     try:
-        from sqlalchemy import select
-        from app.domain.models import AppSetting
-        from app.core.db import AsyncSessionLocal
 
         ai_api_key = req.get("ai_api_key", "")
         ai_provider = req.get("ai_provider", "openrouter")
@@ -423,15 +407,10 @@ async def check_proxy_connectivity():
     ВАЖНО: читает TELEGRAM_PROXY_URL напрямую из /app/.env (не из кэша settings),
     чтобы отражать последнее сохранённое значение без перезапуска.
     """
-    import aiohttp
-    import time
 
     # Читаем актуальный прокси из БД, с fallback на .env
     proxy_url: Optional[str] = None
     try:
-        from sqlalchemy import select
-        from app.domain.models import AppSetting
-        from app.core.db import AsyncSessionLocal
 
         async with AsyncSessionLocal() as session:
             result = await session.execute(
@@ -464,12 +443,10 @@ async def check_proxy_connectivity():
     try:
         if proxy_url:
             if proxy_url.startswith(("socks4://", "socks5://")):
-                from aiohttp_socks import ProxyConnector
 
                 connector = ProxyConnector.from_url(proxy_url)
                 result["proxy_type"] = "SOCKS5"
             elif proxy_url.startswith(("http://", "https://")):
-                from aiohttp_socks import ProxyConnector
 
                 connector = ProxyConnector.from_url(proxy_url)
                 result["proxy_type"] = "HTTP"

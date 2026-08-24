@@ -6,6 +6,8 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 from app.core.db import get_db
+from app.repositories.project_repository import ProjectRepository
+from app.services.project_member_service import ProjectMemberService
 
 router = APIRouter()
 
@@ -45,7 +47,6 @@ class ProjectResponse(BaseModel):
 @router.get("/projects", response_model=List[ProjectResponse])
 async def get_projects(db: AsyncSession = Depends(get_db)):
     """Получить все проекты."""
-    from app.repositories.project_repository import ProjectRepository
 
     repo = ProjectRepository(db)
     projects = await repo.get_all_active()
@@ -57,7 +58,6 @@ async def create_project(
     request: ProjectCreateRequest, db: AsyncSession = Depends(get_db)
 ):
     """Создать проект."""
-    from app.repositories.project_repository import ProjectRepository
 
     repo = ProjectRepository(db)
 
@@ -85,7 +85,6 @@ async def update_project(
     project_id: int, request: ProjectUpdateRequest, db: AsyncSession = Depends(get_db)
 ):
     """Обновить проект."""
-    from app.repositories.project_repository import ProjectRepository
 
     repo = ProjectRepository(db)
     project = await repo.get_by_id(project_id)
@@ -120,7 +119,6 @@ async def update_project(
 @router.get("/projects/archived", response_model=List[ProjectResponse])
 async def get_archived_projects(db: AsyncSession = Depends(get_db)):
     """Получить архивные проекты."""
-    from app.repositories.project_repository import ProjectRepository
 
     repo = ProjectRepository(db)
     projects = await repo.get_archived()
@@ -130,7 +128,6 @@ async def get_archived_projects(db: AsyncSession = Depends(get_db)):
 @router.post("/projects/{project_id}/archive", response_model=ProjectResponse)
 async def archive_project(project_id: int, db: AsyncSession = Depends(get_db)):
     """Архивировать проект (is_active=False)."""
-    from app.repositories.project_repository import ProjectRepository
 
     repo = ProjectRepository(db)
     await repo.archive(project_id)
@@ -141,7 +138,6 @@ async def archive_project(project_id: int, db: AsyncSession = Depends(get_db)):
 @router.post("/projects/{project_id}/restore", response_model=ProjectResponse)
 async def restore_project(project_id: int, db: AsyncSession = Depends(get_db)):
     """Восстановить проект из архива."""
-    from app.repositories.project_repository import ProjectRepository
 
     repo = ProjectRepository(db)
     await repo.restore(project_id)
@@ -152,7 +148,6 @@ async def restore_project(project_id: int, db: AsyncSession = Depends(get_db)):
 @router.get("/projects/{project_id}/can-delete")
 async def check_can_delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
     """Проверить можно ли удалить проект."""
-    from app.repositories.project_repository import ProjectRepository
 
     repo = ProjectRepository(db)
     result = await repo.can_delete(project_id)
@@ -162,7 +157,6 @@ async def check_can_delete_project(project_id: int, db: AsyncSession = Depends(g
 @router.delete("/projects/{project_id}")
 async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
     """Удалить проект (мягкое удаление с проверкой)."""
-    from app.repositories.project_repository import ProjectRepository
 
     repo = ProjectRepository(db)
     project = await repo.get_by_id(project_id)
@@ -201,7 +195,6 @@ class ProjectMemberUpdate(BaseModel):
 @router.get("/projects/{project_id}/members")
 async def get_project_members(project_id: int, db: AsyncSession = Depends(get_db)):
     """Получить участников проекта."""
-    from app.services.project_member_service import ProjectMemberService
 
     members = await ProjectMemberService.get_project_members(db, project_id)
     return [
@@ -228,7 +221,6 @@ async def add_project_member(
     project_id: int, data: ProjectMemberCreate, db: AsyncSession = Depends(get_db)
 ):
     """Добавить участника в проект."""
-    from app.services.project_member_service import ProjectMemberService
 
     member = await ProjectMemberService.add_member(
         db, project_id, data.telegram_user_id, data.role
@@ -250,7 +242,6 @@ async def update_project_member(
     db: AsyncSession = Depends(get_db),
 ):
     """Изменить роль участника проекта."""
-    from app.services.project_member_service import ProjectMemberService
 
     ok = await ProjectMemberService.update_member_role(
         db, project_id, user_id, data.role
@@ -266,7 +257,6 @@ async def remove_project_member(
     project_id: int, user_id: int, db: AsyncSession = Depends(get_db)
 ):
     """Удалить участника из проекта."""
-    from app.services.project_member_service import ProjectMemberService
 
     ok = await ProjectMemberService.remove_member(db, project_id, user_id)
     if not ok:

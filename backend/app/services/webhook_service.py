@@ -6,6 +6,7 @@ import hashlib
 from typing import Any, Dict
 
 import aiohttp
+from sqlalchemy import select
 
 from app.core.db import AsyncSessionLocal
 from app.domain.models import Webhook, WebhookLog
@@ -27,8 +28,6 @@ async def trigger_webhooks(event: str, task_data: Dict[str, Any]) -> None:
     """
     async with AsyncSessionLocal() as db:
         # Find all active webhooks that subscribe to this event
-        from sqlalchemy import select
-        
         result = await db.execute(
             select(Webhook).where(Webhook.is_active == True)
         )
@@ -58,8 +57,6 @@ async def _trigger_single_webhook(
     task_data: Dict[str, Any]
 ) -> None:
     """Trigger a single webhook with retry logic."""
-    from app.core.db import AsyncSessionLocal
-    
     # Build payload
     payload = {
         "event": event,

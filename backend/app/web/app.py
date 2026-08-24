@@ -1,10 +1,11 @@
 """FastAPI web application."""
 from fastapi import FastAPI, Request, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response, HTMLResponse
 import time
-from app.config import settings, get_base_url_async, get_frontend_port_async
+from app.config import settings, get_base_url_async, get_frontend_port_async, get_web_url_cached
 from app.core.logging import get_logger
 from app.core.deps import get_current_account_id
+from app.core.db import AsyncSessionLocal
 from app.services.settings_service import SettingsService
 
 logger = get_logger(__name__)
@@ -85,8 +86,7 @@ app.add_middleware(DynamicCORSMiddleware)
 async def load_cors_origins():
     """Load CORS origins from DB with smart fallbacks."""
     global _cors_origins_cache
-    from app.core.db import AsyncSessionLocal
-    
+
     # Default origins for fallback
     origins = ["http://localhost:5180", "https://localhost:5180"]
     errors = []
@@ -136,7 +136,6 @@ def get_cors_origins() -> list[str]:
     """Get CORS origins from cache."""
     if _cors_origins_cache:
         return _cors_origins_cache
-    from app.config import get_web_url_cached
     return [get_web_url_cached(), settings.BASE_URL or "http://localhost", "http://localhost:5180"]
 
 
@@ -248,7 +247,6 @@ async def on_app_startup():
 @app.options("/{path:path}")
 async def handle_options(path: str):
     """Handle CORS preflight."""
-    from fastapi.responses import Response
     return Response(status_code=200)
 
 
@@ -301,7 +299,6 @@ def health():
 @app.get("/telegram-widget")
 async def telegram_widget():
     """Страница с Telegram Login Widget для popup."""
-    from fastapi.responses import HTMLResponse
     html = f"""<!DOCTYPE html>
 <html>
 <head>

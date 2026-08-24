@@ -1,5 +1,6 @@
 """Digest command handler."""
 from aiogram import Router
+from aiogram.enums import ChatAction
 from aiogram.filters import Command
 from aiogram.types import Message
 from app.core.db import AsyncSessionLocal
@@ -14,9 +15,10 @@ router = Router()
 @router.message(Command("digest"))
 async def cmd_digest(message: Message):
     """Generate and send weekly digest."""
-    from aiogram.enums import ChatAction
+    # local import: avoids circular import with app.telegram.handlers.help_handlers
+    # (help_handlers imports this module at module level)
     from app.telegram.handlers.help_handlers import get_main_menu_keyboard
-    
+
     try:
         # Показываем typing indicator
         await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
@@ -40,8 +42,10 @@ async def cmd_digest(message: Message):
 @router.message(Command("overdue"))
 async def cmd_overdue(message: Message):
     """Show overdue tasks."""
+    # local import: see cmd_digest() above — avoids circular import with
+    # app.telegram.handlers.help_handlers
     from app.telegram.handlers.help_handlers import get_main_menu_keyboard
-    
+
     async with AsyncSessionLocal() as session:
         digest_service = DigestService(session)
         reminder = await digest_service.get_overdue_reminder()

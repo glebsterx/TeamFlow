@@ -7,7 +7,7 @@ from app.core.db import AsyncSessionLocal
 from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
 from app.domain.enums import TaskSource
-from app.domain.models import Project
+from app.domain.models import Project, LocalAccount
 from app.telegram.keyboards.task_keyboards import get_confirmation_keyboard
 from app.config import get_web_url_cached
 from app.core.logging import get_logger
@@ -197,8 +197,6 @@ async def handle_confirm_task(callback: CallbackQuery):
                 project_name_hint = f"\n🏷 Проект: {project.emoji or '📁'} {project.name}"
 
         # Получаем список пользователей для назначения
-        from app.domain.models import LocalAccount
-        from sqlalchemy import select
         result = await session.execute(
             select(LocalAccount).where(LocalAccount.is_active == True).order_by(LocalAccount.first_name)
         )
@@ -262,8 +260,6 @@ async def handle_assign_new(callback: CallbackQuery):
     
     async with AsyncSessionLocal() as session:
         service = TaskService(session)
-        from app.domain.models import LocalAccount
-        from sqlalchemy import select
         result = await session.execute(select(LocalAccount).where(LocalAccount.id == user_id))
         user = result.scalar_one_or_none()
         

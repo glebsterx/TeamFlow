@@ -3,7 +3,11 @@ import os
 import secrets
 import shutil
 import logging
+from sqlalchemy import select
 from app.core.clock import Clock
+from app.core.db import AsyncSessionLocal
+from app.domain.models import AppSetting
+from app.config import set_secret_key_cache
 
 logger = logging.getLogger(__name__)
 
@@ -57,16 +61,12 @@ async def bootstrap_secret_key():
     
     Priority: .env -> DB -> generate new
     """
-    from app.config import set_secret_key_cache
     
     # Check .env first
     env_secret = os.environ.get("SECRET_KEY", "")
     if env_secret and env_secret != DEFAULT_SECRET_KEY:
         # Also save to DB for consistency
         try:
-            from app.core.db import AsyncSessionLocal
-            from app.domain.models import AppSetting
-            from sqlalchemy import select
             
             async with AsyncSessionLocal() as session:
                 result = await session.execute(
@@ -85,9 +85,6 @@ async def bootstrap_secret_key():
     
     # Check DB
     try:
-        from app.core.db import AsyncSessionLocal
-        from app.domain.models import AppSetting
-        from sqlalchemy import select
         
         async with AsyncSessionLocal() as session:
             result = await session.execute(
@@ -109,8 +106,6 @@ async def bootstrap_secret_key():
     
     # Save to DB
     try:
-        from app.core.db import AsyncSessionLocal
-        from app.domain.models import AppSetting
         
         async with AsyncSessionLocal() as session:
             session.add(AppSetting(key="secret_key", value=new_key))
@@ -138,10 +133,6 @@ async def bootstrap_default_settings():
     default_frontend_port = "5180"
     
     try:
-        # Import here to avoid circular imports
-        from app.core.db import AsyncSessionLocal
-        from app.domain.models import AppSetting
-        from sqlalchemy import select
         
         async with AsyncSessionLocal() as session:
             # Check if base_url is set

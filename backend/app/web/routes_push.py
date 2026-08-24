@@ -6,6 +6,13 @@ import logging
 
 from app.core.db import get_db
 from app.web import schemas
+from app.domain.models import PushSubscription as PushSubscriptionModel
+from app.services.vapid_service import (
+    get_vapid_claims_email,
+    set_vapid_keys,
+    set_vapid_claims_email,
+    generate_vapid_keys,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,11 +25,10 @@ async def get_vapid_public_key(db: AsyncSession = Depends(get_db)):
 
     #272 — Key stored in app_settings DB, auto-generated on first request.
     """
-    from app.services.vapid_service import (
-        get_vapid_public_key,
-        set_vapid_keys,
-        generate_vapid_keys,
-    )
+    # local import: the service function shares its name with this route
+    # handler — importing it at module level would be shadowed by `def
+    # get_vapid_public_key` below, causing infinite self-recursion
+    from app.services.vapid_service import get_vapid_public_key
 
     public_key = await get_vapid_public_key(db)
 
@@ -40,7 +46,6 @@ async def push_subscribe(
     request: schemas.PushSubscriptionCreate, db: AsyncSession = Depends(get_db)
 ):
     """Save or update a Web Push subscription (upsert by endpoint)."""
-    from app.domain.models import PushSubscription as PushSubscriptionModel
 
     result = await db.execute(
         select(PushSubscriptionModel).where(
@@ -70,12 +75,9 @@ async def push_subscribe(
 @router.get("/push/config")
 async def get_push_config(db: AsyncSession = Depends(get_db)):
     """Get VAPID public key and claims email for push notifications."""
-    from app.services.vapid_service import (
-        get_vapid_public_key,
-        get_vapid_claims_email,
-        set_vapid_keys,
-        generate_vapid_keys,
-    )
+    # local import: see get_vapid_public_key() route above — name collision
+    # with the route handler of the same name
+    from app.services.vapid_service import get_vapid_public_key
 
     public_key = await get_vapid_public_key(db)
     if not public_key:
@@ -92,7 +94,6 @@ async def update_push_config(
     body: dict, db: AsyncSession = Depends(get_db)
 ):
     """Update VAPID claims email for push notifications."""
-    from app.services.vapid_service import set_vapid_claims_email
 
     email = body.get("claims_email", "")
     if not email or "@" not in email:
@@ -107,7 +108,6 @@ async def push_unsubscribe(
     request: schemas.UnsubscribeRequest, db: AsyncSession = Depends(get_db)
 ):
     """Remove a Web Push subscription by endpoint."""
-    from app.domain.models import PushSubscription as PushSubscriptionModel
 
     result = await db.execute(
         select(PushSubscriptionModel).where(

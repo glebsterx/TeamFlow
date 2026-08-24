@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.db import get_db
 from app.core.clock import Clock
-from app.domain.models import Task, Sprint, SprintTask
+from app.domain.models import Task, Sprint, SprintTask, UserIdentity
 from app.config import settings, get_web_url_async
 from app.domain.enums import TaskStatus
 
@@ -47,7 +47,6 @@ async def get_my_tasks(
     Используется Mini App для показа персональной доски прямо в Telegram.
     Возвращает задачи отсортированные: URGENT→HIGH→NORMAL→LOW, затем по due_date.
     """
-    from app.domain.models import UserIdentity
 
     # Find LocalAccount via UserIdentity
     identity_result = await db.execute(
@@ -100,7 +99,6 @@ async def get_my_tasks(
 @router.get("/sprint")
 async def get_active_sprint_summary(db: AsyncSession = Depends(get_db)):
     """Сводка активного спринта для Mini App."""
-    from app.domain.enums import TaskStatus
 
     result = await db.execute(
         select(Sprint)
@@ -154,7 +152,6 @@ async def update_task_status_webapp(
     Body: {"status": "DOING", "telegram_id": 123456}
     Проверяем, что пользователь — исполнитель задачи.
     """
-    from app.domain.models import UserIdentity
 
     new_status_str = body.get("status", "").upper()
     telegram_id = body.get("telegram_id")

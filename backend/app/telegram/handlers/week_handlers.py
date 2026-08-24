@@ -11,8 +11,10 @@ router = Router()
 @router.message(Command("week"))
 async def cmd_week(message: Message):
     """Handle /week command - show weekly board."""
+    # local import: avoids circular import with app.telegram.handlers.help_handlers
+    # (help_handlers imports this module at module level)
     from app.telegram.handlers.help_handlers import get_main_menu_keyboard
-    
+
     async with AsyncSessionLocal() as session:
         board_service = BoardService(session)
         board = await board_service.get_week_board()

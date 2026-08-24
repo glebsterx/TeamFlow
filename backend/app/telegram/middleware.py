@@ -1,4 +1,5 @@
 """Middleware для автосохранения пользователей."""
+import logging
 from typing import Callable, Any, Awaitable
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message, CallbackQuery
@@ -39,7 +40,6 @@ class UserTrackingMiddleware(BaseMiddleware):
                     await session.commit()
             except Exception as e:
                 # Не ломаем обработку события из-за ошибки трекинга
-                import logging
                 logging.getLogger(__name__).warning(f"UserTracking failed: {e}")
 
             # Передаём только telegram_id — безопасно

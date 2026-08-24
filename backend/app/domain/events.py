@@ -3,7 +3,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Any
 import json
+from sqlalchemy import select
 from app.domain.enums import TaskStatus
+from app.core.db import AsyncSessionLocal
+from app.core.clock import Clock
+from app.services.settings_service import SettingsService
 
 
 @dataclass
@@ -55,9 +59,6 @@ class MeetingRecorded(DomainEvent):
 
 async def is_event_store_enabled() -> bool:
     """Check if event store is enabled in settings."""
-    from app.core.db import AsyncSessionLocal
-    from app.services.settings_service import SettingsService
-    
     try:
         async with AsyncSessionLocal() as db:
             val = await SettingsService.get(db, "event_store_enabled")
@@ -74,11 +75,12 @@ async def save_event(
     """Save domain event to database if event store is enabled."""
     if not await is_event_store_enabled():
         return
-    
-    from app.core.db import AsyncSessionLocal
+
+    # local import: `DomainEvent` here is the SQLAlchemy persistence model,
+    # which would collide with the `DomainEvent` dataclass defined above in
+    # this same module if imported at module level
     from app.domain.models import DomainEvent
-    from app.core.clock import Clock
-    
+
     try:
         async with AsyncSessionLocal() as db:
             event = DomainEvent(
@@ -95,10 +97,10 @@ async def save_event(
 
 async def get_events(task_id: Optional[int] = None, limit: int = 100) -> list[dict]:
     """Get domain events, optionally filtered by task_id."""
-    from app.core.db import AsyncSessionLocal
+    # local import: see save_event() above — avoids shadowing the
+    # `DomainEvent` dataclass defined in this module
     from app.domain.models import DomainEvent
-    from sqlalchemy import select
-    
+
     try:
         async with AsyncSessionLocal() as db:
             if task_id:

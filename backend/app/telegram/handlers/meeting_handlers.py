@@ -1,4 +1,5 @@
 """Meeting handlers — v2."""
+import re
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -118,7 +119,6 @@ async def process_meeting_summary(message: Message, state: FSMContext):
     await state.update_data(meeting_id=meeting_id, summary=summary)
 
     # Парсим action items
-    import re
     items = []
     for pat in [
         r"[-*]\s*\[\s*\]\s*(.+)",

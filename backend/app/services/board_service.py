@@ -6,6 +6,7 @@ from app.domain.models import Task
 from app.domain.enums import TaskStatus
 from app.repositories.task_repository import TaskRepository
 from app.core.clock import Clock
+from app.services.account_service import AccountService
 
 class BoardService:
     """Service for board operations."""
@@ -39,8 +40,6 @@ class BoardService:
     
     async def get_user_tasks(self, telegram_id: int) -> Dict[str, List[Task]]:
         """Get tasks for specific user grouped by status."""
-        from app.services.account_service import AccountService
-
         account = await AccountService.get_by_telegram_id(self.session, telegram_id)
         if not account:
             return {

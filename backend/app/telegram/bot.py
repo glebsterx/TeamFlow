@@ -2,15 +2,20 @@
 import asyncio
 import re
 import os
+import socket
+import json
 from aiogram import Bot, Dispatcher
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import BotCommand
+from sqlalchemy import select
 from app.config import settings
 from app.core.logging import get_logger
 from app.core.db import AsyncSessionLocal
-from sqlalchemy import select
 from app.domain.models import AppSetting
+from app.services.settings_service import SettingsService
 from app.telegram.middleware import UserTrackingMiddleware
 from app.telegram.handlers import (
     help_handlers,
@@ -23,8 +28,9 @@ from app.telegram.handlers import (
 from app.telegram.handlers.tasks_list_handler import router as tasks_list_router
 from app.telegram.handlers.sprint_handlers import router as sprint_router
 from app.telegram.handlers.my_handler import router as my_router
-from app.telegram.handlers.remind_handler import router as remind_router
-from app.telegram.deadline_notifier import run_deadline_checker
+from app.telegram.handlers.remind_handler import router as remind_router, restore_reminders
+from app.telegram.deadline_notifier import run_deadline_checker, record_heartbeat_sync
+from app.telegram.backup_scheduler import run_backup_checker
 
 logger = get_logger(__name__)
 
@@ -50,9 +56,6 @@ async def _read_proxy_url_async() -> str | None:
 
     Runs DB access on the bot's event loop (no nested loop / ThreadPoolExecutor).
     """
-    from sqlalchemy import select
-    from app.domain.models import AppSetting
-    from app.core.db import AsyncSessionLocal
 
     async def _from_db() -> str | None:
         async with AsyncSessionLocal() as session:
@@ -74,8 +77,6 @@ async def _read_proxy_url_async() -> str | None:
 
 def _docker_request(method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
      """Минимальный HTTP-клиент для Docker Unix socket."""
-     import socket
-     import json
      sock_path = "/var/run/docker.sock"
      try:
          sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -147,7 +148,6 @@ async def _make_bot_async() -> Bot:
         return Bot(**kwargs)
 
     try:
-        from aiogram.client.session.aiohttp import AiohttpSession
 
         if proxy_url.startswith(("socks4://", "socks5://", "http://", "https://")):
             kwargs["session"] = AiohttpSession(proxy=proxy_url)
@@ -212,7 +212,6 @@ async def start_bot():
 
     logger.info("bot_token_loaded", source="db" if not settings.TELEGRAM_BOT_TOKEN else ".env")
 
-    from app.telegram.deadline_notifier import record_heartbeat_sync
     setup_handlers()
     logger.info("bot_starting")
     record_heartbeat_sync()
@@ -227,7 +226,6 @@ async def start_bot():
 
     # Регистрируем команды меню (не критично если Telegram недоступен)
     try:
-        from aiogram.types import BotCommand
         await asyncio.wait_for(bot.set_my_commands([
             BotCommand(command="task",     description="Создать новую задачу"),
             BotCommand(command="tasks",    description="Список задач с фильтрами"),
@@ -248,8 +246,6 @@ async def start_bot():
     # Сохраняем username бота в БД для /api/bot-info
     try:
         me = await asyncio.wait_for(bot.get_me(), timeout=10)
-        from app.core.db import AsyncSessionLocal
-        from app.services.settings_service import SettingsService
         async with AsyncSessionLocal() as db:
             await SettingsService.set(db, "bot_username", me.username)
             await db.commit()
@@ -257,7 +253,6 @@ async def start_bot():
     except Exception as e:
         logger.warning("bot_username_save_failed", error=str(e))
 
-    from app.telegram.handlers.remind_handler import restore_reminders
     try:
         await restore_reminders()
     except Exception as e:
@@ -267,7 +262,6 @@ async def start_bot():
     backup_task = None
     try:
         checker_task = asyncio.create_task(run_deadline_checker(bot))
-        from app.telegram.backup_scheduler import run_backup_checker
         backup_task = asyncio.create_task(run_backup_checker(bot))
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:

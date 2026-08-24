@@ -2,10 +2,13 @@
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from sqlalchemy import select
 from app.core.db import AsyncSessionLocal
 from app.services.task_service import TaskService
 from app.repositories.user_repository import UserRepository
+from app.repositories.project_repository import ProjectRepository
 from app.domain.enums import TaskStatus
+from app.domain.models import LocalAccount
 
 from app.config import get_web_url_cached
 from app.core.logging import get_logger
@@ -145,7 +148,6 @@ async def handle_tasks_filter(callback: CallbackQuery):
         if action == "projects":
             # Показываем список проектов
             async with AsyncSessionLocal() as session:
-                from app.repositories.project_repository import ProjectRepository
                 repo = ProjectRepository(session)
                 projects = await repo.get_all_active()
 
@@ -181,7 +183,6 @@ async def handle_tasks_filter(callback: CallbackQuery):
             if action == "mine":
                 tasks = await service.get_all_tasks()
                 # Ищем LocalAccount по telegram_id, потом фильтруем по assignee_id
-                from app.repositories.user_repository import UserRepository
                 user_repo = UserRepository(session)
                 me = await user_repo.get_local_account_by_telegram_id(tg_user_id)
                 if me:
@@ -329,8 +330,6 @@ async def handle_assign_menu(callback: CallbackQuery):
     task_id = int(callback.data.split(":")[1])
     
     async with AsyncSessionLocal() as session:
-        from app.domain.models import LocalAccount
-        from sqlalchemy import select
         result = await session.execute(
             select(LocalAccount).where(LocalAccount.is_active == True).order_by(LocalAccount.first_name)
         )
@@ -358,8 +357,6 @@ async def handle_assign(callback: CallbackQuery):
         async with AsyncSessionLocal() as session:
             service = TaskService(session)
             
-            from app.domain.models import LocalAccount
-            from sqlalchemy import select
             result = await session.execute(select(LocalAccount).where(LocalAccount.id == assignee_id))
             user = result.scalar_one_or_none()
             if not user:
@@ -392,7 +389,6 @@ async def handle_tasks_by_project(callback: CallbackQuery):
                 tasks = [t for t in tasks if not t.project_id]
                 header = "📋 Задачи без проекта"
             else:
-                from app.repositories.project_repository import ProjectRepository
                 repo = ProjectRepository(session)
                 project = await repo.get_by_id(project_id)
 

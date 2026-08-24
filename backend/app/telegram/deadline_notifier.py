@@ -8,7 +8,7 @@ from app.core.db import AsyncSessionLocal
 from app.core.clock import Clock
 from app.core.logging import get_logger
 from app.config import get_web_url_cached
-from app.domain.models import LocalAccount
+from app.domain.models import LocalAccount, AppSetting, Task, DeadlineNotification, UserIdentity
 
 logger = get_logger(__name__)
 
@@ -21,7 +21,6 @@ _started_at: datetime | None = None
 async def _get_notify_hours() -> list[int]:
     """Read deadline notify hours from DB, fallback to default."""
     try:
-        from app.domain.models import AppSetting
         async with AsyncSessionLocal() as db:
             result = await db.execute(
                 select(AppSetting.value).where(AppSetting.key == "deadline_notify_hours")
@@ -87,8 +86,6 @@ async def get_bot_status_from_db() -> dict:
 
 async def check_deadlines(bot):
     """Проверить дедлайны и отправить уведомления."""
-    from app.domain.models import Task, DeadlineNotification, UserIdentity, AppSetting
-
     notify_hours = await _get_notify_hours()
     if not notify_hours:
         return

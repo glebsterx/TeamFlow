@@ -7,19 +7,66 @@ from typing import Optional, List
 from fastapi import APIRouter, Query, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text, delete, or_
+from sqlalchemy import (
+    select,
+    delete,
+    or_,
+    update,
+    insert,
+    cast,
+    String,
+    func as sa_func,
+    select as sa_select,
+    update as sa_update,
+)
 from sqlalchemy.orm import selectinload
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import BaseModel, ConfigDict, field_validator
 from datetime import date
 import secrets
+from pywebpush import webpush, WebPushException
 from app.core.db import get_db, AsyncSessionLocal
 from app.core.clock import Clock
 from app.services.task_service import TaskService
+from app.services.settings_service import SettingsService
+from app.services.webhook_service import trigger_task_status_changed
+from app.services.vapid_service import (
+    get_vapid_private_key,
+    get_vapid_claims_email,
+    set_vapid_keys,
+    generate_vapid_keys,
+)
 from app.repositories.user_repository import UserRepository
-from app.domain.enums import TaskStatus
-from app.domain.models import Task, Project, Meeting, Comment, LocalAccount
+from app.repositories.task_repository import TaskRepository
+from app.repositories.project_repository import ProjectRepository
+from app.domain.enums import (
+    TaskStatus,
+    TaskSource,
+    TaskStatus as TS,
+    TaskPriority as TP,
+)
+from app.domain.models import (
+    Task,
+    Project,
+    Meeting,
+    Comment,
+    LocalAccount,
+    Task as TaskModel,
+    Tag,
+    TaskDependency,
+    MeetingParticipant,
+    MeetingProject,
+    Sprint,
+    SprintTask,
+    ApiKey,
+    ApiKeyLog,
+    AppSetting,
+    PushSubscription as PushSubscriptionModel,
+    task_tags as task_tags_table,
+)
+from app.telegram.deadline_notifier import get_bot_status_from_db
 from app.web import schemas
+from app.web.routes_templates import TaskTemplate
 from app.web.schemas import (
     TaskResponse,
     TaskDetailResponse,
@@ -41,8 +88,6 @@ public_router = APIRouter()
 
 @public_router.get("/bot-info", response_model=BotInfoResponse)
 async def get_bot_info(db: AsyncSession = Depends(get_db)):
-    from app.services.settings_service import SettingsService
-
     username = await SettingsService.get(db, "bot_username") or ""
     return BotInfoResponse(username=username, bot_name=settings.APP_NAME)
 
@@ -68,9 +113,6 @@ async def get_task(task_id: int, db: AsyncSession = Depends(get_db)):
 @router.get("/stats", response_model=StatsResponse)
 async def get_stats(db: AsyncSession = Depends(get_db)):
     """#260 — Optimized: simple COUNT queries instead of loading full objects."""
-    from app.domain.models import Task as TaskModel
-    from sqlalchemy import func as sa_func
-    from sqlalchemy import select as sa_select
 
     async def count(where) -> int:
         result = await db.execute(sa_select(sa_func.count(TaskModel.id)).where(*where))
@@ -128,9 +170,6 @@ async def change_task_status(
 
     #260 — Optimized: single SELECT, no redundant queries, reused task object.
     """
-    from app.domain.enums import TaskStatus
-    from fastapi import HTTPException
-    from app.domain.models import Task as TaskModel
 
     service = TaskService(db)
     try:
@@ -151,7 +190,6 @@ async def change_task_status(
         # #260 — Reuse the same task object (already in session, fields updated)
         # Trigger webhook for status change
         if old_status and old_status != request.status:
-            from app.services.webhook_service import trigger_task_status_changed
 
             task_data = {
                 "id": task.id,
@@ -166,8 +204,6 @@ async def change_task_status(
 
         # #260 — Reuse the same task object for recurrence (no additional SELECT)
         if request.status == TaskStatus.DONE.value:
-            from app.domain.enums import TaskSource
-            from datetime import timedelta
 
             if task.recurrence and task.due_date:
                 delta = {
@@ -334,7 +370,6 @@ async def create_task_api(
     request: TaskCreateRequest, db: AsyncSession = Depends(get_db)
 ):
     """Создать задачу через API."""
-    from app.domain.enums import TaskSource
 
     service = TaskService(db)
 
@@ -383,7 +418,6 @@ async def create_task_api(
             task.assignee_id = user.id
 
     await db.commit()
-    from app.repositories.task_repository import TaskRepository
 
     return await TaskRepository(db).get_by_id(task.id)
 
@@ -480,7 +514,6 @@ async def update_task_api(
                 raise HTTPException(
                     status_code=400, detail="Task cannot be its own parent"
                 )
-            from app.repositories.task_repository import TaskRepository
 
             parent = await TaskRepository(db).get_by_id(request.parent_task_id)
             if not parent:
@@ -503,7 +536,6 @@ async def update_task_api(
         task.completed_at = request.completed_at
 
     await db.commit()
-    from app.repositories.task_repository import TaskRepository
 
     return await TaskRepository(db).get_by_id(task_id)
 
@@ -532,7 +564,6 @@ async def permanent_delete_task_api(task_id: int):
 @router.post("/tasks/{task_id}/restore")
 async def restore_deleted_task(task_id: int, db: AsyncSession = Depends(get_db)):
     """Восстановить удалённую задачу."""
-    from sqlalchemy import select as sa_select
 
     result = await db.execute(sa_select(Task).where(Task.id == task_id))
     task = result.scalar_one_or_none()
@@ -555,7 +586,6 @@ async def add_time_to_task(
     task_id: int, request: AddTimeRequest, db: AsyncSession = Depends(get_db)
 ):
     """Добавить потраченное время к задаче."""
-    from sqlalchemy import select as sa_select
 
     if request.minutes <= 0:
         raise HTTPException(status_code=400, detail="Minutes must be positive")
@@ -586,7 +616,6 @@ async def create_subtask(
     task_id: int, request: SubtaskCreateRequest, db: AsyncSession = Depends(get_db)
 ):
     """Создать подзадачу."""
-    from app.domain.enums import TaskSource
 
     service = TaskService(db)
 
@@ -614,7 +643,6 @@ async def create_subtask(
             subtask.assignee_id = user.id
 
     await db.commit()
-    from app.repositories.task_repository import TaskRepository
 
     repo = TaskRepository(db)
     return await repo.get_by_id(subtask.id)
@@ -630,7 +658,6 @@ async def get_backlog_tasks(
     db: AsyncSession = Depends(get_db),
 ):
     """Получить задачи в бэклоге. no_project=true — только задачи без проекта."""
-    from sqlalchemy import select as sa_select
 
     query = (
         sa_select(Task)
@@ -660,7 +687,6 @@ async def get_backlog_tasks(
 @router.get("/archive", response_model=List[TaskResponse])
 async def get_archived_tasks(db: AsyncSession = Depends(get_db)):
     """Получить архивные задачи."""
-    from app.repositories.task_repository import TaskRepository
 
     repo = TaskRepository(db)
     return await repo.get_archived()
@@ -669,7 +695,6 @@ async def get_archived_tasks(db: AsyncSession = Depends(get_db)):
 @router.get("/deleted", response_model=List[TaskResponse])
 async def get_deleted_tasks(db: AsyncSession = Depends(get_db)):
     """Получить удалённые задачи."""
-    from app.repositories.task_repository import TaskRepository
 
     repo = TaskRepository(db)
     return await repo.get_deleted()
@@ -710,8 +735,6 @@ class CommentCreateRequest(BaseModel):
 
 @router.get("/tasks/{task_id}/comments", response_model=List[schemas.CommentResponse])
 async def get_comments(task_id: int, db: AsyncSession = Depends(get_db)):
-    from app.domain.models import Comment
-
     result = await db.execute(
         select(Comment).where(Comment.task_id == task_id).order_by(Comment.created_at)
     )
@@ -722,7 +745,6 @@ async def get_comments(task_id: int, db: AsyncSession = Depends(get_db)):
 async def add_comment(
     task_id: int, request: CommentCreateRequest, db: AsyncSession = Depends(get_db)
 ):
-    from app.domain.models import Comment
 
     comment = Comment(
         task_id=task_id,
@@ -746,7 +768,6 @@ async def update_comment(
     db: AsyncSession = Depends(get_db),
 ):
     """Update comment text."""
-    from app.domain.models import Comment
 
     result = await db.execute(
         select(Comment).where(Comment.id == comment_id, Comment.task_id == task_id)
@@ -765,7 +786,6 @@ async def delete_comment(
     task_id: int, comment_id: int, db: AsyncSession = Depends(get_db)
 ):
     """Delete a comment."""
-    from app.domain.models import Comment
 
     result = await db.execute(
         select(Comment).where(Comment.id == comment_id, Comment.task_id == task_id)
@@ -781,9 +801,6 @@ async def delete_comment(
 @router.post("/tasks/auto-archive")
 async def auto_archive_done_tasks(db: AsyncSession = Depends(get_db)):
     """Архивировать все DONE задачи старше 7 дней."""
-    from sqlalchemy import update as sa_update
-    from datetime import timedelta
-    from app.domain.models import Task as TaskModel
 
     cutoff = Clock.now() - timedelta(days=7)
     result = await db.execute(
@@ -809,15 +826,6 @@ async def send_push(title: str, body: str, url: str = "/", task_id: int = None) 
     #260 — Runs in thread pool to avoid blocking event loop.
     #317 — Conditional: only send to users who have relevant notifications enabled.
     """
-    from app.core.db import AsyncSessionLocal
-    from app.domain.models import PushSubscription as PushSubscriptionModel, AppSetting
-    from app.services.vapid_service import (
-        get_vapid_private_key,
-        get_vapid_claims_email,
-        set_vapid_keys,
-        generate_vapid_keys,
-    )
-    from pywebpush import webpush, WebPushException
 
     async with AsyncSessionLocal() as session:
         private_key = await get_vapid_private_key(session)
@@ -939,7 +947,6 @@ async def search_tasks(
     q: str = Query(default=""), limit: int = 20, db: AsyncSession = Depends(get_db)
 ):
     """Полнотекстовый поиск по задачам (id + title + description)."""
-    from sqlalchemy import cast, String
 
     q = q.strip()
     if len(q) < 2:
@@ -998,9 +1005,6 @@ async def search_tasks(
 @router.get("/digest")
 async def get_digest(db: AsyncSession = Depends(get_db)):
     """Данные для страницы дайджеста."""
-    from app.repositories.project_repository import ProjectRepository
-    from app.domain.enums import TaskStatus as TS, TaskPriority as TP
-    from datetime import timedelta
 
     service = TaskService(db)
     all_tasks = await service.get_all_tasks()
@@ -1188,7 +1192,6 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
         p["avg_days"] = round(sum(secs) / len(secs) / 86400, 1) if secs else None
 
     # Активность комментариев за неделю (#90)
-    from app.domain.models import Comment
 
     week_ago = Clock.now() - timedelta(days=7)
     comments_result = await db.execute(
@@ -1208,7 +1211,6 @@ async def get_digest(db: AsyncSession = Depends(get_db)):
     }
 
     # Прогресс активных спринтов (#91)
-    from app.domain.models import Sprint
 
     sprints_result = await db.execute(
         select(Sprint)
@@ -1392,7 +1394,6 @@ async def export_data(
             # Tags per task
             yield ',"tags":'
             if "tags" in parts and task_ids:
-                from app.domain.models import Tag
 
                 tag_rows = (await db.execute(select(Tag))).scalars().all()
                 yield json.dumps(
@@ -1404,7 +1405,6 @@ async def export_data(
 
             yield ',"task_tags":'
             if "tags" in parts and task_ids:
-                from app.domain.models import task_tags as task_tags_table
 
                 tt_rows = (
                     await db.execute(
@@ -1421,7 +1421,6 @@ async def export_data(
             # Dependencies
             yield ',"task_dependencies":'
             if "dependencies" in parts and task_ids:
-                from app.domain.models import TaskDependency
 
                 dep_rows = (
                     (
@@ -1471,11 +1470,9 @@ async def export_data(
 
             yield ',"meetings":'
             if "meetings" in parts:
-                from app.domain.models import MeetingParticipant
 
                 q = select(Meeting)
                 if project_id:
-                    from app.domain.models import MeetingProject
 
                     mp_sub = select(MeetingProject.meeting_id).where(
                         MeetingProject.project_id == project_id
@@ -1521,7 +1518,6 @@ async def export_data(
             sprint_ids: list[int] = []
             yield ',"sprints":'
             if "sprints" in parts:
-                from app.domain.models import Sprint
 
                 q = select(Sprint).where(Sprint.is_deleted == False)  # noqa: E712
                 if project_id:
@@ -1549,7 +1545,6 @@ async def export_data(
 
             yield ',"sprint_tasks":'
             if "sprints" in parts and sprint_ids:
-                from app.domain.models import SprintTask
 
                 st_rows = (
                     (
@@ -1572,7 +1567,6 @@ async def export_data(
 
             yield ',"task_templates":'
             if "templates" in parts:
-                from app.web.routes_templates import TaskTemplate
 
                 rows = (await db.execute(select(TaskTemplate))).scalars().all()
                 yield json.dumps(
@@ -1626,15 +1620,16 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
     }
 
     if req.mode == "full":
-        await db.execute(text("UPDATE tasks SET deleted = 1"))
-        await db.execute(text("UPDATE projects SET is_active = 0"))
-        await db.execute(text("DELETE FROM comments"))
-        await db.execute(text("DELETE FROM meetings"))
-        await db.execute(text("DELETE FROM meeting_participants"))
-        await db.execute(text("DELETE FROM sprint_tasks"))
-        await db.execute(text("UPDATE sprints SET status = 'archived'"))
-        await db.execute(text("DELETE FROM task_tags"))
-        await db.execute(text("DELETE FROM task_dependencies"))
+
+        await db.execute(update(Task).values(deleted=True))
+        await db.execute(update(Project).values(is_active=False))
+        await db.execute(delete(Comment))
+        await db.execute(delete(Meeting))
+        await db.execute(delete(MeetingParticipant))
+        await db.execute(delete(SprintTask))
+        await db.execute(update(Sprint).values(status="archived"))
+        await db.execute(delete(task_tags_table))
+        await db.execute(delete(TaskDependency))
         await db.commit()
 
     def _parse_dt(v):
@@ -1708,10 +1703,6 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
     await db.flush()
 
     # Tags
-    from app.domain.models import Tag, TaskDependency
-    from app.domain.models import task_tags as task_tags_table
-    from app.web.routes_templates import TaskTemplate
-    from sqlalchemy import insert
 
     for tg in data.get("tags", []):
         if req.mode == "merge":
@@ -1778,7 +1769,6 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
         counts["templates"] += 1
 
     # Meetings v2
-    from app.domain.models import MeetingParticipant
 
     for m in data.get("meetings", []):
         if req.mode == "merge":
@@ -1829,7 +1819,6 @@ async def import_data(req: ImportRequest, db: AsyncSession = Depends(get_db)):
         counts["comments"] += 1
 
     # Sprints
-    from app.domain.models import Sprint, SprintTask
 
     for s in data.get("sprints", []):
         if req.mode == "merge":
@@ -1907,7 +1896,6 @@ class ApiKeyUpdateRequest(BaseModel):
 @router.get("/bot-status")
 async def get_bot_status_endpoint():
     """Статус Telegram-бота — живой ли, когда последний раз видели."""
-    from app.telegram.deadline_notifier import get_bot_status_from_db
 
     return await get_bot_status_from_db()
 
@@ -1915,7 +1903,6 @@ async def get_bot_status_endpoint():
 @router.get("/api-keys", response_model=List[ApiKeyResponse])
 async def get_api_keys(db: AsyncSession = Depends(get_db)):
     """Get all API keys."""
-    from app.domain.models import ApiKey
 
     result = await db.execute(select(ApiKey).order_by(ApiKey.created_at.desc()))
     keys = list(result.scalars().all())
@@ -1925,7 +1912,6 @@ async def get_api_keys(db: AsyncSession = Depends(get_db)):
 @router.post("/api-keys", response_model=ApiKeyResponse)
 async def create_api_key(req: ApiKeyCreateRequest, db: AsyncSession = Depends(get_db)):
     """Create new API key."""
-    from app.domain.models import ApiKey
 
     key = secrets.token_hex(32)  # 64 chars
     api_key = ApiKey(key=key, name=req.name, description=req.description)
@@ -1940,7 +1926,6 @@ async def update_api_key(
     key_id: int, req: ApiKeyUpdateRequest, db: AsyncSession = Depends(get_db)
 ):
     """Update API key."""
-    from app.domain.models import ApiKey
 
     result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
     api_key = result.scalar_one_or_none()
@@ -1962,7 +1947,6 @@ async def update_api_key(
 @router.delete("/api-keys/{key_id}")
 async def delete_api_key(key_id: int, db: AsyncSession = Depends(get_db)):
     """Delete API key."""
-    from app.domain.models import ApiKey, ApiKeyLog
 
     result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
     api_key = result.scalar_one_or_none()
@@ -1982,7 +1966,6 @@ async def delete_api_key(key_id: int, db: AsyncSession = Depends(get_db)):
 @router.get("/api-keys/{key_id}/regenerate", response_model=ApiKeyResponse)
 async def regenerate_api_key(key_id: int, db: AsyncSession = Depends(get_db)):
     """Regenerate API key."""
-    from app.domain.models import ApiKey
 
     result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
     api_key = result.scalar_one_or_none()
@@ -1998,8 +1981,6 @@ async def regenerate_api_key(key_id: int, db: AsyncSession = Depends(get_db)):
 @router.get("/api-keys/{key_id}/logs")
 async def get_api_key_logs(key_id: int, db: AsyncSession = Depends(get_db)):
     """Get API key usage logs."""
-    from app.domain.models import ApiKey, ApiKeyLog
-    from sqlalchemy import select
 
     # First check key exists
     result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))

@@ -1,5 +1,11 @@
 """Auth routes — LocalAccount as primary identity."""
+import json
+import hashlib
+import hmac
+import secrets
+from datetime import timedelta
 from typing import Optional
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,10 +17,18 @@ from app.core.deps import get_current_account_id
 from app.core.rate_limit import ip_rate_limiter
 from app.core.logging import get_logger
 from app.config import settings, get_web_url_async, get_secret_key
-from app.domain.models import LocalAccount, LocalIdentity, UserIdentity, AppSetting, TeamMember
+from app.domain.models import (
+    LocalAccount,
+    LocalIdentity,
+    UserIdentity,
+    AppSetting,
+    TeamMember,
+    TeamInvite,
+)
 from sqlalchemy import select
 from app.services.account_service import AccountService
 from app.services.settings_service import SettingsService
+from app.services.team_service import TeamService
 
 logger = get_logger(__name__)
 
@@ -107,12 +121,10 @@ _register_rate_limit = ip_rate_limiter(
 
 @router.post("/local/register", response_model=TokenResponse)
 async def local_register(request: RegisterRequest, db: AsyncSession = Depends(get_db), _rl: None = Depends(_register_rate_limit)):
-    from app.services.settings_service import SettingsService
 
     # Проверяем нужно ли приглашение
     invite_only = await SettingsService.get(db, "registration_by_invite_only")
     if invite_only == "true":
-        from app.domain.models import TeamInvite
         
         # Try invite_code first, then email
         invite_obj = None
@@ -314,7 +326,6 @@ async def get_notification_settings(account_id: int = Depends(get_current_accoun
     )
     val = result.scalar_one_or_none()
     if val:
-        import json
         return json.loads(val)
     # Defaults
     return {
@@ -331,7 +342,6 @@ async def save_notification_settings(
     body: dict, account_id: int = Depends(get_current_account_id), db: AsyncSession = Depends(get_db)
 ):
     """Save user's push notification preferences."""
-    import json
     prefs = {
         "assigned": body.get("assigned", True),
         "status_changed": body.get("status_changed", True),
@@ -358,8 +368,6 @@ class TelegramAuthData(BaseModel):
 
 @router.post("/telegram")
 async def telegram_auth(data: TelegramAuthData, db: AsyncSession = Depends(get_db)):
-    import hashlib
-    import hmac
     secret = hashlib.sha256(settings.TELEGRAM_BOT_TOKEN.encode()).digest()
     check_string = "\n".join(f"{k}={v}" for k, v in sorted(data.model_dump(exclude={"hash"}).items(), key=lambda x: x[0]))
     computed_hash = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
@@ -402,7 +410,6 @@ class OAuthSettings(BaseModel):
 @router.get("/oauth-settings", response_model=OAuthSettings)
 async def get_oauth_settings(db: AsyncSession = Depends(get_db)):
     """Получить OAuth настройки."""
-    from app.services.settings_service import SettingsService
     keys = [
         "google_client_id", "google_client_secret", "google_redirect_uri",
         "yandex_client_id", "yandex_client_secret", "yandex_redirect_uri",
@@ -432,7 +439,6 @@ async def save_oauth_settings(
 ):
     """Сохранить OAuth настройки (только admin)."""
     await _require_admin(db, account_id)
-    from app.services.settings_service import SettingsService
     mapping = {
         "google_client_id": data.google_client_id,
         "google_client_secret": data.google_client_secret,
@@ -450,7 +456,6 @@ async def save_oauth_settings(
 @router.get("/oauth-providers")
 async def get_available_oauth_providers(db: AsyncSession = Depends(get_db)):
     """Какие OAuth провайдеры настроены."""
-    from app.services.settings_service import SettingsService
     vals = await SettingsService.get_many(db, ["google_client_id", "google_client_secret", "yandex_client_id", "yandex_client_secret"])
     return {
         "google": bool(vals.get("google_client_id") and vals.get("google_client_secret")),
@@ -463,7 +468,6 @@ async def get_available_oauth_providers(db: AsyncSession = Depends(get_db)):
 @router.get("/registration-settings")
 async def get_registration_settings(db: AsyncSession = Depends(get_db)):
     """Получить настройки регистрации."""
-    from app.services.settings_service import SettingsService
     invite_only = await SettingsService.get(db, "registration_by_invite_only")
     return {"invite_only": invite_only == "true"}
 
@@ -476,7 +480,6 @@ async def save_registration_settings(
 ):
     """Сохранить настройки регистрации (только admin)."""
     await _require_admin(db, account_id)
-    from app.services.settings_service import SettingsService
     await SettingsService.set(db, "registration_by_invite_only", "true" if data.get("invite_only") else "false")
     await db.commit()
     return {"status": "ok"}
@@ -507,7 +510,6 @@ async def get_invitations(
 ):
     """Получить список приглашений (только admin — содержит invite_token)."""
     await _require_admin(db, account_id)
-    from app.domain.models import TeamInvite
     result = await db.execute(
         select(TeamInvite).order_by(TeamInvite.created_at.desc()).limit(50)
     )
@@ -536,9 +538,6 @@ async def create_invitation(
 ):
     """Создать приглашение (только admin)."""
     await _require_admin(db, account_id)
-    import secrets
-    from datetime import timedelta
-    from app.domain.models import TeamInvite, TeamMember
     
     # Находим первого участника (owner) для created_by_id
     owner = await db.execute(
@@ -582,7 +581,6 @@ async def delete_invitation(
 ):
     """Удалить/деактивировать приглашение (только admin)."""
     await _require_admin(db, account_id)
-    from app.domain.models import TeamInvite
     result = await db.execute(select(TeamInvite).where(TeamInvite.id == invite_id))
     invite = result.scalar_one_or_none()
     if not invite:
@@ -595,8 +593,6 @@ async def delete_invitation(
 @router.get("/pending-login/{session_token}")
 async def check_pending_login(session_token: str, db: AsyncSession = Depends(get_db)):
     """Проверить есть ли pending login от бота."""
-    from app.services.settings_service import SettingsService
-    import json
     data = await SettingsService.get(db, f"pending_login_{session_token}")
     if data:
         # Удаляем pending login после получения
@@ -681,7 +677,6 @@ async def deactivate_user(
     db: AsyncSession = Depends(get_db),
 ):
     """Деактивировать пользователя (только owner)."""
-    from app.services.team_service import TeamService
     
     # Only owner can deactivate users
     role = await TeamService.get_member_role(db, account_id)
@@ -767,7 +762,6 @@ async def google_link(
     db: AsyncSession = Depends(get_db),
 ):
     """Редирект на Google OAuth."""
-    from app.services.settings_service import SettingsService
     vals = await SettingsService.get_many(db, ["google_client_id", "google_redirect_uri"])
     client_id = vals.get("google_client_id")
     redirect_uri = vals.get("google_redirect_uri") or f"{settings.api_url}/api/auth/google/callback"
@@ -802,8 +796,6 @@ async def google_callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Callback от Google OAuth."""
-    import httpx
-    from app.services.settings_service import SettingsService
     
     vals = await SettingsService.get_many(db, ["google_client_id", "google_client_secret", "google_redirect_uri"])
     client_id = vals.get("google_client_id")
@@ -886,7 +878,6 @@ async def google_callback(
         invite_only = await SettingsService.get(db, "registration_by_invite_only")
         if invite_only == "true":
             # Ищем активное приглашение по email
-            from app.domain.models import TeamInvite
             invite = await db.execute(
                 select(TeamInvite).where(
                     TeamInvite.email == email,
@@ -933,7 +924,6 @@ async def yandex_link(
     db: AsyncSession = Depends(get_db),
 ):
     """Редирект на Yandex OAuth."""
-    from app.services.settings_service import SettingsService
     vals = await SettingsService.get_many(db, ["yandex_client_id", "yandex_redirect_uri"])
     client_id = vals.get("yandex_client_id")
     redirect_uri = vals.get("yandex_redirect_uri") or f"{settings.api_url}/api/auth/yandex/callback"
@@ -964,8 +954,6 @@ async def yandex_callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Callback от Yandex OAuth."""
-    import httpx
-    from app.services.settings_service import SettingsService
     
     vals = await SettingsService.get_many(db, ["yandex_client_id", "yandex_client_secret", "yandex_redirect_uri"])
     client_id = vals.get("yandex_client_id")
@@ -1044,7 +1032,6 @@ async def yandex_callback(
         # Проверяем нужно ли приглашение для регистрации
         invite_only = await SettingsService.get(db, "registration_by_invite_only")
         if invite_only == "true":
-            from app.domain.models import TeamInvite
             invite = await db.execute(
                 select(TeamInvite).where(
                     TeamInvite.email == email,
@@ -1127,7 +1114,6 @@ async def get_team_invites(
 ):
     """Список активных приглашений (только admin)."""
     await _require_admin(db, account_id)
-    from app.services.team_service import TeamService
 
     web_url = await get_web_url_async()
     invites = await TeamService.get_active_invites(db)
@@ -1155,7 +1141,6 @@ async def create_team_invite(
 ):
     """Создать приглашение в команду (только admin)."""
     admin = await _require_admin(db, account_id)
-    from app.services.team_service import TeamService
 
     member_result = await db.execute(
         select(TeamMember).where(TeamMember.telegram_user_id == admin.id)
@@ -1199,7 +1184,6 @@ async def cancel_team_invite(
 ):
     """Отменить приглашение (только admin)."""
     await _require_admin(db, account_id)
-    from app.domain.models import TeamInvite
 
     result = await db.execute(select(TeamInvite).where(TeamInvite.id == invite_id))
     invite = result.scalar_one_or_none()
@@ -1218,7 +1202,6 @@ async def remove_team_member(
 ):
     """Удалить участника из команды (только admin). Владельца удалить нельзя."""
     await _require_admin(db, account_id)
-    from app.services.team_service import TeamService
 
     ok = await TeamService.remove_member(db, member_id)
     if not ok:
@@ -1236,7 +1219,6 @@ async def update_team_member_role(
 ):
     """Изменить роль участника команды (только admin). Роль владельца менять нельзя."""
     await _require_admin(db, account_id)
-    from app.services.team_service import TeamService
 
     if new_role not in ("admin", "member", "viewer"):
         raise HTTPException(status_code=400, detail="Неверная роль")

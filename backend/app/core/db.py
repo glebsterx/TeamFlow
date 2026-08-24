@@ -1,6 +1,9 @@
 """Database connection and session management."""
+import hashlib
+import aiosqlite
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.pool import NullPool
 from sqlalchemy import text
 from app.config import settings
 from app.core.logging import get_logger
@@ -13,7 +16,6 @@ Base = declarative_base()
 def _make_engine():
     kwargs = {"echo": settings.DEBUG, "future": True}
     if "sqlite" in settings.DATABASE_URL:
-        from sqlalchemy.pool import NullPool
         kwargs["poolclass"] = NullPool
         kwargs["connect_args"] = {"check_same_thread": False, "timeout": 10}
     else:
@@ -48,7 +50,6 @@ async def _run_migrations():
     if "sqlite" not in settings.DATABASE_URL:
         return
 
-    import aiosqlite
     db_file = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
 
     async with aiosqlite.connect(db_file) as db:
@@ -107,7 +108,6 @@ async def _run_migrations():
             async with db.execute("SELECT id, key FROM api_keys WHERE key_prefix IS NULL AND LENGTH(key) = 64") as cur:
                 plain_keys = [(row[0], row[1]) async for row in cur]
             if plain_keys:
-                import hashlib
                 for kid, raw_key in plain_keys:
                     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
                     prefix = raw_key[:12]

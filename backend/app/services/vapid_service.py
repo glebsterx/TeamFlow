@@ -1,8 +1,15 @@
 """VAPID keys management — stored in app_settings DB."""
 import base64
 from typing import Optional
+from urllib.parse import urlparse
+from py_vapid import Vapid
+from cryptography.hazmat.primitives.serialization import (
+    Encoding, PrivateFormat, NoEncryption,
+    load_pem_public_key, PublicFormat,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.config import settings
 from app.domain.models import AppSetting
 from app.core.logging import get_logger
 
@@ -15,8 +22,6 @@ DB_KEY_EMAIL = "vapid_claims_email"
 
 def _get_default_email() -> str:
     """Auto-detect email from BASE_URL: mail@domain.com."""
-    from urllib.parse import urlparse
-    from app.config import settings
     base_url = settings.BASE_URL or 'http://localhost'
     parsed = urlparse(base_url)
     domain = parsed.hostname or 'localhost'
@@ -90,12 +95,6 @@ def generate_vapid_keys() -> tuple[str, str]:
     #272 — FIX: pywebpush → py_vapid.from_string() uses b64urldecode,
     so the private key MUST be URL-safe base64 (not standard base64).
     """
-    from py_vapid import Vapid
-    from cryptography.hazmat.primitives.serialization import (
-        Encoding, PrivateFormat, NoEncryption,
-        load_pem_public_key, PublicFormat,
-    )
-
     v = Vapid()
     v.generate_keys()
     v.from_pem(v.private_pem())

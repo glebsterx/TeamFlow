@@ -1,9 +1,12 @@
 """AI routes — free-form text parsing, tag suggestion, model listing."""
-from fastapi import APIRouter, Query, Depends, Header
+import aiohttp
+from fastapi import APIRouter, Query, Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
 from app.core.rate_limit import rate_limiter
+from app.services.ai_service import AIService
+from app.services.settings_service import SettingsService
 
 router = APIRouter()
 
@@ -17,9 +20,6 @@ _ai_models_rate_limit = rate_limiter("ai_models", max_requests=20, window_second
 @router.post("/ai/parse")
 async def parse_tasks_with_ai(request: dict, db: AsyncSession = Depends(get_db), _rl: int = Depends(_ai_generate_rate_limit)):
     """Parse free-form text into tasks using AI."""
-    from app.services.ai_service import AIService
-    from app.services.settings_service import SettingsService
-    from fastapi import HTTPException
 
     text = request.get("text", "")
     if not text:
@@ -43,9 +43,6 @@ async def parse_tasks_with_ai(request: dict, db: AsyncSession = Depends(get_db),
 @router.post("/ai/suggest-tags")
 async def suggest_tags_with_ai(request: dict, db: AsyncSession = Depends(get_db), _rl: int = Depends(_ai_generate_rate_limit)):
     """Suggest tags for a task using AI."""
-    from app.services.ai_service import AIService
-    from app.services.settings_service import SettingsService
-    from fastapi import HTTPException
 
     title = request.get("title", "")
     description = request.get("description", "")
@@ -87,7 +84,6 @@ async def get_ai_models(
     if provider == "custom" and not custom_endpoint:
         return {"models": [], "error": "Custom endpoint required"}
 
-    import aiohttp
     try:
         async with aiohttp.ClientSession() as session:
             headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}

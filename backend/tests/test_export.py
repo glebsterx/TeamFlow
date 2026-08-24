@@ -109,6 +109,30 @@ async def test_export_import_roundtrip_with_tags_and_templates(test_client: Asyn
 
 
 @pytest.mark.asyncio
+async def test_import_full_mode_wipes_existing_tasks(test_client: AsyncClient):
+    """mode=full soft-deletes existing tasks before importing (ORM update(),
+    used to be raw `text("UPDATE tasks SET deleted = 1")`)."""
+    token = await _register(test_client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    task_resp = await test_client.post(
+        "/api/tasks", json={"title": "To be wiped", "status": "TODO"}, headers=headers
+    )
+    task_id = task_resp.json()["id"]
+
+    import_resp = await test_client.post(
+        "/api/import",
+        json={"mode": "full", "data": {"projects": [], "tasks": []}},
+        headers=headers,
+    )
+    assert import_resp.status_code == 200, import_resp.text
+
+    detail_resp = await test_client.get(f"/api/tasks/{task_id}", headers=headers)
+    assert detail_resp.status_code == 200
+    assert detail_resp.json()["deleted"] is True
+
+
+@pytest.mark.asyncio
 async def test_export_include_filter_excludes_other_sections(test_client: AsyncClient):
     token = await _register(test_client)
     headers = {"Authorization": f"Bearer {token}"}

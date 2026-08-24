@@ -2,12 +2,13 @@
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update, update as sa_update
 from sqlalchemy.orm import selectinload
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 from app.core.db import get_db
+from app.domain.models import Sprint, SprintTask, Task, Project
 
 router = APIRouter()
 
@@ -20,8 +21,6 @@ async def update_sprint_status(
     sprint_id: int, req: dict, db: AsyncSession = Depends(get_db)
 ):
     """Сменить статус спринта (activate/complete/archive)."""
-    from app.domain.models import Sprint
-    from sqlalchemy import update
 
     valid_statuses = ["planned", "active", "completed", "archived"]
     status = req.get("status", "planned")
@@ -45,8 +44,6 @@ async def update_sprint_status(
 @router.patch("/sprints/reorder")
 async def reorder_sprints(req: dict, db: AsyncSession = Depends(get_db)):
     """Изменить порядок спринтов."""
-    from app.domain.models import Sprint
-    from sqlalchemy import update
 
     sprint_ids = req.get("sprint_ids", [])
     for position, sprint_id in enumerate(sprint_ids):
@@ -63,8 +60,6 @@ async def reorder_sprint_tasks(
     sprint_id: int, req: dict, db: AsyncSession = Depends(get_db)
 ):
     """Изменить порядок задач в спринте."""
-    from app.domain.models import SprintTask
-    from sqlalchemy import update
 
     task_ids = req.get("task_ids", [])
     for position, task_id in enumerate(task_ids):
@@ -146,7 +141,6 @@ class SprintResponse(BaseModel):
 @router.get("/sprints", response_model=List[SprintResponse])
 async def get_sprints(db: AsyncSession = Depends(get_db)):
     """Получить все спринты."""
-    from app.domain.models import Sprint, SprintTask, Task
 
     result = await db.execute(
         select(Sprint)
@@ -205,7 +199,6 @@ async def create_sprint(
     request: SprintCreateRequest, db: AsyncSession = Depends(get_db)
 ):
     """Создать спринт."""
-    from app.domain.models import Sprint
 
     max_pos_result = await db.execute(select(func.max(Sprint.position)))
     max_pos = max_pos_result.scalar_one_or_none() or 0
@@ -238,7 +231,6 @@ async def create_sprint(
 @router.get("/sprints/{sprint_id}", response_model=SprintResponse)
 async def get_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
     """Получить спринт по ID."""
-    from app.domain.models import Sprint, SprintTask, Project
 
     result = await db.execute(
         select(Sprint)
@@ -294,7 +286,6 @@ async def update_sprint(
     sprint_id: int, request: SprintUpdateRequest, db: AsyncSession = Depends(get_db)
 ):
     """Обновить спринт."""
-    from app.domain.models import Sprint, SprintTask, Project
 
     result = await db.execute(select(Sprint).where(Sprint.id == sprint_id))
     sprint = result.scalar_one_or_none()
@@ -369,8 +360,6 @@ async def update_sprint(
 @router.delete("/sprints/{sprint_id}")
 async def delete_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
     """Удалить спринт."""
-    from app.domain.models import Sprint
-    from sqlalchemy import update as sa_update
 
     result = await db.execute(select(Sprint).where(Sprint.id == sprint_id))
     sprint = result.scalar_one_or_none()
@@ -387,13 +376,11 @@ async def delete_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
 @router.post("/sprints/{sprint_id}/restore")
 async def restore_sprint(sprint_id: int, db: AsyncSession = Depends(get_db)):
     """Восстановить удалённый спринт."""
-    from app.domain.models import Sprint
 
     result = await db.execute(select(Sprint).where(Sprint.id == sprint_id))
     sprint = result.scalar_one_or_none()
     if not sprint:
         raise HTTPException(status_code=404, detail="Sprint not found")
-    from sqlalchemy import update as sa_update
 
     await db.execute(
         sa_update(Sprint).where(Sprint.id == sprint_id).values(is_deleted=False)
@@ -407,7 +394,6 @@ async def add_task_to_sprint(
     sprint_id: int, request: SprintTaskAddRequest, db: AsyncSession = Depends(get_db)
 ):
     """Добавить задачу в спринт."""
-    from app.domain.models import Sprint, SprintTask, Task
 
     # Check sprint exists
     sprint_result = await db.execute(select(Sprint).where(Sprint.id == sprint_id))
@@ -455,7 +441,6 @@ async def remove_task_from_sprint(
     sprint_id: int, task_id: int, db: AsyncSession = Depends(get_db)
 ):
     """Удалить задачу из спринта."""
-    from app.domain.models import SprintTask
 
     result = await db.execute(
         select(SprintTask)
@@ -474,7 +459,6 @@ async def remove_task_from_sprint(
 @router.get("/sprints/{sprint_id}/tasks", response_model=List[SprintTaskResponse])
 async def get_sprint_tasks(sprint_id: int, db: AsyncSession = Depends(get_db)):
     """Получить задачи спринта."""
-    from app.domain.models import SprintTask
 
     result = await db.execute(
         select(SprintTask)

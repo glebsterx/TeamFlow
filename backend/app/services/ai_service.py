@@ -1,10 +1,12 @@
 """AI service for task parsing and splitting."""
 import json
 import asyncio
+from datetime import date
 from typing import List, Optional, Dict, Any
 import aiohttp
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
+from app.services.settings_service import SettingsService
 
 logger = get_logger(__name__)
 
@@ -229,7 +231,6 @@ class AIService:
         Returns list of dicts: {title, description?, priority?, due_date?}
         Raises AIServiceModelError if AI fails or returns invalid data.
         """
-        from datetime import date
         today = date.today().isoformat()
         
         system_prompt = f"""Сегодня {today}.
@@ -345,8 +346,6 @@ class AIService:
 
 async def get_ai_service(db: AsyncSession) -> AIService:
     """Build AIService from app_settings (same keys as POST /api/ai/parse)."""
-    from app.services.settings_service import SettingsService
-
     vals = await SettingsService.get_many(
         db,
         ["ai_api_key", "ai_provider", "ai_model", "ai_custom_endpoint"],

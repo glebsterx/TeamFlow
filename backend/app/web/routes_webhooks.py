@@ -1,6 +1,9 @@
 """Webhook API endpoints."""
 import json
+import hmac
+import hashlib
 from typing import List
+import aiohttp
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -101,7 +104,6 @@ async def test_webhook(
     db: AsyncSession = Depends(get_db_session),
 ):
     """POST /api/webhooks/{id}/test — тестовый запрос."""
-    import aiohttp
 
     result = await db.execute(select(Webhook).where(Webhook.id == webhook_id))
     webhook = result.scalar_one_or_none()
@@ -115,8 +117,6 @@ async def test_webhook(
     }
 
     # Sign payload if secret is set
-    import hmac
-    import hashlib
 
     signature = None
     if webhook.secret:

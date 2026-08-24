@@ -2,6 +2,7 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 from typing import Optional
+import secrets
 
 
 class Settings(BaseSettings):
@@ -9,7 +10,7 @@ class Settings(BaseSettings):
     
     # Application
     APP_NAME: str = "TeamFlow"
-    VERSION: str = "0.8.29"
+    VERSION: str = "0.8.30"
     DEBUG: bool = False
     
     # Server
@@ -71,6 +72,8 @@ class Settings(BaseSettings):
     
 async def _get_db_setting(key: str) -> str | None:
     """Get setting from DB (fallback for .env values)."""
+    # local import: avoids circular import — app.core.db imports `settings`
+    # from this module at module level
     try:
         from app.core.db import AsyncSessionLocal
         from sqlalchemy import select
@@ -87,11 +90,12 @@ async def _get_db_setting(key: str) -> str | None:
 
 async def get_secret_key_async() -> str:
     """Get SECRET_KEY from DB or .env or generate new."""
+    # local import: avoids circular import — app.core.db imports `settings`
+    # from this module at module level
     from app.core.db import AsyncSessionLocal
     from sqlalchemy import select
     from app.domain.models import AppSetting
-    import secrets
-    
+
     # Try DB first
     try:
         async with AsyncSessionLocal() as session:

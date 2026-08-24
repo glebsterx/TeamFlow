@@ -3,11 +3,14 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from datetime import datetime
+import re
 from pydantic import BaseModel, ConfigDict
 
 from app.core.db import get_db
-from app.domain.models import Meeting
+from app.core.clock import Clock
+from app.domain.models import Meeting, MeetingProject, MeetingParticipant, MeetingTask
 
 router = APIRouter()
 
@@ -112,10 +115,6 @@ def _meeting_to_response(m) -> dict:
 
 
 def _meeting_opts():
-    from sqlalchemy.orm import selectinload
-    from app.domain.models import (
-        MeetingTask,
-    )
 
     return [
         selectinload(Meeting.projects),
@@ -131,7 +130,6 @@ async def get_meetings(
     db: AsyncSession = Depends(get_db),
 ):
     """Получить встречи v2 с фильтрами."""
-    from app.domain.models import Meeting
 
     query = (
         select(Meeting)
@@ -155,8 +153,6 @@ async def create_meeting(
     request: MeetingCreateRequest, db: AsyncSession = Depends(get_db)
 ):
     """Создать встречу v2."""
-    from app.domain.models import Meeting, MeetingProject, MeetingParticipant
-    from app.core.clock import Clock
 
     meeting = Meeting(
         summary=request.summary,
@@ -199,7 +195,6 @@ async def update_meeting(
     meeting_id: int, request: MeetingUpdateRequest, db: AsyncSession = Depends(get_db)
 ):
     """Обновить встречу v2."""
-    from app.domain.models import Meeting, MeetingProject, MeetingParticipant
 
     result = await db.execute(
         select(Meeting).options(*_meeting_opts()).where(Meeting.id == meeting_id)
@@ -257,7 +252,6 @@ async def add_task_to_meeting(
     meeting_id: int, task_id: int, db: AsyncSession = Depends(get_db)
 ):
     """Привязать задачу к встрече (action item)."""
-    from app.domain.models import MeetingTask
 
     existing = await db.execute(
         select(MeetingTask).where(
@@ -274,7 +268,6 @@ async def add_task_to_meeting(
 async def remove_task_from_meeting(
     meeting_id: int, task_id: int, db: AsyncSession = Depends(get_db)
 ):
-    from app.domain.models import MeetingTask
 
     result = await db.execute(
         select(MeetingTask).where(
@@ -291,13 +284,11 @@ async def remove_task_from_meeting(
 @router.post("/meetings/{meeting_id}/parse-action-items")
 async def parse_action_items(meeting_id: int, db: AsyncSession = Depends(get_db)):
     """Автопарсинг action items из summary -> предлагает создать задачи."""
-    from app.domain.models import Meeting
 
     result = await db.execute(select(Meeting).where(Meeting.id == meeting_id))
     meeting = result.scalar_one_or_none()
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    import re
 
     text = (meeting.summary or "") + "\n" + (meeting.agenda or "")
     # Ищем паттерны: "- [ ] ...", "ACTION:", "Задача:", "TODO:", строки начинающиеся с глагола
@@ -318,7 +309,6 @@ async def parse_action_items(meeting_id: int, db: AsyncSession = Depends(get_db)
 @router.delete("/meetings/{meeting_id}")
 async def delete_meeting(meeting_id: int, db: AsyncSession = Depends(get_db)):
     """Удалить встречу."""
-    from app.domain.models import Meeting
 
     result = await db.execute(select(Meeting).where(Meeting.id == meeting_id))
     meeting = result.scalar_one_or_none()

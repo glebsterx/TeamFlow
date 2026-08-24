@@ -2,10 +2,11 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, or_
+from sqlalchemy import select, delete, or_, update
 
 from app.core.db import get_db
 from app.core.clock import Clock
+from app.domain.models import KnowledgeFolder, KnowledgePage
 
 router = APIRouter()
 
@@ -13,7 +14,6 @@ router = APIRouter()
 @router.get("/knowledge-base/folders")
 async def get_knowledge_folders(db: AsyncSession = Depends(get_db)):
     """Get all knowledge folders (tree structure)."""
-    from app.domain.models import KnowledgeFolder
 
     q = select(KnowledgeFolder).where(KnowledgeFolder.deleted_at.is_(None)).order_by(KnowledgeFolder.order, KnowledgeFolder.name)
     result = await db.execute(q)
@@ -34,7 +34,6 @@ async def get_knowledge_folders(db: AsyncSession = Depends(get_db)):
 @router.post("/knowledge-base/folders")
 async def create_knowledge_folder(request: dict, db: AsyncSession = Depends(get_db)):
     """Create knowledge folder."""
-    from app.domain.models import KnowledgeFolder
 
     folder = KnowledgeFolder(
         name=request.get("name", "Новая папка"),
@@ -57,7 +56,6 @@ async def create_knowledge_folder(request: dict, db: AsyncSession = Depends(get_
 @router.patch("/knowledge-base/folders/{folder_id}")
 async def update_knowledge_folder(folder_id: int, request: dict, db: AsyncSession = Depends(get_db)):
     """Update knowledge folder."""
-    from app.domain.models import KnowledgeFolder
 
     result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == folder_id))
     folder = result.scalar_one_or_none()
@@ -77,7 +75,6 @@ async def update_knowledge_folder(folder_id: int, request: dict, db: AsyncSessio
 @router.delete("/knowledge-base/folders/{folder_id}")
 async def delete_knowledge_folder(folder_id: int, db: AsyncSession = Depends(get_db)):
     """Soft delete knowledge folder (moves to trash with all children)."""
-    from app.domain.models import KnowledgeFolder, KnowledgePage
 
     async def soft_delete_folder_recursive(folder_id: int):
         result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.parent_id == folder_id))
@@ -103,7 +100,6 @@ async def delete_knowledge_folder(folder_id: int, db: AsyncSession = Depends(get
 @router.get("/knowledge-base/pages")
 async def get_knowledge_pages(db: AsyncSession = Depends(get_db)):
     """Get all knowledge pages."""
-    from app.domain.models import KnowledgePage, KnowledgeFolder
 
     result = await db.execute(
         select(KnowledgePage)
@@ -131,7 +127,6 @@ async def get_knowledge_pages(db: AsyncSession = Depends(get_db)):
 @router.post("/knowledge-base/pages")
 async def create_knowledge_page(request: dict, db: AsyncSession = Depends(get_db)):
     """Create knowledge page."""
-    from app.domain.models import KnowledgePage
 
     page = KnowledgePage(
         title=request.get("title", "Новая страница"),
@@ -156,7 +151,6 @@ async def create_knowledge_page(request: dict, db: AsyncSession = Depends(get_db
 @router.patch("/knowledge-base/pages/{page_id}")
 async def update_knowledge_page(page_id: int, request: dict, db: AsyncSession = Depends(get_db)):
     """Update knowledge page."""
-    from app.domain.models import KnowledgePage
 
     result = await db.execute(select(KnowledgePage).where(KnowledgePage.id == page_id))
     page = result.scalar_one_or_none()
@@ -178,7 +172,6 @@ async def update_knowledge_page(page_id: int, request: dict, db: AsyncSession = 
 @router.delete("/knowledge-base/pages/{page_id}")
 async def delete_knowledge_page(page_id: int, db: AsyncSession = Depends(get_db)):
     """Soft delete knowledge page."""
-    from app.domain.models import KnowledgePage
 
     result = await db.execute(select(KnowledgePage).where(KnowledgePage.id == page_id))
     page = result.scalar_one_or_none()
@@ -192,7 +185,6 @@ async def delete_knowledge_page(page_id: int, db: AsyncSession = Depends(get_db)
 @router.get("/knowledge-base/trash")
 async def get_knowledge_trash(db: AsyncSession = Depends(get_db)):
     """Get deleted knowledge pages and folders."""
-    from app.domain.models import KnowledgePage, KnowledgeFolder
 
     pages_result = await db.execute(
         select(KnowledgePage)
@@ -239,8 +231,6 @@ async def restore_knowledge_item(item_id: int, type: Optional[str] = None, db: A
 
     `type` ("page"/"folder") disambiguates id collisions between the two tables.
     """
-    from app.domain.models import KnowledgePage, KnowledgeFolder
-    from sqlalchemy import select, update
 
     page = None
     if type != "folder":
@@ -305,7 +295,6 @@ async def restore_knowledge_item(item_id: int, type: Optional[str] = None, db: A
 @router.delete("/knowledge-base/trash/folders/{folder_id}")
 async def permanently_delete_knowledge_folder(folder_id: int, db: AsyncSession = Depends(get_db)):
     """Permanently delete knowledge folder and its whole subtree."""
-    from app.domain.models import KnowledgeFolder, KnowledgePage
 
     result = await db.execute(select(KnowledgeFolder).where(KnowledgeFolder.id == folder_id))
     folder = result.scalar_one_or_none()
@@ -328,7 +317,6 @@ async def permanently_delete_knowledge_folder(folder_id: int, db: AsyncSession =
 @router.delete("/knowledge-base/trash/{page_id}")
 async def permanently_delete_knowledge_page(page_id: int, db: AsyncSession = Depends(get_db)):
     """Permanently delete knowledge page."""
-    from app.domain.models import KnowledgePage
 
     result = await db.execute(select(KnowledgePage).where(KnowledgePage.id == page_id))
     page = result.scalar_one_or_none()

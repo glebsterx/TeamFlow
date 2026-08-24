@@ -1,10 +1,12 @@
 """Task repository for data access."""
 from typing import Optional, List
+from datetime import timedelta
 from sqlalchemy import select, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.domain.models import Task, TaskDependency
 from app.domain.enums import TaskStatus
+from app.core.clock import Clock
 
 class TaskRepository:
     """Repository for Task entity."""
@@ -129,9 +131,6 @@ class TaskRepository:
     
     async def get_week_tasks(self) -> List[Task]:
         """Get tasks for current week."""
-        from app.core.clock import Clock
-        from datetime import timedelta
-
         now = Clock.now()
         week_start = now - timedelta(days=now.weekday())
 

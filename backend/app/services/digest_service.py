@@ -7,6 +7,7 @@ from app.domain.enums import TaskStatus, TaskPriority
 from app.repositories.task_repository import TaskRepository
 from app.repositories.meeting_repository import MeetingRepository
 from app.core.logging import get_logger
+from app.core.clock import Clock
 
 logger = get_logger(__name__)
 
@@ -27,8 +28,6 @@ class DigestService:
 
     async def generate_weekly_digest(self) -> str:
         """Generate digest based on all active tasks (not filtered by creation date)."""
-        from app.core.clock import Clock
-
         now = Clock.now()
         today = now.date()
         soon = today + timedelta(days=7)
@@ -155,8 +154,6 @@ class DigestService:
     
     async def get_overdue_reminder(self) -> str:
         """Get reminder about overdue tasks."""
-        from app.core.clock import Clock
-        
         all_tasks = await self.task_repo.get_all()
         now = Clock.now()
         

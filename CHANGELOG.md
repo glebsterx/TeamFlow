@@ -2,6 +2,19 @@
 
 ---
 
+## v0.8.30 — Техдолг #313/#314: raw SQL → ORM, локальные импорты → модуль (2026-08-24)
+
+### Backend
+- #313: кластер raw SQL в `/import` (mode=full wipe, 8 `text("UPDATE/DELETE ...")`)
+  переведён на ORM `update()`/`delete()`
+- #314: 200 из 214 функциональных импортов подняты на уровень модуля по всему
+  backend (routes.py и роутеры, telegram-хендлеры, services, domain/events.py,
+  core/db.py, config.py и др.); 14 сознательно оставлены локальными с
+  комментарием — реальный circular import или name collision (например,
+  `get_vapid_public_key` в `routes_push.py` совпадал с именем самого
+  роут-хендлера — импорт на уровень модуля привёл бы к бесконечной рекурсии)
+- Тест на `mode=full` импорт (`test_import_full_mode_wipes_existing_tasks`)
+
 ## v0.8.29 — Streaming JSON export + фикс /export /import (2026-08-24)
 
 ### Backend

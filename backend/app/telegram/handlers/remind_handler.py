@@ -7,6 +7,12 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from app.core.logging import get_logger
 from app.config import get_web_url_cached
+from sqlalchemy import select
+from app.core.db import AsyncSessionLocal
+from app.services.account_service import AccountService
+from app.services.settings_service import SettingsService
+from app.services.task_service import TaskService
+from app.domain.models import Reminder, Task
 
 router = Router()
 logger = get_logger(__name__)
@@ -29,9 +35,6 @@ HELP_TEXT = (
 async def _get_account_timezone(telegram_id: int) -> str:
     """Resolve the caller's timezone: their account setting, else the
     system default, else UTC."""
-    from app.core.db import AsyncSessionLocal
-    from app.services.account_service import AccountService
-    from app.services.settings_service import SettingsService
 
     async with AsyncSessionLocal() as session:
         account = await AccountService.get_by_telegram_id(session, telegram_id)
@@ -55,8 +58,6 @@ async def cmd_remind(message: Message):
         await message.answer("❌ Неверный ID задачи\n" + HELP_TEXT, parse_mode="Markdown")
         return
 
-    from app.core.db import AsyncSessionLocal
-    from app.services.task_service import TaskService
     async with AsyncSessionLocal() as session:
         service = TaskService(session)
         task = await service.get_task(task_id)
@@ -127,8 +128,6 @@ async def cmd_remind(message: Message):
     task_title = task.title
     remind_at = Clock.now() + timedelta(seconds=delay_sec)
 
-    from app.core.db import AsyncSessionLocal
-    from app.domain.models import Reminder
 
     async with AsyncSessionLocal() as session:
         reminder_row = Reminder(task_id=task_id, chat_id=chat_id, remind_at=remind_at)
@@ -160,6 +159,8 @@ def _schedule_reminder(reminder_id: int, task_id: int, task_title: str, chat_id:
     async def _send_reminder():
         if delay_sec > 0:
             await asyncio.sleep(delay_sec)
+        # local import: avoids circular import with app.telegram.bot (bot.py
+        # imports this module's router at module level)
         from app.telegram.bot import bot
         try:
             await bot.send_message(
@@ -174,8 +175,6 @@ def _schedule_reminder(reminder_id: int, task_id: int, task_title: str, chat_id:
         except Exception as e:
             logger.warning("remind_send_failed", task_id=task_id, error=str(e))
         finally:
-            from app.core.db import AsyncSessionLocal
-            from app.domain.models import Reminder
             async with AsyncSessionLocal() as session:
                 row = await session.get(Reminder, reminder_id)
                 if row:
@@ -193,9 +192,6 @@ async def restore_reminders() -> None:
     Called once at bot startup. Anything whose remind_at already passed while
     the process was down fires immediately instead of being silently dropped.
     """
-    from sqlalchemy import select
-    from app.core.db import AsyncSessionLocal
-    from app.domain.models import Reminder, Task
 
     async with AsyncSessionLocal() as session:
         result = await session.execute(

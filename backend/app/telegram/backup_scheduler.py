@@ -14,6 +14,7 @@ from sqlalchemy import select
 from app.core.clock import Clock
 from app.core.logging import get_logger
 from app.core.bootstrap import backup_database
+from app.core.db import AsyncSessionLocal
 from app.domain.models import LocalAccount, UserIdentity
 
 logger = get_logger(__name__)
@@ -22,8 +23,6 @@ BACKUP_INTERVAL_HOURS = 24
 
 
 async def _notify_admins(bot, message: str) -> None:
-    from app.core.db import AsyncSessionLocal
-
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(UserIdentity.provider_user_id)
