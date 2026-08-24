@@ -1,0 +1,59 @@
+# Explicit project name — CRITICAL. Without it, Compose derives the project
+# name from the directory (both this file and the real docker-compose.yml
+# live in /data/TeamFlow), so a service literally named `backend` here is
+# the SAME logical service as prod's `backend` in Compose's bookkeeping —
+# `up --build` on this file replaced the running prod teamflow-backend/
+# teamflow-frontend containers in place (learned this the hard way: prod
+# went down for ~2 minutes during development of this file). `name:` below
+# puts this stack in its own "teamflow-e2e" project, fully isolated from
+# prod regardless of matching service names.
+name: teamflow-e2e
+
+services:
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: teamflow-e2e-backend
+    environment:
+      # Isolated throwaway DB — never touches dev/prod data.
+      - DATABASE_URL=sqlite+aiosqlite:///./data/e2e.db
+      - API_PORT=8000
+      - SECRET_KEY=e2e-test-secret-key-not-for-prod
+      - BASE_URL=http://localhost
+      - FRONTEND_PORT=5199
+      - BACKEND_CORS_ORIGINS=["http://localhost:5199"]
+      # No TELEGRAM_BOT_TOKEN on purpose — the bot loop just waits
+      # (bot_disabled_waiting_for_token) instead of polling. Running a
+      # second poller against the real prod bot token would conflict
+      # with the actual production bot's getUpdates long-polling.
+    ports:
+      - "8199:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - e2e-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: teamflow-e2e-frontend
+    environment:
+      - VITE_API_URL=http://localhost:8199
+    ports:
+      - "5199:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - e2e-network
+
+networks:
+  e2e-network:
+    driver: bridge

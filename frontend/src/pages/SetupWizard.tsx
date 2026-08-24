@@ -207,9 +207,13 @@ export const SetupWizard: React.FC = () => {
     setError('');
     setSuccess('');
     try {
+      const token = localStorage.getItem('access_token');
       const res = await fetch(`${API_URL}/api/settings/system`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(settings),
       });
       if (!res.ok) throw new Error('Ошибка сохранения');

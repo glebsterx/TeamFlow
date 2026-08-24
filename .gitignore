@@ -38,3 +38,7 @@ backups/
 # Obsidian
 .obsidian/
 backend/tests/test_teamflow.db
+
+# E2E (Playwright)
+frontend/playwright-report/
+frontend/test-results/
