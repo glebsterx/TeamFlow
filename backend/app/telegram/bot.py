@@ -127,6 +127,11 @@ async def _get_bot_token() -> str | None:
     return None
 
 
+def _mask_proxy_creds(proxy_url: str) -> str:
+    """Redact user:pass@ from a proxy URL before it hits the logs."""
+    return re.sub(r"://[^@/]+@", "://***@", proxy_url)
+
+
 async def _make_bot_async() -> Bot:
     """Создать Bot с прокси (только SOCKS5/HTTP)."""
     proxy_url = await _read_proxy_url_async()
@@ -146,9 +151,9 @@ async def _make_bot_async() -> Bot:
 
         if proxy_url.startswith(("socks4://", "socks5://", "http://", "https://")):
             kwargs["session"] = AiohttpSession(proxy=proxy_url)
-            logger.info("proxy_applied", proxy=proxy_url)
+            logger.info("proxy_applied", proxy=_mask_proxy_creds(proxy_url))
         else:
-            logger.warning("unknown_proxy_scheme", proxy=proxy_url)
+            logger.warning("unknown_proxy_scheme", proxy=_mask_proxy_creds(proxy_url))
 
     except Exception as e:
         logger.warning("proxy_init_failed", error=str(e))
