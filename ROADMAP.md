@@ -297,15 +297,18 @@ Pytest+httpx (42 теста) и Vitest+Testing Library (34 теста) — об�
 confirm-close флоу модалки — 22-23.08.2026 (PLAN.md FIX-18); #355-357
 (CardsView, login form, Dashboard-смоук) — 22.09.2026, см. TASKS.md.
 
-Не сделано из этого набора: #313 (консистентный паттерн routes.py), #314
-(локальные imports → уровень модуля) — мелкий технический долг, не блокирует
-ничего, в Backlog ниже. #310 (streaming JSON export) закрыто 24.08.
+#313 (консистентный паттерн routes.py) и #314 (локальные imports → уровень
+модуля) из этого набора закрыты позже, 24.08 — см. «Технический долг» ниже.
+#310 (streaming JSON export) тоже закрыто 24.08.
 
 ### Авторизация и роли (#76, #77, #65) — ЗАКРЫТО
 JWT-авторизация на всех API-роутах, IDOR-фиксы, управление командой
 (invite/роли/`/team/*`), `ProjectMember` (viewer/editor/admin) — всё
 реализовано, #76 через логин/пароль + OAuth + Telegram deep-link вместо
-Login Widget (тот требует HTTPS, которого пока нет на проде — см. ниже).
+Login Widget. HTTPS на проде есть (см. «Технический долг» ниже) — почему
+тогда выбрали deep-link, а не Login Widget, в момент реализации #76 не
+зафиксировано; возможно, дело в непривычном для Login Widget домене с
+портом в URL (`tf.glebsterx.ru:5181`) — не перепроверялось.
 
 ---
 
@@ -339,7 +342,12 @@ Login Widget (тот требует HTTPS, которого пока нет на
 > история сделанного. Ниже то, что реально осталось открытым.
 
 - [x] E2E тесты для фронтенда — закрыто 24.08 (Playwright, изолированный `docker-compose.e2e.yml`, `scripts/e2e.sh`, `frontend/e2e/core-flow.spec.ts`: первый запуск через Setup Wizard → создание задачи → смена статуса). По ходу найден и починен реальный баг: шаг 3 SetupWizard не отправлял JWT на `PUT /settings/system`, мастер настройки не мог завершиться.
-- Нет HTTPS на проде (`tf.glebsterx.ru` резолвится не туда — вне контроля агента, нужен доступ к DNS/роутеру)
+- [x] HTTPS на проде — снято 22.09.2026, формулировка была устаревшей. `tf.glebsterx.ru`
+  резолвится корректно и уже отдаётся по HTTPS через `Caddy` на `edge-home-01`
+  (реальный ACME-сертификат через Cloudflare DNS-01, плюс `forward_auth` на Authelia) —
+  см. `docs/runbook-edge-caddy-authelia.md` в репозитории `homelab`. Нет только
+  единого 443 без порта в URL — это PLAN.md FIX-30 (open), задача на стороне
+  `homelab`-Caddyfile, не здесь.
 - [x] IDOR в `GET /auth/google/link`/`yandex/link` — закрыто 24.08. Было хуже, чем IDOR: любой мог привязать свой Google/Yandex-аккаунт к чужому `account_id` через query и потом залогиниться под жертвой. Теперь фронтенд сначала получает подписанный короткоживущий `link_token` через авторизованный `GET /auth/oauth-link-token` (5 мин, привязан к provider), редирект идёт с ним вместо сырого `account_id`.
 - [x] IP-based rate limit на `/auth/local/register` — закрыто 24.08. Заглушка (`five_min_ago`) была убрана раньше в тот же день, теперь реализован реальный лимит: `ip_rate_limiter` в `app/core/rate_limit.py` (тот же in-memory sliding-window подход, что и у AI-эндпоинтов, только ключ — IP вместо account_id, т.к. до регистрации аккаунта ещё нет), 5 попыток / 10 минут на IP. `request.client.host` напрямую — за проксями с `X-Forwarded-For` не разворачивается, прод пока без доверенного reverse-proxy перед API.
 - [x] #310 (AUDIT.md) — streaming JSON export. Закрыто 24.08: `GET /export` теперь

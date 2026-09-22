@@ -11,10 +11,11 @@ services:
       - teamflow-data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      # Loopback-only: frontend talks to the backend over the docker network
-      # (vite.config.ts proxies /api and /health to backend:8000), so the
-      # backend never needs to face the internet directly (FIX-30).
-      - "127.0.0.1:${BACKEND_PORT:-8180}:8000"
+      # NOT loopback-only: edge-home-01's Caddy reverse-proxies
+      # tf.glebsterx.ru:8181 (behind Authelia forward_auth) directly to this
+      # host's BACKEND_PORT over the LAN — binding to 127.0.0.1 here cut that
+      # route (found and reverted same-day, see PLAN.md FIX-30).
+      - "${BACKEND_PORT:-8180}:8000"
     restart: unless-stopped
     command: python -m app.main
     logging:
