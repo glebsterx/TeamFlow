@@ -345,9 +345,10 @@ Login Widget. HTTPS на проде есть (см. «Технический д�
 - [x] HTTPS на проде — снято 22.09.2026, формулировка была устаревшей. `tf.glebsterx.ru`
   резолвится корректно и уже отдаётся по HTTPS через `Caddy` на `edge-home-01`
   (реальный ACME-сертификат через Cloudflare DNS-01, плюс `forward_auth` на Authelia) —
-  см. `docs/runbook-edge-caddy-authelia.md` в репозитории `homelab`. Нет только
-  единого 443 без порта в URL — это PLAN.md FIX-30 (open), задача на стороне
-  `homelab`-Caddyfile, не здесь.
+  см. `docs/runbook-edge-caddy-authelia.md` в репозитории `homelab`. PLAN.md
+  FIX-30 (сведение с двух портов до одного) закрыт 22.09.2026 на стороне
+  `homelab`-Caddyfile. Единого 443 без порта в URL по-прежнему нет — отдельное
+  решение, не запланировано.
 - [x] IDOR в `GET /auth/google/link`/`yandex/link` — закрыто 24.08. Было хуже, чем IDOR: любой мог привязать свой Google/Yandex-аккаунт к чужому `account_id` через query и потом залогиниться под жертвой. Теперь фронтенд сначала получает подписанный короткоживущий `link_token` через авторизованный `GET /auth/oauth-link-token` (5 мин, привязан к provider), редирект идёт с ним вместо сырого `account_id`.
 - [x] IP-based rate limit на `/auth/local/register` — закрыто 24.08. Заглушка (`five_min_ago`) была убрана раньше в тот же день, теперь реализован реальный лимит: `ip_rate_limiter` в `app/core/rate_limit.py` (тот же in-memory sliding-window подход, что и у AI-эндпоинтов, только ключ — IP вместо account_id, т.к. до регистрации аккаунта ещё нет), 5 попыток / 10 минут на IP. `request.client.host` напрямую — за проксями с `X-Forwarded-For` не разворачивается, прод пока без доверенного reverse-proxy перед API.
 - [x] #310 (AUDIT.md) — streaming JSON export. Закрыто 24.08: `GET /export` теперь
