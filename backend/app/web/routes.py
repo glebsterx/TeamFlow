@@ -237,6 +237,7 @@ async def change_task_status(
             title=f"Задача обновлена: #{task_id}",
             body=f"Новый статус: {request.status}",
             url=f"/?task={task_id}",
+            assignee_account_id=task.assignee_id,
         )
         return {"ok": True}
     except ValueError as e:
@@ -819,12 +820,19 @@ async def auto_archive_done_tasks(db: AsyncSession = Depends(get_db)):
 # ============= WEB PUSH API =============
 
 
-async def send_push(title: str, body: str, url: str = "/", task_id: int = None) -> None:
+async def send_push(
+    title: str,
+    body: str,
+    url: str = "/",
+    task_id: int = None,
+    assignee_account_id: int = None,
+) -> None:
     """Send Web Push notification to all active subscriptions.
 
     #272 — VAPID keys and email stored in app_settings DB.
     #260 — Runs in thread pool to avoid blocking event loop.
-    #317 — Conditional: only send to users who have relevant notifications enabled.
+    #317 — Conditional: only send to users who have relevant notifications enabled,
+    and (unless "all_tasks" is on) only for tasks assigned to them.
     """
 
     async with AsyncSessionLocal() as session:
@@ -876,6 +884,16 @@ async def send_push(title: str, body: str, url: str = "/", task_id: int = None) 
             prefs = user_prefs[sub.account_id]
             if not prefs.get("status_changed", True):
                 logger.info("send_push: skipped for account_id=%d (status_changed disabled)", sub.account_id)
+                return
+            if (
+                assignee_account_id is not None
+                and not prefs.get("all_tasks", False)
+                and sub.account_id != assignee_account_id
+            ):
+                logger.info(
+                    "send_push: skipped for account_id=%d (not assignee, all_tasks disabled)",
+                    sub.account_id,
+                )
                 return
 
         loop = asyncio.get_event_loop()

@@ -11,7 +11,10 @@ services:
       - teamflow-data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "${BACKEND_PORT:-8180}:8000"
+      # Loopback-only: frontend talks to the backend over the docker network
+      # (vite.config.ts proxies /api and /health to backend:8000), so the
+      # backend never needs to face the internet directly (FIX-30).
+      - "127.0.0.1:${BACKEND_PORT:-8180}:8000"
     restart: unless-stopped
     command: python -m app.main
     logging:
