@@ -291,10 +291,11 @@
 | #244 | UX: темная тема — переключатель и сохранение в настройках |
 
 ### Тестовый фреймворк (#344-357) — ЗАКРЫТО
-Pytest+httpx (24 теста) и Vitest+Testing Library — оба на месте и зелёные
-(`./scripts/check.sh`). Заглушки на фронте (#353-357 были «DONE», но
-`expect(true).toBe(true)`) заменены реальными тестами 22-23.08.2026
-(PLAN.md FIX-18) — на dateUtils и confirm-close флоу модалки.
+Pytest+httpx (42 теста) и Vitest+Testing Library (34 теста) — оба на месте и
+зелёные (`./scripts/check.sh`). Заглушки на фронте (#353-357 были «DONE», но
+`expect(true).toBe(true)`) заменены реальными тестами: dateUtils и
+confirm-close флоу модалки — 22-23.08.2026 (PLAN.md FIX-18); #355-357
+(CardsView, login form, Dashboard-смоук) — 22.09.2026, см. TASKS.md.
 
 Не сделано из этого набора: #313 (консистентный паттерн routes.py), #314
 (локальные imports → уровень модуля) — мелкий технический долг, не блокирует

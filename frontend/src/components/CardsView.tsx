@@ -80,7 +80,6 @@ export default function CardsView({ sortedTasks, tasks, projects, ancestorBlocke
                               e.stopPropagation();
                               if (myAccountId && !task.assignee) {
                                 const subtaskIds = (task.subtasks || []).filter((s: any) => !s.assignee).map((s: any) => s.id);
-                                console.log('subtaskIds:', subtaskIds);
                                 takeTaskMutation.mutate({ taskId: task.id, subtaskIds });
                               } else {
                                 changeStatusMutation.mutate({ taskId: task.id, status: 'DOING' });
