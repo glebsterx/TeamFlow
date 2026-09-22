@@ -341,6 +341,17 @@ Login Widget. HTTPS на проде есть (см. «Технический д�
 > PLAN.md (аудит 04.07, закрыт 24.08.2026 — все 29 пунктов) и AUDIT.md (аудит 13.06, закрыт) —
 > история сделанного. Ниже то, что реально осталось открытым.
 
+- [x] OAuth `redirect_uri` (Google/Yandex) указывал на несуществующий порт `8180` — закрыто
+  22.09.2026. Найдено при разборе FIX-30: `app_settings.google_redirect_uri`/`yandex_redirect_uri`
+  в БД прода хранили `https://tf.glebsterx.ru:8180/...` — порт, который никогда не был внешним
+  ни на роутере, ни в Caddy (внешние порты TeamFlow — `5181`, до FIX-30 ещё и `8181`), т.е. OAuth
+  login был сломан. Обновлено прямым `UPDATE app_settings` в проде (без миграции — это
+  пользовательские настройки, не схема) на `https://tf.glebsterx.ru:5181/...`; `SettingsService`
+  без кеша, рестарт не требовался. Проверено живьём: `GET /api/auth/google/link` отдаёт
+  `redirect_uri=https://tf.glebsterx.ru:5181/...`. **Не проверено и не в объёме агента:** сам
+  redirect URI должен быть зарегистрирован именно таким в Google Cloud Console и в Yandex OAuth
+  App — сторонние консоли, credentials нет, пользователю нужно свериться/поправить там вручную,
+  иначе OAuth продолжит падать с `redirect_uri_mismatch`.
 - [x] E2E тесты для фронтенда — закрыто 24.08 (Playwright, изолированный `docker-compose.e2e.yml`, `scripts/e2e.sh`, `frontend/e2e/core-flow.spec.ts`: первый запуск через Setup Wizard → создание задачи → смена статуса). По ходу найден и починен реальный баг: шаг 3 SetupWizard не отправлял JWT на `PUT /settings/system`, мастер настройки не мог завершиться.
 - [x] HTTPS на проде — снято 22.09.2026, формулировка была устаревшей. `tf.glebsterx.ru`
   резолвится корректно и уже отдаётся по HTTPS через `Caddy` на `edge-home-01`
